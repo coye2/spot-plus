@@ -1,0 +1,6 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {libraryItems,visibleTracks,parseRoute} from '../js/library.js';
+const data={likes:[],downloads:[],localFiles:[],playlists:[{id:'pl1',name:'Zebra',tracks:[],created:2},{id:'pl2',name:'Alpha',tracks:[],created:1}],albums:[{id:3,title:'Blue',artist:'Artist',saved:3}],artists:[]};
+test('library filters, search and pinning compose without losing routes',()=>{const items=libraryItems(data,{filter:'playlists',sort:'name',pins:['pl1']});assert.equal(items[0].route,'#/my/pl1');assert.equal(items[1].title,'Alpha');assert.equal(libraryItems(data,{query:'artist'})[0].route,'#/album/3');});
+test('explicit filter affects playable tracks only when disabled',()=>{const tracks=[{id:1,explicit:true},{id:2,explicit:false}];assert.equal(visibleTracks(tracks,{showExplicit:false}).length,1);assert.equal(visibleTracks(tracks,{}).length,2);});
+test('invalid encoded navigation falls back and valid queries decode exactly once',()=>{assert.equal(parseRoute('#/search/%'), '#/home');assert.equal(decodeURIComponent(parseRoute('#/search/Miles%20Davis')),'#/search/Miles Davis');assert.equal(decodeURIComponent(parseRoute('#/search/100%25')),'#/search/100%');});

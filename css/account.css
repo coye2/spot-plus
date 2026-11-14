@@ -1,0 +1,19 @@
+.account-hero{display:flex;gap:24px;align-items:center;padding:28px;border:1px solid var(--line);border-radius:var(--radius,12px);background:linear-gradient(125deg,var(--bg3),var(--bg));margin-bottom:24px}
+.account-hero>.ph-cover{width:92px;height:92px;flex:0 0 92px;background:var(--accent);border-radius:24px;color:var(--on-accent,#fff)}
+.account-hero h1{font-size:clamp(30px,5vw,48px);margin:6px 0 12px;letter-spacing:-1.5px}
+.account-hero p{margin:0;max-width:660px;color:var(--muted);line-height:1.6}
+.account-badge{display:inline-block;color:var(--accent-text);border:1px solid var(--line);border-radius:20px;padding:5px 10px;font-size:12px;font-weight:700}
+.account-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:22px 0}
+.account-grid .box{margin:0;min-width:0}
+.account-grid h2{font-size:21px;margin-bottom:12px}
+.account-grid ol{padding-left:22px;line-height:1.7;color:var(--muted)}
+.account-grid li{margin-bottom:12px;padding-left:4px}
+.account-grid a:not(.btn){color:var(--accent-text);text-decoration:underline;text-underline-offset:3px}
+.account-actions{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0}
+.account-actions .btn{margin:0}
+.account-stats{display:flex;flex-wrap:wrap;gap:12px;margin:20px 0}
+.account-stat{background:var(--bg3);border-radius:var(--radius,12px);padding:18px;min-width:130px;flex:1}
+.account-stat b{display:block;font-size:26px}.account-stat span{font-size:13px;color:var(--muted)}
+.account-status{padding:14px 16px;background:var(--bg3);border-left:3px solid var(--accent);border-radius:8px;line-height:1.6}
+.account-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}.account-cards .card{min-width:0}
+@media(max-width:700px){.account-hero{padding:20px;align-items:flex-start;gap:14px}.account-hero>.ph-cover{width:48px;height:48px;flex-basis:48px;border-radius:14px}.account-hero h1{font-size:29px;letter-spacing:-1px}.account-grid{grid-template-columns:1fr}.account-stat{min-width:110px}.account-actions .btn{flex:1;justify-content:center;white-space:normal;text-align:center}.account-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}

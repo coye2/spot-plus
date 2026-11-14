@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="description" content="Spot+ — a free, open music player in your browser.">
+<title>Spot+</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png?v=10">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Spot+">
+<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/experience.css">
+<link rel="stylesheet" href="css/fonts.css">
+<link rel="stylesheet" href="css/refinements.css">
+<link rel="stylesheet" href="css/themes.css">
+<link rel="stylesheet" href="css/account.css">
+<link rel="stylesheet" href="css/app-shell.css">
+<link rel="stylesheet" href="css/dj-voice.css">
+<link rel="preconnect" href="https://api.deezer.com">
+<link rel="preconnect" href="https://e-cdns-images.dzcdn.net">
+<script src="js/shell.js" defer></script>
+</head>
+<body>
+<div class="splash" id="splash" aria-hidden="true"><div><img src="icons/icon-192.png" alt=""><span>YOUR MUSIC. YOUR WAY.</span></div></div>
+<dialog id="welcome" class="welcome-dialog" aria-labelledby="welcomeTitle"><img src="icons/icon-192.png" alt="Spot+"><h2 id="welcomeTitle">Your music belongs here.</h2><p>Bring your Spotify favorites and playlists into Spot+. A free account is welcome.</p><a class="btn primary" href="#/spotify-account" id="welcomeConnect">Connect Spotify</a><button class="btn" id="welcomeLater">Explore first</button><label class="btn" for="welcomeBackup">Import Spot+ backup<input type="file" id="welcomeBackup" accept="application/json,.json" hidden></label><small>The phone companion copies your library when you refresh. Spotify sign-in happens on Spotify.</small></dialog>
+<a href="#main" class="skip-link" data-act="focus-main">Skip to content</a>
+<div class="app">
+  <header class="topbar">
+    <a class="brand" href="#/home" aria-label="Spot Plus Home"><img src="icons/icon-192.png" alt=""><span>Spot+</span></a>
+    <div class="top-search">
+      <a class="icon home-button" href="#/home" aria-label="Home"><i data-icon="home"></i></a>
+      <form id="globalSearch" role="search"><i data-icon="search"></i><input id="globalQ" aria-label="Search music" placeholder="What do you want to play?" autocomplete="off"><button class="icon" type="submit" aria-label="Submit search" data-icon="arrow"></button></form>
+    </div>
+    <div class="top-tools"><button class="icon" data-act="history" data-icon="history" aria-label="Recently played"></button><button class="avatar" data-act="profile" aria-label="Profile and settings">S</button></div>
+  </header>
+  <aside id="sidebar" class="sidebar" aria-label="Your library">
+    <div class="library-heading"><button class="library-toggle" data-act="collapse-library" aria-label="Collapse library"><i data-icon="library"></i><b>Your Library</b></button><button class="icon" data-act="create-menu" data-icon="plus" aria-label="Create playlist or import"></button></div>
+    <div id="sideFilters" class="chips side-filters"></div>
+    <div class="library-tools"><label><i data-icon="search"></i><input id="libraryQ" aria-label="Search your library" placeholder="Search your library"></label><button class="icon" data-act="library-sort" data-icon="sort" aria-label="Sort library"></button></div>
+    <div id="libraryItems" class="library-items"></div>
+    <div class="library-footer"><span>Saved on this device</span><a href="#/settings" aria-label="Settings" class="icon"><i data-icon="settings"></i></a></div>
+    <div id="libraryResize" class="library-resize" role="separator" tabindex="0" aria-label="Resize library" aria-orientation="vertical" aria-valuemin="224" aria-valuemax="420" aria-valuenow="288"></div>
+  </aside>
+  <nav class="nav" aria-label="Main navigation">
+    <a href="#/home"><i data-icon="home"></i><span>Home</span></a>
+    <a href="#/search"><i data-icon="search"></i><span>Search</span></a>
+    <a href="#/library"><i data-icon="library"></i><span>Your Library</span></a>
+    <button data-act="create-menu"><i data-icon="plus"></i><span>Create</span></button>
+  </nav>
+
+  <main id="main" tabindex="-1"><div class="mobile-top"><button class="avatar" data-act="profile" aria-label="Profile and settings">S</button><span>Spot+</span><button class="icon" data-act="history" data-icon="history" aria-label="Recently played"></button></div><div id="networkNotice" class="network-notice" role="status" hidden>You’re offline. Your library and downloaded audio are still here.</div><div id="playbackError" class="playback-error" role="alert" hidden></div><div id="view"></div><footer class="content-footer"><img src="icons/icon-192.png" alt=""><b>Spot+</b><span>Your music, your way.</span><a href="#/settings">Settings & sources</a></footer></main>
+
+  <div id="bar" class="bar" hidden>
+    <div class="bar-prog"><div id="barProg"></div></div>
+    <button class="bar-track" data-act="np-open" aria-label="Open now playing">
+      <img id="barArt" alt="">
+      <div class="bar-meta"><div id="barTitle" class="bar-title"></div><div id="barArtist" class="bar-artist"></div></div>
+    </button>
+    <button class="icon" data-role="like" data-act="like-current" aria-label="Like"></button>
+    <div class="bar-center">
+      <div class="bar-ctrls">
+        <button class="icon d-only" data-role="shuffle" data-act="shuffle" data-icon="shuffle" aria-label="Shuffle"></button>
+        <button class="icon d-only" data-act="prev" data-icon="prev" aria-label="Previous"></button>
+        <button class="icon play" data-role="play" data-act="toggle" aria-label="Play/pause"></button>
+        <button class="icon" data-act="next" data-icon="next" aria-label="Next"></button>
+        <button class="icon d-only" data-role="repeat" data-act="repeat" aria-label="Repeat"></button>
+      </div>
+      <div class="bar-seek d-only"><span data-role="cur">0:00</span><input type="range" data-role="seek" min="0" max="1000" value="0" aria-label="Seek"><span data-role="dur">0:00</span></div>
+    </div>
+    <div class="bar-right d-only">
+      <button class="icon" data-act="np-open" data-icon="now" aria-label="Now playing view"></button>
+      <button class="icon" data-act="np-lyrics" data-icon="lyrics" aria-label="Lyrics"></button>
+      <button class="icon" data-act="np-queue" data-icon="queue" aria-label="Queue"></button>
+      <button class="icon" data-act="devices" data-icon="device" aria-label="Connect to a device"></button>
+      <button class="icon" data-act="mute" data-icon="vol" aria-label="Mute" id="muteBtn"></button><input type="range" id="vol" min="0" max="100" aria-label="Volume">
+    </div>
+  </div>
+</div>
+
+<div id="np" class="np" hidden data-mode="art" aria-label="Now playing" tabindex="-1">
+  <div class="np-bg" id="npBg"></div>
+  <header class="np-top">
+    <button class="icon" data-act="np-close" data-icon="down" aria-label="Close"></button>
+    <div class="np-label">Now playing</div>
+    <button class="icon" data-act="np-more" data-icon="more" aria-label="More"></button>
+  </header>
+  <div class="np-body">
+    <div class="np-art"><img id="npArt" alt=""></div>
+    <div class="np-panel">
+      <div id="npLyrics" class="np-lyrics"></div>
+      <div id="npQueue" class="np-queue"></div>
+    </div>
+  </div>
+  <div class="np-foot">
+    <div class="np-info">
+      <div class="np-text"><div id="npTitle"></div><button id="npArtist" class="link" data-act="np-artist"></button></div>
+      <button class="icon" data-role="like" data-act="like-current" aria-label="Like"></button>
+    </div>
+    <div class="np-seek"><input type="range" data-role="seek" min="0" max="1000" value="0" aria-label="Seek">
+      <div class="times"><span data-role="cur">0:00</span><span data-role="dur">0:00</span></div></div>
+    <div class="np-ctrls">
+      <button class="icon" data-role="shuffle" data-act="shuffle" data-icon="shuffle" aria-label="Shuffle"></button>
+      <button class="icon big" data-act="prev" data-icon="prev" aria-label="Previous"></button>
+      <button class="icon play huge" data-role="play" data-act="toggle" aria-label="Play/pause"></button>
+      <button class="icon big" data-act="next" data-icon="next" aria-label="Next"></button>
+      <button class="icon" data-role="repeat" data-act="repeat" aria-label="Repeat"></button>
+    </div>
+    <div class="np-tabs">
+      <button data-act="devices"><i data-icon="device"></i><span>Devices</span></button>
+      <button data-act="np-tab" data-mode="lyrics"><i data-icon="lyrics"></i>Lyrics</button>
+      <button data-act="np-tab" data-mode="queue"><i data-icon="queue"></i>Up next</button>
+    </div>
+    <div class="np-src" id="npSrc"></div>
+  </div>
+</div>
+
+<div id="sheet" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Options">
+  <div class="sheet-bg" data-act="sheet-close"></div>
+  <div class="sheet-panel" id="sheetPanel"></div>
+</div>
+
+<dialog id="dlg" aria-labelledby="dlgTitle" aria-describedby="dlgMsg">
+  <form id="dlgForm">
+    <h3 id="dlgTitle"></h3>
+    <p id="dlgMsg" class="muted"></p>
+    <input id="dlgInput" aria-labelledby="dlgTitle" autocomplete="off" maxlength="120">
+    <div class="dlg-btns"><button type="button" class="btn" id="dlgCancel">Cancel</button><button type="submit" class="btn primary" id="dlgOk">OK</button></div>
+  </form>
+</dialog>
+
+<input type="file" id="localFilesInput" accept="audio/*,.mp3,.flac,.m4a,.wav,.ogg,.opus" multiple hidden>
+<input type="file" id="spotifyImport" accept=".zip,.json,application/zip,application/json" multiple hidden>
+<input type="file" id="spotifyAccountImport" accept=".json,application/json" hidden>
+<input type="file" id="themeImport" accept=".json,application/json" hidden>
+<div id="toasts" role="status" aria-live="polite" aria-atomic="true"></div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+@media(min-width:1100px){.shelf{grid-template-columns:none;grid-auto-columns:clamp(160px,20%,220px)}.has-panel .shelf{grid-template-columns:none;grid-auto-columns:clamp(150px,25%,210px)}}
+@media(min-width:768px) and (max-width:1099px){.shelf,.has-panel .shelf{grid-template-columns:none;grid-auto-columns:clamp(150px,33.333%,200px)}}
+.sr-only:focus-visible{position:static;width:auto;height:auto;clip:auto;overflow:visible;padding:6px;background:#fff;color:#000}
+.sheet-list{padding-top:4px}.field select{flex-shrink:1}.settings-top{margin-bottom:24px}
+.skip-link:focus-visible{position:fixed}
+
+:root{--canvas:#000;--liked:#50398a;--dj:#16436b;--radius-small:4px;--radius-pill:999px;--motion-ms:180}
+
+.library-menu{width:32px;height:36px;opacity:0}
+.library-item:has(.library-menu)>.pin-button{display:none}
+.library-item:hover .library-menu,.library-menu:focus-visible{opacity:1}
+.folder-back{display:inline-flex;gap:6px;align-items:center;margin:24px 0 18px;font-size:13px}
+.folder-back svg{width:18px;height:18px}
+.folder-heading{display:flex;align-items:center;gap:20px;min-width:0}
+.folder-heading>.ph-cover{width:104px;height:104px;flex:none;border-radius:8px}
+.folder-heading>.ph-cover svg{width:48px;height:48px}
+.folder-heading h1{font-size:clamp(28px,3.5vw,48px);line-height:1.15;margin:8px 0;overflow-wrap:anywhere}
+.folder-actions{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:24px 0}
+@media(max-width:767px){.library-menu{opacity:1;width:44px;height:44px}.folder-heading{gap:16px}.folder-heading>.ph-cover{width:72px;height:72px}.folder-heading h1{font-size:28px}.folder-actions{gap:8px}.folder-actions .btn{padding:0 14px}.library-item{gap:8px}.library-item .pin-button:not(.on):not(:focus-visible){display:none}}
