@@ -1,3 +1,4 @@
+import {youtubeId,embedUrl,savedVideo,saveVideo} from './video-clips.js';
 // app.js — Spot+ UI: router, views, player bar, now-playing screen.
 import * as api from './api.js';
 import * as store from './store.js';
@@ -6,6 +7,9 @@ import { libraryItems, visibleTracks, parseRoute } from './library.js';
 import * as dj from './dj.js';
 import * as spotify from './spotify.js';
 import * as themes from './themes.js';
+import {bindPlayerDismiss} from './player-gestures.js';
+import {connectionDevice,setupHtml} from './account-setup.js';
+let accountDevice=connectionDevice(navigator.userAgent,navigator.platform,navigator.maxTouchPoints);
 import {validateAccountSnapshot,isAccountMessage,ACCOUNT_FILE_LIMIT} from './spotify-account.js';
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -27,7 +31,7 @@ const P = {
   now: '<path d="M3 3h18v18H3zm2 2v14h14V5zm3 2 8 5-8 5z"/>',
   history: '<path d="M12 3a9 9 0 1 1-8.5 12h2.2A7 7 0 1 0 6 8h3v2H2V3h2v3a9 9 0 0 1 8-3zm-1 4h2v5l4 2-1 2-5-3z"/>',
   up: '<path d="m6 15 6-6 6 6 1.4-1.4L12 6.2l-7.4 7.4z"/>',
-  dj: '<path d="M3 4h2v16H3zm4 5h2v6H7zm4-7h2v20h-2zm4 5h2v10h-2zm4-3h2v16h-2z"/>',
+  dj: [4,8,12,16,20].map((x,i)=>'<rect class="dj-eq-bar" style="--beat:'+i+'" x="'+(x-1)+'" y="'+[5,8,2,7,4][i]+'" width="2" height="'+[14,8,20,10,16][i]+'" rx="1"/>').join(''),
   play: '<path d="M8 5v14l11-7z"/>',
   pause: '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>',
   next: '<path d="M6 18l8.5-6L6 6v12zm10-12v12h2V6h-2z"/>',
@@ -183,12 +187,13 @@ async function viewHome() {
 let searchTimer = 0, searchTok = 0;
 function viewSearch(q = '') {
   setTimeout(() => {
-    const inp = $('#q');
+    const inp = matchMedia('(min-width:768px)').matches?$('#globalQ'):$('#q');
+    $('#globalQ').value=q;$('#globalClear').hidden=!q;
     if (!inp) return;
     if (q) runSearch(q);
     else if (!matchMedia('(pointer: coarse)').matches) inp.focus();
   }, 0);
-  return `<h1 class="settings-top">Search</h1><div class="searchbox">${I.search}<input id="q" type="search" aria-label="Search songs, artists, albums and playlists" placeholder="What do you want to listen to?" value="${esc(q)}" autocomplete="off" enterkeyhint="search"></div>
+  return `<h1 class="settings-top">Search</h1><form id="catalogSearch" class="searchbox" role="search">${I.search}<input id="q" type="search" aria-label="Search songs, artists, albums and playlists" placeholder="Songs, artists, albums…" value="${esc(q)}" autocomplete="off" enterkeyhint="search"><button class="icon search-clear" id="searchClear" type="button" data-act="search-clear" aria-label="Clear search" ${q?'':'hidden'}>×</button></form>
     <div id="results">${q ? loadingHtml : browseHome()}</div>`;
 }
 async function runSearch(q) {
@@ -312,7 +317,7 @@ async function viewSettings() {
     <div class="row-btns"><button class="btn small" data-act="test-sources">Test audio servers</button><button class="btn small" data-act="clear-matches">Reset song matches</button></div>
     <div id="testOut"></div>
   </section>
-  <section class="box"><h2>Spotify account</h2><p class="settings-note">${spotifyAccount?`${esc(spotifyAccount.account.name)} · Library copy saved ${esc(new Date(spotifyAccount.capturedAt).toLocaleString())}. Refresh from Spotify to get changes.`:'Bring Liked Songs and playlists from your free Spotify account using the phone companion.'}</p><a class="btn primary" href="#/spotify-account">${spotifyAccount?'Manage Spotify library':'Set up account connection'}</a><a class="btn" href="#/spotify">Spotify collections & import</a></section>
+  <section class="box"><h2>Spotify account</h2><p class="settings-note">${spotifyAccount?`${esc(spotifyAccount.account.name)} · Library copy saved ${esc(new Date(spotifyAccount.capturedAt).toLocaleString())}. Refresh from Spotify to get changes.`:'Bring Liked Songs and playlists from your free Spotify account using the browser companion.'}</p><a class="btn primary" href="#/spotify-account">${spotifyAccount?'Manage Spotify library':'Set up account connection'}</a><a class="btn" href="#/spotify">Spotify collections & import</a></section>
   <section class="box"><h2>Your data</h2>
     <p class="muted">Your local music library, preferences, saved themes and Spotify library copy are saved in this browser. Export a backup to move them to another device. Audio files and the downloaded AI model are stored separately.</p>
     <div class="row-btns"><button class="btn small" data-act="export">Export backup</button>
@@ -327,7 +332,7 @@ async function viewSettings() {
     <button class="btn small primary" data-act="install" ${installEvt ? '' : 'hidden'} id="installBtn">Install Spot+</button>
     <p class="muted">Android/desktop Chrome: use the install button or the browser menu → Install app. iPhone: Safari → Share → Add to Home Screen.</p>
   </section>
-  <section class="box"><h2>DJ</h2>${toggle('djVoice','DJ voice','Choose your host in DJ preferences.')}<a class="btn small" href="#/dj">Open DJ</a><details class="dj-options"><summary>Smarter requests (optional)</summary><p class="settings-note">An optional on-device model can help interpret unusual music requests. Download about 390 MB over Wi-Fi. DJ works without it, and it does not change the host voice.</p><div id="modelState">${modelStatusHtml()}</div></details></section>
+  <section class="box"><h2>DJ</h2>${toggle('djVoice','DJ voice','Choose your host in DJ preferences.')}<a class="btn small" href="#/dj">Open DJ</a><p class="settings-note">Enable live conversations from the DJ screen. About 600 MB downloads once; no subscription or PC server.</p><button class="btn small" data-act="dj-live-remove">Remove DJ downloads</button></section>
   <section class="box"><h2>Connections & availability</h2><div class="capability"><span>Music discovery<small>Deezer public catalog</small></span><span>Available</span></div><div class="capability"><span>Audio playback<small>Piped / Invidious, previews, or local files</small></span><span>Source dependent</span></div><div class="capability"><span>Spotify library<small>Phone companion · Manual one-way refresh</small></span><span>${spotifyAccount?'Library copy saved':'Not set up'}</span></div><div class="capability"><span>Spotify Connect, Jam & Blend</span><span class="unavailable">Not supported</span></div><div class="capability"><span>Spotify AI DJ, podcasts & audiobooks</span><span class="unavailable">Not available from these sources</span></div><p class="settings-note">Spot+ is independent of Spotify. The companion copies your music library. Spotify’s private recommendations, licensed audio playback and Premium entitlements are not provided by these sources.</p></section>
   <section class="box"><h2>Keyboard shortcuts</h2><p class="settings-note">Space: play/pause · Alt + Right/Left: next/previous · Ctrl/⌘ + K: search · Escape: close overlay. Use Tab and arrow keys for controls.</p></section>
   <section class="box"><h2>About Spot+</h2>
@@ -530,6 +535,12 @@ async function handleAct(act, el) {
     case 'dj-mic': if(location.hash!=='#/dj'){go('#/dj');}dj.voice.listen();break;
     case 'dj-suggestion': await dj.start(el.dataset.prompt);break;
     case 'dj-host': await dj.voice.preview(el.dataset.host);syncDJVoice();break;
+    case 'search-clear': clearTimeout(searchTimer);$('#globalQ').value='';$('#globalClear').hidden=true;if($('#q')){$('#q').value='';$('#searchClear').hidden=true;runSearch('');}else go('#/search');(matchMedia('(min-width:768px)').matches?$('#globalQ'):$('#q'))?.focus();break;
+    case 'account-device': accountDevice=el.dataset.device;$('#accountSetup').innerHTML=setupHtml(accountDevice);break;
+    case 'dj-live-remove': dj.disableLive();await dj.liveVoice.removeDownloads();await dj.localModel.removeModel();toast('DJ downloads removed. Your music is kept.');break;
+    case 'dj-edit': dj.stop();$('#djPrompt').value=dj.voice.state.transcript;$('#djPrompt').focus();break;
+    case 'dj-live-enable': await dj.enableLive().catch(e=>toast(e.message));break;
+    case 'dj-live-stop': dj.disableLive();syncLiveDJ();break;
     case 'dj-start': await dj.start();break;
     case 'dj-change': await dj.start(dj.state.request,{change:true});break;
     case 'model-load': await dj.localModel.load().catch(e=>toast(e.message));break;
@@ -602,6 +613,9 @@ async function handleAct(act, el) {
     case 'np-close': closeNP(); break;
     case 'np-more': { const t = player.current(); if (t) trackSheet(t); break; }
     case 'np-tab': setNPMode(el.dataset.mode); break;
+    case 'clip-play': playVideoClip(el.dataset.full==='true');break;
+    case 'clip-link': {const id=youtubeId($('#clipUrl')?.value);if(!id){toast('Paste a YouTube video link.');break;}clipChoice={id,title:player.current()?.title||'Video'};saveVideo(player.current(),clipChoice);showClipChoice();break;}
+    case 'clip-retry': loadVideoClip();break;
     case 'np-queue': openNP('queue'); break;
     case 'np-artist': { const t = player.current(); if (t?.artistId) go(`#/artist/${t.artistId}`); break; }
     case 'q-jump': player.playIndex(+el.dataset.qi); break;
@@ -648,7 +662,7 @@ document.addEventListener('click', (e) => {
   }
 });
 document.addEventListener('input', (e) => {
-  if (e.target.id === 'q') { clearTimeout(searchTimer); const q = e.target.value.trim(); searchTimer = setTimeout(() => runSearch(q), 350); }
+  if (['q','globalQ'].includes(e.target.id)) {clearTimeout(searchTimer);const q=e.target.value.trim();if($('#q')&&e.target.id!=='q')$('#q').value=q;if(e.target.id!=='globalQ')$('#globalQ').value=q;$('#globalClear').hidden=!q;if($('#searchClear'))$('#searchClear').hidden=!q;if($('#results')){++searchTok;searchTimer=setTimeout(()=>runSearch(q),250);}}
   if(e.target.id==='folderQ'&&$('#folderItems'))$('#folderItems').innerHTML=renderLibraryItems({folderId:$('#folderItems').dataset.folderId,query:e.target.value});
 });
 document.addEventListener('change', async (e) => {
@@ -739,6 +753,7 @@ function openNP(mode) {
 function closeNP({ fromPop = false, nav = false } = {}) {
   if (!npOpen) return;
   npOpen = false;
+  stopVideoClip();
   document.body.classList.remove('has-panel');
   $('.app').inert=false;
   np.removeAttribute('aria-modal');np.removeAttribute('role');
@@ -751,9 +766,12 @@ window.addEventListener('popstate', () => { if (npOpen && matchMedia(MOBILE_QUER
 matchMedia(MOBILE_QUERY).addEventListener('change',()=>{if(!npOpen)return;const mobile=matchMedia(MOBILE_QUERY).matches;$('.app').inert=mobile;if(mobile){np.setAttribute('role','dialog');np.setAttribute('aria-modal','true');np.focus();}else{np.removeAttribute('role');np.removeAttribute('aria-modal');}});
 function setNPMode(mode) {
   if (mode === npMode && mode !== 'art' && matchMedia(MOBILE_QUERY).matches && np.dataset.mode===mode && np.classList.contains('open')) mode = 'art';
+  if(npMode==='video'&&mode!=='video')stopVideoClip();
   npMode = mode;
+  $('#npVideo').hidden=mode!=='video';
+  if(mode==='video')loadVideoClip();
   np.dataset.mode = mode;
-  $('.np-label').textContent=mode==='queue'?'Queue':mode==='lyrics'?'Lyrics':'Now playing';
+  $('.np-label').textContent=mode==='queue'?'Queue':mode==='lyrics'?'Lyrics':mode==='video'?'Music video':'Now playing';
   $$('.np-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
   if (mode === 'queue') renderQueue();
   if (mode === 'lyrics') { loadLyrics(); lyrUserScroll = 0; lyr.active = -1; syncLyrics(); }
@@ -764,6 +782,7 @@ function syncNP() {
   const s = player.state;
   if (np.dataset.id !== t.id) {
     np.dataset.id = t.id;
+    if(npMode==='video'&&npOpen)loadVideoClip();
     $('#npArt').src = t.coverXl || t.cover || 'icons/icon-512.png';
     $('#npBg').style.backgroundImage = `url("${safeImage(t.coverXl || t.cover || 'icons/icon-512.png').replace(/"/g, '')}")`;
     $('#npTitle').textContent = t.title;
@@ -773,6 +792,16 @@ function syncNP() {
   if (npMode === 'queue') renderQueue();
   loadLyrics();
 }
+let clipRequest=0,clipAbort,clipChoice=null;
+function stopVideoClip(){clipRequest++;clipAbort?.abort();$('#npVideo').replaceChildren();clipChoice=null;}
+function clipLinkForm(){return '<details class="clip-link"><summary>Choose a YouTube video</summary><label for="clipUrl">Video link</label><input id="clipUrl" type="url" inputmode="url" placeholder="Paste YouTube link"><button class="btn" data-act="clip-link">Use this video</button></details>';}
+function showClipChoice(){const t=player.current();if(!t||!clipChoice)return;$('#npVideo').innerHTML='<img class="clip-poster" src="https://i.ytimg.com/vi/'+clipChoice.id+'/hqdefault.jpg" alt="Video thumbnail"><p class="clip-title">'+esc(clipChoice.title)+'</p><div class="clip-actions"><button class="btn primary" data-act="clip-play">Watch 30-second clip</button><button class="btn" data-act="clip-play" data-full="true">Full video</button></div><p class="small muted">YouTube video · Music pauses while you watch.</p>'+clipLinkForm();}
+async function loadVideoClip(){stopVideoClip();const request=clipRequest,t=player.current();if(!t)return;clipChoice=savedVideo(t);if(clipChoice){showClipChoice();return;}clipAbort=new AbortController();$('#npVideo').innerHTML='<p class="muted" role="status">Finding a music video…</p>';
+ try{const choice=await api.findVideo(t,clipAbort.signal);if(request!==clipRequest||!npOpen||npMode!=='video')return;clipChoice=choice;showClipChoice();}catch{if(request!==clipRequest)return;$('#npVideo').innerHTML='<div class="clip-empty"><h3>No video found here yet</h3><p>Not every song has an available video. You can choose one yourself.</p><a class="btn" target="_blank" rel="noopener" href="https://www.youtube.com/results?search_query='+encodeURIComponent(t.artist+' '+t.title+' official music video')+'">Find on YouTube</a>'+clipLinkForm()+'<p class="small muted">Spotify Canvas loops are not available in Spot+.</p></div>';}}
+function playVideoClip(full=false){if(!clipChoice)return;if(player.state.loading)player.toggle();else player.el.pause();const frame=document.createElement('iframe');frame.src=embedUrl(clipChoice.id,!full);frame.title='YouTube video: '+clipChoice.title;frame.allow='autoplay; encrypted-media; picture-in-picture; fullscreen';frame.allowFullscreen=true;frame.referrerPolicy='strict-origin-when-cross-origin';$('#npVideo').replaceChildren(frame);const note=document.createElement('p');note.className='small muted';note.textContent=full?'YouTube · Full video':'YouTube · 30-second clip';$('#npVideo').append(note);const link=document.createElement('a');link.href='https://www.youtube.com/watch?v='+clipChoice.id;link.target='_blank';link.rel='noopener';link.className='link';link.textContent='Open on YouTube';$('#npVideo').append(link);}
+// Removing the embed stops its audio before any new music starts or the app is hidden.
+player.on('state',()=>{if(player.isPlaying()&&$('#npVideo iframe'))setNPMode('art');});
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&$('#npVideo iframe'))setNPMode('art');});
 function qRow(t, idx, cur) {
   return `<div class="trow${cur ? ' playing' : ''}" data-act="q-jump" data-qi="${idx}">${img(t.cover, 'tcover')}
     <div class="tmeta"><div class="ttitle">${esc(t.title)}</div><div class="tsub">${esc(t.artist)}</div></div>
@@ -897,16 +926,24 @@ function viewLocal(){const tracks=store.getLocalFiles(),k=reg(tracks);return `<h
 function homeDJ(){return `<div class="home-dj"><a class="dj-orb-small" href="#/dj" aria-label="Open Spot+ DJ"></a><form id="homeDJRequest"><label for="homeDJPrompt" class="sr-only">Tell DJ what to play</label><input id="homeDJPrompt" maxlength="300" placeholder="Tell DJ what to play" enterkeyhint="go"><button class="icon" type="button" data-act="dj-mic" aria-label="Talk to DJ">${I.mic}</button></form></div>`;}
 function viewDJ(){
  const s=store.getSettings(),k=reg(dj.state.tracks),v=dj.voice.state;
- return `<section class="dj-stage" id="djStage" data-phase="${v.phase}"><div class="kicker">Your music. In the moment.</div><h1>Spot+ DJ</h1><p>Set the mood. Find a favorite. Make it yours.</p><div class="dj-orbit" aria-hidden="true"><b>DJ</b></div><div class="dj-wave" aria-hidden="true">${Array.from({length:9},(_,i)=>'<i style="--i:'+i+'"></i>').join('')}</div><div class="dj-live-state" id="djPhase">${v.phase==='idle'?'Ready when you are':v.phase}</div><div class="dj-caption" id="djCaption" role="status">${esc(v.caption)}</div><div class="dj-transcript" id="djTranscript">${esc(v.transcript)}</div><button class="icon mic-button" data-act="dj-mic" aria-label="Talk to DJ" aria-pressed="${v.phase==='listening'}">${I.mic}<span data-mic-label>Talk to DJ</span></button><div class="dj-controls"><button class="btn primary" data-act="dj-start">${I.play}Play my mix</button><button class="btn" data-act="dj-change">${I.swap}Switch it up</button></div></section>
- <div class="dj-request-wrap"><form id="djRequest" class="dj-request"><label class="sr-only" for="djPrompt">Request music</label><input id="djPrompt" maxlength="300" placeholder="Or type a request…" value="${esc(dj.state.request)}" enterkeyhint="send"><button class="btn white" type="submit">Send</button></form><div class="dj-hints">${['More like this','Something for studying','More energy'].map(q=>'<button data-act="dj-suggestion" data-prompt="'+q+'">'+q+'</button>').join('')}</div><label class="dj-conversation"><input type="checkbox" id="djConversation" ${v.conversation?'checked':''}>Keep listening after replies</label><p class="dj-privacy">Tap the mic to talk. Music pauses while you speak. Voice recognition may use your browser’s speech service. The microphone turns off when you leave the app.</p><p id="djStatus" class="settings-note" role="status">${esc(dj.state.message)}</p></div>
- <details class="dj-options"><summary>DJ preferences</summary><fieldset class="host-picker"><legend>Pick your host</legend><p class="settings-note">Tap a voice to hear it.</p><div class="host-choices">${dj.voice.HOSTS.map(h=>'<button class="host-choice '+(dj.voice.host()===h.id?'selected':'')+'" data-act="dj-host" data-host="'+h.id+'" aria-pressed="'+(dj.voice.host()===h.id)+'"><b>'+h.name+'</b><span>'+h.description+'</span><small>Preview voice</small></button>').join('')}</div><small class="voice-credit">AI-generated host voices. Ready to play — no setup.</small><p class="settings-note" id="voiceStatus">${esc(dj.voice.state.error)}</p></fieldset><label class="field"><span>Spoken replies</span><input type="checkbox" role="switch" data-setting="djVoice" ${s.djVoice?'checked':''}></label><label class="field"><span>Talk between songs</span><input type="checkbox" role="switch" data-setting="djCommentary" ${s.djCommentary!==false?'checked':''}></label><button class="btn small" data-act="sleep-timer">Sleep timer</button></details><section class="dj-session"><h2>In your mix</h2><div id="djTracks">${dj.state.tracks.length?trackRows(dj.state.tracks,k):'<p class="muted">Play your mix or ask for something you love.</p>'}</div></section>`;
+ return `<section class="dj-stage" id="djStage" data-phase="${v.phase}"><div class="kicker">Your music. In the moment.</div><h1>Spot+ DJ</h1><p>Set the mood. Find a favorite. Make it yours.</p><div class="dj-orbit" aria-hidden="true"><b>DJ</b></div><div class="dj-wave" aria-hidden="true">${Array.from({length:9},(_,i)=>'<i style="--i:'+i+'"></i>').join('')}</div><div class="dj-live-state" id="djPhase">${v.phase==='idle'?'Ready when you are':v.phase}</div><div class="dj-caption" id="djCaption" role="status">${esc(v.caption)}</div><div class="dj-transcript" id="djTranscript">${esc(v.transcript)}</div><button class="dj-edit" id="djEdit" data-act="dj-edit" ${v.transcript?'':'hidden'}>Edit what I heard</button><button class="icon mic-button" data-act="dj-mic" aria-label="Talk to DJ" aria-pressed="${v.phase==='listening'}">${I.mic}<span data-mic-label>Talk to DJ</span></button><div class="dj-controls"><button class="btn primary" data-act="dj-start">${I.play}Play my mix</button><button class="btn" data-act="dj-change">${I.swap}Switch it up</button></div></section>
+ <div class="live-dj-setup" id="liveDJSetup">${liveDJHtml()}</div><div class="dj-request-wrap"><form id="djRequest" class="dj-request"><label class="sr-only" for="djPrompt">Request music</label><input id="djPrompt" maxlength="300" placeholder="Or type a request…" value="${esc(dj.state.request)}" enterkeyhint="send"><button class="btn white" type="submit">Send</button></form><div class="dj-hints">${['More like this','Something for studying','More energy'].map(q=>'<button data-act="dj-suggestion" data-prompt="'+q+'">'+q+'</button>').join('')}</div><label class="dj-conversation"><input type="checkbox" id="djConversation" ${v.conversation?'checked':''}>Keep listening after replies</label><p class="dj-privacy">Tap the mic to talk. Music pauses while you speak. Voice recognition may use your browser’s speech service. Tap the mic again to interrupt a reply. The microphone turns off when you leave the app. For voice input, use Safari on iPhone or Chrome on Android.</p><p id="djStatus" class="settings-note" role="status">${esc(dj.state.message)}</p></div>
+ <details class="dj-options"><summary>DJ preferences</summary><fieldset class="host-picker"><legend>Pick your host</legend><p class="settings-note">Tap a voice to hear it.</p><div class="host-choices">${dj.voice.HOSTS.map(h=>'<button class="host-choice '+(dj.voice.host()===h.id?'selected':'')+'" data-act="dj-host" data-host="'+h.id+'" aria-pressed="'+(dj.voice.host()===h.id)+'"><b>'+h.name+'</b><span>'+h.description+'</span><small>Preview voice</small></button>').join('')}</div><small class="voice-credit">AI-generated voices. Samples are previews; live DJ generates new speech.</small><p class="settings-note" id="voiceStatus">${esc(dj.voice.state.error)}</p></fieldset><label class="field"><span>Spoken replies</span><input type="checkbox" role="switch" data-setting="djVoice" ${s.djVoice?'checked':''}></label><label class="field"><span>Talk between songs</span><input type="checkbox" role="switch" data-setting="djCommentary" ${s.djCommentary!==false?'checked':''}></label><button class="btn small" data-act="sleep-timer">Sleep timer</button></details><section class="dj-session"><h2>In your mix</h2><div id="djTracks">${dj.state.tracks.length?trackRows(dj.state.tracks,k):'<p class="muted">Play your mix or ask for something you love.</p>'}</div></section>`;
 }
+function liveDJHtml(){
+ const voice=dj.liveVoice.state,model=dj.localModel.status,ready=dj.liveReady(),loading=voice.phase==='loading'||model.phase==='loading';
+ const message=ready?'Ready to talk. Replies are generated on this device.':loading?(voice.phase==='loading'?voice.message:model.message):voice.phase==='error'?voice.message:model.phase==='error'?model.message:'Live speech and conversation, in your chosen host voice. Free, with a one-time download of about 600 MB. Use Wi-Fi and keep Spot+ open.';
+ return '<div><b>'+(ready?'Live DJ is on':'Talk with your DJ')+'</b><p>'+esc(message)+'</p></div>'+(loading?'<progress aria-label="Preparing live DJ" max="100" value="'+(voice.phase==='loading'?Math.round(voice.progress*.67):67+Math.round(model.progress*.33))+'"></progress><button class="btn small" data-act="dj-live-stop">Cancel setup</button>':ready?'<button class="btn small" data-act="dj-live-stop">End live session</button>':'<button class="btn primary" data-act="dj-live-enable">Enable live DJ</button>');
+}
+function syncLiveDJ(){if($('#liveDJSetup'))$('#liveDJSetup').innerHTML=liveDJHtml();}
+dj.liveVoice.onChange(syncLiveDJ);dj.localModel.onChange(syncLiveDJ);
 function syncDJVoice(){
  const v=dj.voice.state,phase=v.phase==='idle'&&dj.state.busy?'thinking':v.phase;
  if($('#djStage')){const stage=$('#djStage');stage.dataset.phase=phase;stage.dataset.voice=v.lastVoice;stage.dataset.responseMs=String(v.responseMs);}
  if($('#djPhase'))$('#djPhase').textContent=phase==='idle'?'Ready when you are':phase;
  if($('#djCaption'))$('#djCaption').textContent=v.caption;
  if($('#djTranscript'))$('#djTranscript').textContent=v.transcript;
+ if($('#djEdit'))$('#djEdit').hidden=!v.transcript;
  $$('[data-act="dj-mic"]').forEach(b=>{b.setAttribute('aria-pressed',String(v.phase==='listening'));b.setAttribute('aria-label',v.phase==='listening'?'Stop listening':'Talk to DJ');const label=b.querySelector('[data-mic-label]');if(label)label.textContent=v.phase==='listening'?'Stop listening':'Talk to DJ';});
  if($('#djConversation'))$('#djConversation').checked=v.conversation;
  if($('#voiceStatus'))$('#voiceStatus').textContent=v.error;
@@ -923,6 +960,7 @@ function deviceMenu(){openSheet({head:'<div class="sheet-title">Connect to a dev
 function sleepMenu(){openSheet({head:'<div class="sheet-title">Sleep timer</div>',items:[...[5,15,30,60].map(minutes=>({icon:I.history,label:`${minutes} minutes`,fn:()=>{clearTimeout(sleepTimer);sleepTimer=setTimeout(()=>{player.el.pause();dj.stop();toast('Sleep timer ended');},minutes*60000);toast(`Playback will pause in ${minutes} minutes`);}})),{icon:I.close,label:'Turn off timer',fn:()=>{clearTimeout(sleepTimer);sleepTimer=null;toast('Sleep timer off');}}]});}
 function trapFocus(e,root){if(e.key!=='Tab')return;const focusable=$$('button:not(:disabled),a[href],input:not(:disabled),select,textarea,[tabindex="0"]',root).filter(el=>el.getClientRects().length);if(!focusable.length)return;const first=focusable[0],last=focusable.at(-1);if(e.shiftKey&&(document.activeElement===first||!root.contains(document.activeElement))){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}
 document.addEventListener('keydown',e=>{if(!sheet.hidden)trapFocus(e,sheet);else if(npOpen&&matchMedia(MOBILE_QUERY).matches)trapFocus(e,np);if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();go('#/search');}if(!e.target.closest('input,textarea,select,button')&&e.altKey){if(e.key==='ArrowRight'){e.preventDefault();player.next();}if(e.key==='ArrowLeft'){e.preventDefault();player.prev();}}});
+document.addEventListener('submit',e=>{if(e.target.id==='catalogSearch'){e.preventDefault();clearTimeout(searchTimer);runSearch($('#q').value.trim());$('#q').blur();}});
 $('#globalSearch').addEventListener('submit',e=>{e.preventDefault();go(`#/search/${encodeURIComponent($('#globalQ').value.trim())}`);});
 document.addEventListener('submit',e=>{if(['djRequest','homeDJRequest'].includes(e.target.id)){e.preventDefault();const prompt=e.target.querySelector('input').value.trim();if(e.target.id==='homeDJRequest')go('#/dj');dj.start(prompt);}});
 document.addEventListener('change',e=>{if(e.target.id==='djConversation')dj.voice.toggleConversation();});
@@ -957,7 +995,7 @@ function beginSpotifyConnection(){
   const nonce=[...crypto.getRandomValues(new Uint8Array(16))].map(b=>b.toString(16).padStart(2,'0')).join('');
   const spotifyWindow=window.open('https://open.spotify.com/collection?spotplus_origin='+encodeURIComponent(location.origin)+'&spotplus_bridge='+nonce,'spotplus-spotify');
   if(!spotifyWindow)return toast('Allow this Spotify tab to open, or use the companion’s Save library file button.');
-  pendingAccount={nonce,window:spotifyWindow,started:Date.now()};
+  pendingAccount={nonce,window:spotifyWindow,started:Date.now()};if($('#accountConnectionStatus'))$('#accountConnectionStatus').textContent='Waiting for Spotify. Sign in in the new tab; the helper will send your library here for review.';
   toast('In Spotify, sign in and tap the Spot+ companion’s Read library button.');
 }
 async function reviewSpotifyAccount(raw){
@@ -984,17 +1022,17 @@ $('#spotifyAccountImport').addEventListener('change',async event=>{
   try{if(file.size>ACCOUNT_FILE_LIMIT)throw new Error('Choose a companion library file under 12 MB.');await reviewSpotifyAccount(JSON.parse(await file.text()));}catch(e){toast(e instanceof SyntaxError?'That file is not a valid JSON library.':e.message);}
 });
 function viewSpotifyAccount(){
-  const account=store.getSpotifyAccount();
-  return `<div class="account-hero"><div class="ph-cover">${I.person}</div><div><span class="account-badge">Phone companion · Beta</span><h1>Your Spotify, in Spot+</h1><p>Bring your music over from a free Spotify account. Runs on your phone, with no developer app and no PC left on.</p></div></div>
+ const account=store.getSpotifyAccount();
+ return `<div class="connect-heading"><span class="account-badge">Your music, together</span><h1>Connect Spotify</h1><p>Bring your liked songs and playlists into Spot+.</p></div>
   ${account?`<section class="box"><div class="kicker">Library saved on this device</div><h2>${esc(account.account.name)}</h2><p class="muted">Last read from Spotify: ${esc(new Date(account.capturedAt).toLocaleString())}</p><div class="account-stats">${[['Liked songs',account.likes.length],['Playlists',account.playlists.length],['Albums',account.albums.length],['Artists',account.artists.length]].map(([label,n])=>`<div class="account-stat"><b>${n}</b><span>${label}</span></div>`).join('')}</div><div class="account-actions"><a class="btn primary" href="#/spotify-account/likes">${I.heartFill}Spotify Liked Songs</a><button class="btn" data-act="account-connect">Refresh from Spotify</button><button class="btn" data-act="account-disconnect">Remove connection</button></div><p class="settings-note">This is the last completed library copy. Refresh while Spotify is open to get changes. Edits in Spot+ stay in Spot+.</p>${account.skipped?`<p class="settings-note">${account.skipped} unsupported or unavailable items were skipped. The companion currently reads music tracks.</p>`:''}</section>`:''}
-  <div class="account-status">${account?'Keep your library up to date using the companion below.':'One-time setup: add the companion to your phone’s browser, then sign in on Spotify.'} This connection is experimental; Spotify can change its web interface. Live sign-in still needs testing on both phones.</div>
-  <div class="account-grid"><section class="box"><h2>iPhone · Safari</h2><ol><li>Install <a href="https://github.com/quoid/userscripts#installation" target="_blank" rel="noopener">Userscripts for Safari</a> from its App Store link. Open it once and enable the Safari extension.</li><li>Open <a href="js/spotplus-spotify.user.js" target="_blank" rel="noopener">the Spot+ companion</a> in Safari. Open Safari’s extensions menu → Userscripts → Install.</li><li>Allow it on <b>open.spotify.com</b>. Return here in Safari and open Spotify below.</li></ol></section><section class="box"><h2>Android · Firefox</h2><ol><li>Open this page in Firefox. Add <a href="https://www.tampermonkey.net/index.php?browser=firefox" target="_blank" rel="noopener">Tampermonkey for Firefox</a> using its official extension link.</li><li>Open <a href="js/spotplus-spotify.user.js" target="_blank" rel="noopener">the Spot+ companion</a> and choose Install.</li><li>Open Spotify below. Keep the sign-in in the browser; use the browser’s Desktop site option if Spotify sends you to its app.</li></ol></section></div>
-  <section class="box"><h2>Connect or refresh</h2><ol class="setup-steps"><li>Open Spotify, sign in there, and open <b>Your Library</b>.</li><li>In the Spot+ companion panel on Spotify, tap <b>Read library</b>. Keep that tab open until it finishes.</li><li>Tap <b>Send to Spot+</b>, return here and review the counts. If your browser separates the tabs, choose <b>Save library file</b>, then import that file here.</li></ol><div class="account-actions"><button class="btn primary" data-act="account-connect">Open Spotify to connect</button><button class="btn" data-act="account-file">Choose companion file</button></div><p class="settings-note">The companion reads Liked Songs, playlists (including private playlists you can access), saved albums and followed artists. It sends only music metadata to this device. Your Spotify password, cookies and session tokens stay on Spotify’s page. No playlist is published, and this connector does not unlock Spotify audio.</p><p class="settings-note">Use Safari or Firefox for the connection step. A home-screen app may not receive another browser’s tab message; the file handoff works across them. Your Spotify copy is kept separately from local Spot+ edits.</p><details><summary>Having trouble?</summary><p class="settings-note">No companion panel: enable the extension for Spotify and reload. “Sign in first”: open Your Library after signing in. Spotify response changed: open Liked Songs and a playlist, then retry so the companion can use Spotify’s current requests. An interrupted or incomplete read keeps your previous copy. This adapter uses Spotify’s changing web interface and may need an update.</p></details></section>
+
+ <div id="accountSetup">${setupHtml(accountDevice)}</div>
   ${account?.playlists.length?`<section><h2>Your Spotify playlists</h2><div class="account-cards">${account.playlists.map(p=>`<a class="card" href="#/spotify-account/playlist/${p.id}">${img(p.cover)}<div class="ctitle">${esc(p.title)}</div><div class="csub">${p.tracks.length} songs${p.status==='unavailable'?' · Update unavailable':''}</div></a>`).join('')}</div></section>`:''}
-  <p class="settings-note">Prefer Spotify’s export? <a href="#/spotify">Import an Account data ZIP</a>. No companion is needed for that method.</p>`;
+
+ `;
 }
 function viewSpotifyAccountList(id){
-  const account=store.getSpotifyAccount();if(!account)return emptyState('Connect your Spotify library','Set up the phone companion to bring your saved music into Spot+.','Spotify account','#/spotify-account');
+  const account=store.getSpotifyAccount();if(!account)return emptyState('Connect your Spotify library','Set up the browser companion to bring your saved music into Spot+.','Spotify account','#/spotify-account');
   const p=id==='likes'?{title:'Spotify Liked Songs',tracks:account.likes}:account.playlists.find(x=>x.id===id);
   if(!p)return emptyState('Playlist not in this copy','Refresh your Spotify library to check for changes.','Spotify account','#/spotify-account');
   const tracks=visibleTracks(p.tracks,store.getSettings()),key=reg(tracks,{name:p.title});
@@ -1056,3 +1094,5 @@ document.addEventListener('pointerover',event=>{const target=event.target.closes
 document.addEventListener('pointerdown',event=>{const target=event.target.closest('[data-act="track-play"]');if(target&&store.getSettings().preloadNext!==false)api.prewarm(listOf(target.dataset.key).tracks[+target.dataset.i]);},{passive:true});
 
 setTimeout(()=>dj.voice.warmVoice(),1200);
+
+bindPlayerDismiss(document.getElementById('np'),()=>closeNP());

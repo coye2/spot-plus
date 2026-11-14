@@ -81,3 +81,8 @@ export async function readSpotifyAccount(query,{signal,onProgress=()=>{}}={}) {
   if(end!==account.id)throw new Error('The Spotify account changed during sync. Please start again.');
   return library;
 }
+
+// Auto-read is scoped to an explicit, fresh Connect Spotify launch.
+export function canAutoRead({bridge,hostReady,authorization,attempted,now=Date.now()}){
+ return !!hostReady&&!attempted&&!!bridge&&/^[a-f0-9]{32}$/.test(bridge.nonce||'')&&now>=bridge.started&&now-bridge.started<1800000&&['https://coye2.github.io','https://spot-plus-coyeb.coyeboymitchell2000.chatgpt.site'].includes(bridge.origin)&&/^Bearer\s+\S+$/.test(authorization||'');
+}

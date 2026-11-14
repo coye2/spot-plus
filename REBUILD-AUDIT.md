@@ -24,8 +24,8 @@ Official mobile references were also checked: Spotify's [May 2025 navigation upd
 | Playback | Play/pause/seek, previous/next, shuffle/repeat, queue editing, play next, sleep timer, lyrics, alternate matches, Media Session | Source availability governs full tracks; crossfade, gapless and equalizer are not implemented |
 | Startup performance | Parallel source resolution, short-lived stream cache, next-song preparation, cancellation and race handling | Tests verify reuse avoids another resolver call; no universal latency guarantee |
 | Themes | Winter Pine #1B5E46 logo/accent, AMOLED, six presets, custom colors, contrast adjustment, artwork shape, spacing/text/motion, save/load/import/export | Final Figma theme sync remains outstanding |
-| DJ | Voice/typed requests, captions, playback commands, three bundled AI-generated hosts, simple preferences, optional local SmolLM2 request processing | Host speech uses short recorded responses; arbitrary conversation and spoken song names are not implemented. Browser microphone support varies. This is Spot+ DJ, not Spotify AI DJ |
-| Free Spotify account | Beta phone companion, library review/import, manual refresh, metadata-only file fallback, separate read-only Spotify copy | Live sign-in/read has not been verified on either physical phone. No continuous or two-way sync |
+| DJ | Voice/typed requests, bounded live local conversation, sentence-streamed Supertonic 3 speech, spoken real song names, three host auditions, interruption, interim captions and editable recognition | About 600 MB initial download; lightweight AI quality and phone memory/performance vary. Browser speech recognition may use a remote service. Physical phones unverified; not Spotify AI DJ |
+| Free Spotify account | Beta iPhone/Android/computer browser companion, three-step setup, automatic read/handoff after an explicit connection launch, library review/import, manual fallback, metadata-only file fallback, separate read-only Spotify copy | Live sign-in/read has not been verified on either physical phone. No continuous or two-way sync |
 | PowerShell setup | Opens hosted account setup; optional music-only Spotify-export preparation | Cannot remotely install a phone extension or complete the user's sign-in |
 | Accessibility | Semantic buttons/labels, keyboard focus/shortcuts, reduced motion, larger text, theme contrast tests | No full assistive-technology certification |
 | Deployment | Public GitHub Pages at https://coye2.github.io/spot-plus/ with automated checks and publishing | Library storage is separate from the previous private host; export/import a backup when moving |
@@ -46,12 +46,22 @@ The mobile update adds a contained app shell, elastic edge motion, iOS safe-area
 
 Observed full-track startup was 4,032 ms on a cold local session and 859 ms on a later queued track on GitHub Pages. These are two observations, not a controlled speed comparison or an instant-playback guarantee. External source health still matters.
 
-DJ voices now ship as 42 small MP3 clips (about 1.6 MB total), generated using Supertonic 3. The old device-voice/Kokoro selectors were removed. Optional language-model controls are tucked under general Settings, separate from host choices. Automated checks cover voice cancellation, volume restoration, microphone dispatch/denial, bundled asset completeness, source-directory latency and bounded audio preloading.
+Live DJ now uses pinned Supertonic 3 M3/F1/M1 speech models and SmolLM2-135M-Instruct q4 in workers. Only three host audition MP3s remain bundled. An explicit Enable live DJ control starts the approximately 600 MB download. Model generation is cancellable; audio begins sentence by sentence, and clips never substitute for dynamic replies. The tiny conversation model has limited quality and can misunderstand. Optional WebGPU acceleration falls back to single-thread WASM without requiring cross-origin isolation.
 
-Spotify Canvas is not exposed through the public Web API and is not available for every song. Official Canvas video playback has not been added. No substituted video is labeled as Spotify Canvas.
+Spotify Canvas is not exposed through the public Web API and is not available for every song. Official Canvas video playback has not been added. The optional Video panel searches matching YouTube music videos and embeds a 30-second clip or full video. It pauses music and removes the embed when dismissed, hidden, or music restarts. Manual YouTube links are validated and remembered. Provider failures and embed restrictions remain external limits; no substitute is labeled Spotify Canvas.
 
 1. On iPhone Safari + Userscripts and Android Firefox + Tampermonkey, install the companion from the setup page, sign in on Spotify, and try **Read library**. Verify pagination, direct/file handoff and refresh against the actual library. The companion uses Spotify's changing web interface, so real account results may require adjustments.
 2. Apply the prepared Figma plugin update in an editable Figma session, then inspect the final desktop/phone frames.
 3. Check physical-phone background playback, installation, local-model memory use and browser download behavior.
 
 Spotify Connect, Jam, Blend, proprietary personalized radio/AI DJ, licensed Spotify audio and Premium entitlements are not supplied by this architecture. These are documented as unavailable, rather than represented by fake working controls.
+
+
+## Live DJ and interface follow-up
+
+- Search now uses one visible search field per layout, an accessible clear button, immediate submit and stale-result cancellation. Mobile inputs stay at 16 px to avoid focus zoom.
+- The small DJ equalizer icons and home/hero orbs animate across app surfaces; reduced-motion preferences suppress animation.
+- The mobile artwork/top handle follows a downward drag, dismisses on a sufficient drag/flick, and snaps back otherwise. Horizontal/short/upward gestures do not dismiss; lyrics scrolling and controls stay separate.
+- Recognition accumulates final segments, waits through provisional words, considers actual alternative transcriptions against known artists/titles, and offers editing. It does not invent a corrected transcript. Permission denial and incomplete recognition leave a typed fallback.
+- Browser tests observed newly generated After Hours speech, with first-audio times of 5,044 ms and 2,688 ms in two warmed desktop trials. These are not physical-phone benchmarks or a guarantee. The small language model's response quality was uneven; this is documented rather than claimed perfect.
+- A real embedded Blinding Lights YouTube clip played in a 390 × 844 browser viewport. Public-provider automatic matching failed in that test, so the verified artist video link was chosen manually. Swipe-down from the top handle dismissed the player. No microphone recording or real Spotify credentials were used during verification.

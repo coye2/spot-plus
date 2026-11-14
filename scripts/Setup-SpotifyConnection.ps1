@@ -9,7 +9,8 @@ if (-not (Test-Path -LiteralPath $companionPath -PathType Leaf)) {
 }
 Write-Host 'Spot+ Spotify account setup (free Spotify accounts)'
 Write-Host 'On iPhone: Safari + Userscripts. On Android: Firefox + Tampermonkey.'
-Write-Host 'Install the companion on the phone, then sign in on Spotify and choose Read library.'
+Write-Host 'On PC: Chrome, Edge or Firefox + Tampermonkey. Enable Allow User Scripts if required.'
+Write-Host 'Install the helper once, click Connect Spotify, sign in on Spotify, then review your library in Spot+.'
 Write-Host 'Your Spotify login stays with Spotify; this script does not read credentials.'
 Write-Host ('Companion: ' + $companionPath)
 Write-Host ('Guide: ' + $guidePath)

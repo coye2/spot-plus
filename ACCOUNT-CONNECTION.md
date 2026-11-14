@@ -1,15 +1,15 @@
 # Spotify account connection
 
-The experimental phone companion reads the library of the Spotify account signed in to the phone's browser. It requires neither Spotify Premium nor a developer Client ID. It is **one-way, user-initiated refresh**, not continuous background sync or Spotify audio playback. A real signed-in account and physical Android/iPhone tests are still required to verify it end to end.
+The experimental browser companion reads the library of the Spotify account signed in to the device's browser. It requires neither Spotify Premium nor a developer Client ID. It is **one-way, user-initiated refresh**, not continuous background sync or Spotify audio playback. A real signed-in account and physical Android/iPhone tests are still required to verify it end to end.
 
-Open Spot+ → Settings → Spotify account. The same screen contains installation links and a file fallback. The GitHub Pages app is public at https://coye2.github.io/spot-plus/. Your music library is stored in your own browser.
+Open Spot+ → Settings → Spotify account. The screen selects your device, shows three setup steps, and keeps troubleshooting/file import collapsed. The GitHub Pages app is public at https://coye2.github.io/spot-plus/. Your music library is stored in your own browser.
 
 ## iPhone, without a PC
 
 1. Install [Userscripts](https://github.com/quoid/userscripts#installation) using the project's official App Store link. Open the app once, then enable its extension in Safari.
 2. In Safari, open the **Spot+ companion** link in the Spot+ account screen. In Safari's extensions menu, open Userscripts and install the script.
 3. Allow the extension on `open.spotify.com`. Open Spot+ in Safari, choose **Open Spotify to connect**, and sign in on Spotify itself.
-4. Open Your Library on Spotify. In the companion panel, choose **Read library**. Keep the Spotify tab open until it finishes, then choose **Send to Spot+**.
+4. Keep Spotify open. After sign-in, the helper attempts to read the library and send it back automatically. If it does not start, open Your Library and choose **Read library**, then **Send to Spot+**.
 5. Return to Spot+ and review/apply the library. If the tabs cannot communicate, choose **Save library file** on Spotify, save it to Files, and use **Choose companion file** in Spot+.
 
 ## Android, without a PC
@@ -17,9 +17,17 @@ Open Spot+ → Settings → Spotify account. The same screen contains installati
 1. Use Firefox and install [Tampermonkey](https://www.tampermonkey.net/index.php?browser=firefox) from its official Firefox extension link.
 2. Open the companion link from Spot+'s account screen and install it.
 3. Choose **Open Spotify to connect**. Keep sign-in in Firefox; request the desktop site if Spotify redirects to its native app.
-4. Open Your Library, then **Read library → Send to Spot+** in the companion panel. Return to Spot+ to review/apply it. The same file fallback works here.
+4. Keep Spotify open while the helper reads your library and sends it back for review. If nothing arrives, open Your Library → **Read library → Send to Spot+**. The file fallback works here too.
 
 For a home-screen app, use Safari/Firefox for the connection step. Browser and installed-web-app storage can differ, so import the companion file in the app where you want to keep the music.
+
+## Computer (Windows, macOS or Linux)
+
+1. In Chrome, Edge or Firefox, install [Tampermonkey](https://www.tampermonkey.net/) from its official extension-store link. Chrome/Edge may require **Allow User Scripts** in the extension's Details.
+2. Open **Install Spot+ helper** on the account setup page and install it. The helper runs on Spotify's website, not its desktop app.
+3. Choose **Connect Spotify**, sign in on Spotify itself, and keep both tabs open. The helper reads the library and sends it for review. If the automatic step fails, use **Read library → Send to Spot+** or the file fallback.
+
+The direct Tampermonkey execution path runs in the page's main world; Safari's Userscripts path retains a local blob injection. Neither requests new remote-script permissions. Sign-in with a real account is still unverified.
 
 ## What refreshes
 
@@ -34,11 +42,11 @@ For a home-screen app, use Safari/Firefox for the connection step. Browser and i
 
 The script runs only on `https://open.spotify.com/`. It observes the authorization headers Spotify's own web player already uses for its music queries, holds them only in page memory, and makes four allowlisted **read** queries. It never reads cookies, asks for passwords, exports session tokens, sends credentials to Spot+, writes Spotify playlists, or extracts Spotify audio. No external executable dependency, token broker, third-party account or PC server is involved.
 
-Only a whitelist of music metadata and the Spotify display name/username is transferred. Direct transfer requires the precise Spotify origin, the window opened by Spot+, and a random 128-bit nonce expiring after 30 minutes. All incoming metadata is validated again before review and storage. Refreshes are applied only after the user's review. Account copies live in this browser's storage and are included in Settings → Export backup. Backups contain music metadata, never Spotify session credentials. Restoring keeps an existing newer copy or a different account's copy and tells you when it does so. To deliberately switch accounts, use the account setup page and review the incoming library there.
+Only a whitelist of music metadata and the Spotify display name/username is transferred. Automatic reading requires a fresh explicit Connect Spotify launch, a mounted companion, and an observed Spotify request authorization header. It makes one attempt, with a new-session retry after a sign-in error; cancellation prevents automatic retries. Direct transfer requires the precise Spotify origin, the window opened by Spot+, and a random 128-bit nonce expiring after 30 minutes. All incoming metadata is validated again before review and storage. Refreshes are applied only after the user's review. Account copies live in this browser's storage and are included in Settings → Export backup. Backups contain music metadata, never Spotify session credentials. Restoring keeps an existing newer copy or a different account's copy and tells you when it does so. To deliberately switch accounts, use the account setup page and review the incoming library there.
 
 Spotify's private web interface can change. The adapter observes current query hashes when the web player sends the relevant read requests, with versioned fallback hashes checked against the [unofficial Spotube Spotify plugin](https://github.com/sonic-liberation/spotube-plugin-spotify). This is an independently written browser adapter; no Kotlin implementation was copied. It is not an official Spotify integration, nor a port of the full native Spotube plugin.
 
-The userscript is assembled from `js/spotify-reader.js` and `scripts/spotify-companion-entry.js`. Run `node scripts/build-companion.mjs` after editing either; the production build does this automatically. On a different hosting domain, update the companion's exact `targetOrigin` and namespace before rebuilding. Local previews support the file handoff; direct transfer intentionally targets only the deployed Site.
+The userscript is assembled from `js/spotify-reader.js` and `scripts/spotify-companion-entry.js`. Run `node scripts/build-companion.mjs` after editing either; the production build does this automatically. On a different hosting domain, update the companion's exact `targetOrigin` and namespace before rebuilding. Local previews support the file handoff; direct transfer targets only the exact allowlisted GitHub Pages and previous Site origins.
 
 ListenBrainz was investigated but is not used: its current Spotify track-import implementation uploads a public playlist. The companion avoids that publication side effect.
 
@@ -48,7 +56,7 @@ ListenBrainz was investigated but is not used: its current Spotify track-import 
 .\scripts\Setup-SpotifyConnection.ps1
 ```
 
-Opens the hosted account setup screen. `-ShowFiles` locates the bundled companion. It does not install an extension, change execution policy, read credentials, or complete sign-in. Phone installation and Spotify sign-in still happen on each phone.
+Opens the hosted account setup screen. `-ShowFiles` locates the bundled companion. It does not install an extension, change execution policy, read credentials, or complete sign-in. Helper installation and Spotify sign-in happen in each device’s browser.
 
 ## Verification
 

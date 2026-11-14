@@ -27,14 +27,14 @@
 </head>
 <body>
 <div class="splash" id="splash" aria-hidden="true"><div><img src="icons/icon-192.png" alt=""><span>YOUR MUSIC. YOUR WAY.</span></div></div>
-<dialog id="welcome" class="welcome-dialog" aria-labelledby="welcomeTitle"><img src="icons/icon-192.png" alt="Spot+"><h2 id="welcomeTitle">Your music belongs here.</h2><p>Bring your Spotify favorites and playlists into Spot+. A free account is welcome.</p><a class="btn primary" href="#/spotify-account" id="welcomeConnect">Connect Spotify</a><button class="btn" id="welcomeLater">Explore first</button><label class="btn" for="welcomeBackup">Import Spot+ backup<input type="file" id="welcomeBackup" accept="application/json,.json" hidden></label><small>The phone companion copies your library when you refresh. Spotify sign-in happens on Spotify.</small></dialog>
+<dialog id="welcome" class="welcome-dialog" aria-labelledby="welcomeTitle"><img src="icons/icon-192.png" alt="Spot+"><h2 id="welcomeTitle">Your music belongs here.</h2><p>Bring your Spotify favorites and playlists into Spot+. A free account is welcome.</p><a class="btn primary" href="#/spotify-account" id="welcomeConnect">Connect Spotify</a><button class="btn" id="welcomeLater">Explore first</button><label class="btn" for="welcomeBackup">Import Spot+ backup<input type="file" id="welcomeBackup" accept="application/json,.json" hidden></label><small>The browser helper copies your library when you refresh. Spotify sign-in happens on Spotify.</small></dialog>
 <a href="#main" class="skip-link" data-act="focus-main">Skip to content</a>
 <div class="app">
   <header class="topbar">
     <a class="brand" href="#/home" aria-label="Spot Plus Home"><img src="icons/icon-192.png" alt=""><span>Spot+</span></a>
     <div class="top-search">
       <a class="icon home-button" href="#/home" aria-label="Home"><i data-icon="home"></i></a>
-      <form id="globalSearch" role="search"><i data-icon="search"></i><input id="globalQ" aria-label="Search music" placeholder="What do you want to play?" autocomplete="off"><button class="icon" type="submit" aria-label="Submit search" data-icon="arrow"></button></form>
+      <form id="globalSearch" role="search"><i data-icon="search"></i><input id="globalQ" aria-label="Search music" placeholder="What do you want to play?" autocomplete="off"><button class="icon search-clear" id="globalClear" data-act="search-clear" type="button" aria-label="Clear search" hidden>×</button><button class="icon" type="submit" aria-label="Submit search" data-icon="arrow"></button></form>
     </div>
     <div class="top-tools"><button class="icon" data-act="history" data-icon="history" aria-label="Recently played"></button><button class="avatar" data-act="profile" aria-label="Profile and settings">S</button></div>
   </header>
@@ -90,7 +90,8 @@
     <button class="icon" data-act="np-more" data-icon="more" aria-label="More"></button>
   </header>
   <div class="np-body">
-    <div class="np-art"><img id="npArt" alt=""></div>
+    <div class="np-art"><img id="npArt" alt="" draggable="false"></div>
+    <div id="npVideo" class="np-video" hidden></div>
     <div class="np-panel">
       <div id="npLyrics" class="np-lyrics"></div>
       <div id="npQueue" class="np-queue"></div>
@@ -111,7 +112,8 @@
       <button class="icon" data-role="repeat" data-act="repeat" aria-label="Repeat"></button>
     </div>
     <div class="np-tabs">
-      <button data-act="devices"><i data-icon="device"></i><span>Devices</span></button>
+      <button data-act="np-tab" data-mode="art" class="on">Cover</button>
+      <button data-act="np-tab" data-mode="video">Video</button>
       <button data-act="np-tab" data-mode="lyrics"><i data-icon="lyrics"></i>Lyrics</button>
       <button data-act="np-tab" data-mode="queue"><i data-icon="queue"></i>Up next</button>
     </div>

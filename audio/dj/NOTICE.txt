@@ -5,9 +5,18 @@ Model: https://huggingface.co/Supertone/supertonic-3
 Model license: BigScience Open RAIL-M (included as MODEL-LICENSE.txt).
 Presets: After Hours = M3; Daylight = F1; Classic = M1.
 
-Only rendered audio is distributed here. Model weights are not included or downloaded
-by the app. The included clips are short prerecorded AI host responses. Personalized
-song/artist information is displayed as text; these clips do not synthesize arbitrary text.
+Only three short audition MP3s are distributed here. After selecting Enable live DJ,
+the browser downloads the pinned Supertonic 3 model from Hugging Face and caches it
+on the listener's device. Replies and song names are synthesized dynamically, not
+selected from these recordings. Model weights are not included in this repository.
+After Hours uses M3 at 0.98 speed; Daylight F1 at 1.03; Classic M1 at 1.0.
+
+Browser inference uses ONNX Runtime Web 1.31.1 (MIT) from jsDelivr. The adapted
+UnicodeProcessor helper is in js/vendor/supertonic-text.js with its MIT license.
+Conversation uses HuggingFaceTB/SmolLM2-135M-Instruct (Apache-2.0), pinned revision
+12fd25f77366fa6b3b4b768ec3050bf629380bac, through Transformers.js 3.8.1 (Apache-2.0).
+See the upstream model cards and licenses: https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct
+https://github.com/huggingface/transformers.js and https://github.com/microsoft/onnxruntime
 
 Generation code used the official Supertonic helper under the MIT license.
 Copyright (c) 2025 Supertone Inc. https://github.com/supertone-oss-archive/supertonic
