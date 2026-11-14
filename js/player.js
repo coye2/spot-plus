@@ -76,6 +76,7 @@ async function load(opts = {}) {
   if (!opts.keepSkip) skipList = [];
   state.loading = true; state.source = null; state.offline = false;
   emit('state');
+  emit('time');
   updateSession(t);
   try {
     let src;

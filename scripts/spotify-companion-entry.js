@@ -3,7 +3,7 @@
 function runSpotifyCompanion(){
   if(location.origin!=='https://open.spotify.com'||document.getElementById('spotplus-companion'))return;
   const permittedOrigins=['https://coye2.github.io','https://spot-plus-coyeb.coyeboymitchell2000.chatgpt.site'];
-  let targetOrigin=permittedOrigins[0];
+  let targetOrigin=permittedOrigins[1]; // Compatibility with the previous site's nonce-only links.
   const originalFetch=window.fetch.bind(window), credentials={};
   const observedQueries=new Map();
   let controller=null,library=null,host=null,bridge=null;

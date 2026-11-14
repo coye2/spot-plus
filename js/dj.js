@@ -69,7 +69,8 @@ export async function start(prompt='',{change=false}={}){
    const added=visibleTracks(uniqueTracks(more),store.getSettings()).filter(t=>!state.tracks.some(x=>x.id===t.id)).slice(0,25);
    if(added.length){state.tracks=[...state.tracks,...added];player.addToQueue(added);emit();}
   }).catch(()=>{});
-  await voice.speak(prompt?`Got you. Let's get into ${query}.`:`You're with Spot Plus. First up, ${tracks[0].artist}.`);
+  const natural=voice.state.neural==='ready'&&store.getSettings().djVoiceEngine==='neural';
+  await voice.speak(natural?(prompt?"Got you. Let's switch the vibe.":"You're with Spot Plus. Let's get into it."):(prompt?`Got you. Let's get into ${query}.`:`You're with Spot Plus. First up, ${tracks[0].artist}.`));
  }catch(error){if(my===requestToken){state.message=error.message;emit();}}
  finally{if(my===requestToken){state.busy=false;emit();}}
 }

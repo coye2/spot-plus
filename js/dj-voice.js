@@ -84,10 +84,10 @@ export async function speak(text, { force = false } = {}) {
   state.caption = String(text).slice(0,280); state.error = '';
   emit();
   // Natural speech is optional. Slow synthesis must never delay the music.
-  if (state.neural === 'ready' && store.getSettings().djVoiceEngine === 'neural') {
+  if (state.neural === 'ready' && store.getSettings().djVoiceEngine === 'neural' && neuralJobs.size === 0) {
     speechAudio ||= new Audio(); player.unlockElement(speechAudio);
     try {
-      const blob = await neuralRequest('speak', { text: state.caption, voice: store.getSettings().djNeuralVoice || 'am_puck' }, 6000);
+      const blob = await neuralRequest('speak', { text: state.caption, voice: store.getSettings().djNeuralVoice || 'am_puck' }, force ? 30000 : 1800);
       if (mine !== sequence) return;
       speechAudio ||= new Audio();
       speechUrl = URL.createObjectURL(blob); speechAudio.src = speechUrl;
@@ -128,15 +128,22 @@ function neuralRequest(type, payload = {}, limit = 180000) {
   }
   return new Promise((resolve,reject) => {
     const id = ++neuralSequence;
-    const timer = setTimeout(() => { neuralJobs.delete(id); reject(new Error('Voice took too long')); releaseNeural(); }, limit);
+    const timer = setTimeout(() => {
+      reject(new Error('Voice took too long'));
+      if(type==='speak'&&limit<30000){
+        // Keep the prepared voice available while this late sentence finishes.
+        // Further requests use the instant device voice until the worker is free.
+        const job=neuralJobs.get(id);if(job)job.timer=setTimeout(()=>releaseNeural(),30000);
+      }else{neuralJobs.delete(id);releaseNeural();}
+    }, limit);
     neuralJobs.set(id, { resolve, reject, timer }); worker.postMessage({id, type, ...payload});
   });
 }
 export async function loadNeural() {
   if (state.neural === 'loading' || state.neural === 'ready') return;
   speechAudio ||= new Audio(); player.unlockElement(speechAudio);
-  state.neural = 'loading'; state.progress = 0; emit();
-  try { await neuralRequest('load',{},600000); state.neural = 'ready'; store.setSettings({djVoiceEngine:'neural',djVoice:true}); }
+  state.neural = 'loading'; state.progress = 0; state.error = ''; emit();
+  try { await neuralRequest('load',{voice:store.getSettings().djNeuralVoice || 'am_puck'},600000); state.neural = 'ready'; store.setSettings({djVoiceEngine:'neural',djVoice:true}); }
   catch { state.neural = 'error'; state.error = 'Natural voice could not load. Your device voice is still available.'; }
   emit();
 }

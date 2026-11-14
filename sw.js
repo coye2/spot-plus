@@ -1,5 +1,5 @@
 // Spot+ service worker: offline app shell + cached cover art. Audio downloads live in their own cache.
-const SHELL_CACHE = 'spotplus-shell-v10';
+const SHELL_CACHE = 'spotplus-shell-v12';
 const IMG_CACHE = 'spotplus-img-v1';
 const KEEP = [SHELL_CACHE, IMG_CACHE, 'spotplus-audio-v1'];
 const SHELL = [
@@ -29,13 +29,14 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
 
-  // App files: update online, use the complete cached shell when offline.
+  // Versioned app shell: open immediately from cache; a new worker installs the next complete version.
   if (url.origin === self.location.origin) {
     if (url.pathname.includes('/__offline/')) return;
     e.respondWith((async () => {
       const cache = await caches.open(SHELL_CACHE);
       const hit = await cache.match(req, { ignoreSearch: true }) || (req.mode === 'navigate' ? await cache.match('./index.html') : null);
-      try {const res=await fetch(req);if(res.ok){await cache.put(req,res.clone());return res;}return hit||res;}catch{return hit||new Response('Offline',{status:503});}
+      if (hit) return hit;
+      try {const res=await fetch(req);if(res.ok)await cache.put(req,res.clone());return res;}catch{return new Response('Offline',{status:503});}
     })());
     return;
   }

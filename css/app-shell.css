@@ -22,3 +22,4 @@ body{position:fixed;inset:0;margin:0}*,*::before,*::after{box-sizing:border-box}
 
 .home-dj input{background:transparent!important;border-radius:0}
 @media(max-width:767px){main{scrollbar-width:none}main::-webkit-scrollbar{display:none}}
+@media(max-width:767px),(max-height:500px) and (max-width:950px){.np{z-index:60}.quick-item b{font-size:13px}}
