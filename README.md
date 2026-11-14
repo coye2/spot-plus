@@ -12,7 +12,7 @@ Open [Spot+](https://coye2.github.io/spot-plus/) on your phone or computer. List
 - **Spotify account companion (beta):** Settings → Spotify account. A phone-side userscript reads a signed-in free Spotify account's Liked Songs, playlists, saved albums and followed artists. Safari + Userscripts on iPhone; Firefox + Tampermonkey on Android. Manual refresh replaces the separate Spotify copy, with a file fallback when browsers isolate tabs. Credentials stay on Spotify. See [setup, privacy and verification limits](ACCOUNT-CONNECTION.md). Real account/device sign-in is not yet verified.
 - **Artist radio:** Artist page → Radio or Featuring artist. Playable Deezer artist-radio mixes in Spot+. Verified This Is links appear for Tame Impala, Drake, and Taylor Swift; other artists have Deezer essentials and a Spotify search link.
 - **Spotify library import:** Spotify collections → Get my Spotify data. Request **Account data**, then import the downloaded ZIP or YourLibrary.json/Playlist*.json. Review counts before merging. Processing happens locally in a worker. Existing music is preserved; re-import merges additions. Imported metadata is matched to the selected audio provider when played.
-- **DJ:** Speak or type a music request. Live captions, next/pause/resume/like/shuffle commands, follow-up requests and opt-in conversational listening. Device voices respond immediately; optional Kokoro natural voices run locally after an approximately 90 MB model download plus runtime files. Slow synthesis falls back to the device voice. Music discovery uses real catalog results. The optional 390 MB SmolLM2 model can help with difficult requests. Browser recognition may use a remote speech service; model inference stays on the device.
+- **DJ:** Speak or type a music request. Live captions, next/pause/resume/like/shuffle commands, follow-up requests and optional listening after replies. Pick one of three included AI-generated hosts: After Hours, Daylight or Classic. The 42 short host responses total about 1.6 MB and need no model setup. Personalized song information appears as text; these are recorded responses, not arbitrary conversational speech. Music discovery uses real catalog results. Settings → DJ → Smarter requests offers the optional 390 MB SmolLM2 model. Browser recognition may use a remote speech service; optional model inference stays on the device.
 - **Player:** Play/pause/seek, next/previous, shuffle, repeat, editable queue, play next, sleep timer, lyrics, alternative audio matches, saved tracks/albums/artists, local playlists and audio files, downloads where providers permit them, and browser Media Session controls.
 
 ## Spotify setup with PowerShell
@@ -70,6 +70,7 @@ Editable Figma designs were created for the main desktop and phone flows. The co
 - `js/spotify*.js`: official embeds, URL validation, bounded export import.
 - `sw.js`: cached app shell; audio and model caches remain separate.
 - Inter license: `fonts/LICENSE.txt`. fflate license is included in `js/vendor/`.
+- Host recordings: `audio/dj/NOTICE.txt`, with Supertonic model/code license notices. Only rendered clips ship; no voice model or runtime download is needed. Host voices are AI-generated and do not impersonate Spotify's DJ.
 
 ## References checked during this rebuild
 

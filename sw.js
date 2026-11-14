@@ -1,9 +1,10 @@
 // Spot+ service worker: offline app shell + cached cover art. Audio downloads live in their own cache.
-const SHELL_CACHE = 'spotplus-shell-v12';
+const SHELL_CACHE = 'spotplus-shell-v14';
 const IMG_CACHE = 'spotplus-img-v1';
 const KEEP = [SHELL_CACHE, IMG_CACHE, 'spotplus-audio-v1'];
 const SHELL = [
-  './css/app-shell.css','./css/dj-voice.css','./js/shell.js','./js/dj-voice.js','./js/voice-worker.js','./js/audio-buffer.js',
+  ...['afterhours','daylight','classic'].flatMap(host=>['preview','start','request','next','pause','resume','like','previous','shuffle_on','shuffle_off','discovery','error','identify','empty'].map(cue=>'./audio/dj/'+host+'/'+cue+'.mp3')),
+  './css/app-shell.css','./css/dj-voice.css','./js/shell.js','./js/dj-voice.js','./js/dj-hosts.js','./js/audio-buffer.js',
   './js/folders.js',
   './css/account.css', './js/spotify-account.js', './js/spotify-reader.js',
   './', './index.html', './css/style.css', './css/experience.css', './css/themes.css', './css/refinements.css', './css/fonts.css', './fonts/inter-latin-wght-normal.woff2', './js/app.js', './js/api.js', './js/player.js', './js/store.js', './js/library.js', './js/dj.js', './js/local-model.js', './js/model-worker.js', './js/themes.js', './js/spotify.js', './js/spotify-import.js', './js/spotify-import-worker.js', './js/vendor/fflate.js',

@@ -1,0 +1,13 @@
+Spot+ host voices are AI-generated synthetic speech, not recordings of real hosts.
+
+Generated with Supertone Supertonic 3, revision 3cadd1ee6394adea1bd021217a0e650ede09a323.
+Model: https://huggingface.co/Supertone/supertonic-3
+Model license: BigScience Open RAIL-M (included as MODEL-LICENSE.txt).
+Presets: After Hours = M3; Daylight = F1; Classic = M1.
+
+Only rendered audio is distributed here. Model weights are not included or downloaded
+by the app. The included clips are short prerecorded AI host responses. Personalized
+song/artist information is displayed as text; these clips do not synthesize arbitrary text.
+
+Generation code used the official Supertonic helper under the MIT license.
+Copyright (c) 2025 Supertone Inc. https://github.com/supertone-oss-archive/supertonic

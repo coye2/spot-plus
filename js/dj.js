@@ -33,7 +33,7 @@ async function command(action){
  if(action.type==='like'){const t=player.current();if(t&&!store.isLiked(t.id))store.toggleLike(t);response=t?'Saved to your Liked Songs.':'Play a song first.';}
  if(action.type==='identify'){const t=player.current();response=t?`This is ${t.title}, by ${t.artist}.`:'Nothing is playing yet.';}
  if(action.type==='change')return start('',{change:true});
- state.message=response;emit();await voice.speak(response,{force:true});
+ state.message=response;emit();const cue=action.type==='shuffle'?(action.enabled?'shuffle_on':'shuffle_off'):action.type==='prev'?'previous':action.type;await voice.speak(response,{cue,detail:action.type==='identify'?response:''});
 }
 export async function start(prompt='',{change=false}={}){
  const action=parseCommand(prompt);
@@ -43,7 +43,7 @@ export async function start(prompt='',{change=false}={}){
   let tracks=[],reason='',query=fallbackQuery(prompt),radioSeed=null;state.engine='Quick mix';
   if(/^(more( like this| of this)?|similar( songs)?|same vibe)$/i.test(query)&&player.current())query=player.current().artist;
   const moods=[[/\b(study|studying|focus|concentrat)/i,'chill instrumental'],[/\b(workout|gym|running)\b/i,'workout'],[/\b(sleep|sleeping|relaxing)\b/i,'ambient'],[/\b(less energy|calmer|chill out)\b/i,'chill'],[/\b(more energy|hype me|upbeat)\b/i,'dance pop']];
-  for(const [pattern,phrase]of moods)if(pattern.test(query)){query=phrase;break;}
+  if(/^(study|studying|focus|workout|gym|sleep|sleeping|relaxing|less energy|calmer|chill out|more energy|hype me|upbeat)$|^(something|music|songs|mix|tracks|playlist)\b/i.test(query))for(const [pattern,phrase]of moods)if(pattern.test(query)){query=phrase;break;}
   if(query){
    const local=uniqueTracks([...store.getLikes(),...store.getRecent()]).filter(t=>`${t.artist} ${t.title}`.toLowerCase().includes(query.toLowerCase()));
    tracks=local.length?local:await api.searchTracks(query);
@@ -69,11 +69,10 @@ export async function start(prompt='',{change=false}={}){
    const added=visibleTracks(uniqueTracks(more),store.getSettings()).filter(t=>!state.tracks.some(x=>x.id===t.id)).slice(0,25);
    if(added.length){state.tracks=[...state.tracks,...added];player.addToQueue(added);emit();}
   }).catch(()=>{});
-  const natural=voice.state.neural==='ready'&&store.getSettings().djVoiceEngine==='neural';
-  await voice.speak(natural?(prompt?"Got you. Let's switch the vibe.":"You're with Spot Plus. Let's get into it."):(prompt?`Got you. Let's get into ${query}.`:`You're with Spot Plus. First up, ${tracks[0].artist}.`));
+  await voice.speak(reason,{cue:prompt?'request':'start'});
  }catch(error){if(my===requestToken){state.message=error.message;emit();}}
  finally{if(my===requestToken){state.busy=false;emit();}}
 }
 export function stop(){++requestToken;state.active=false;state.busy=false;voice.stop();emit();}
 voice.bindRequest(start);
-player.on('state',()=>{const t=player.current();if(!state.active||!player.isPlaying()||player.state.loading||!t||t.id===announced||!state.tracks.some(x=>x.id===t.id))return;announced=t.id;trackCount++;if(trackCount%4===0&&store.getSettings().djCommentary!==false)void voice.speak(`Keeping the session moving. Here's ${t.title}, from ${t.artist}.`);});
+player.on('state',()=>{const t=player.current();if(!state.active||!player.isPlaying()||player.state.loading||!t||t.id===announced||!state.tracks.some(x=>x.id===t.id))return;announced=t.id;trackCount++;if(trackCount%4===0&&store.getSettings().djCommentary!==false)void voice.speak(`Up next: ${t.title}, by ${t.artist}.`,{cue:'discovery'});});
