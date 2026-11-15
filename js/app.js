@@ -526,7 +526,7 @@ async function handleAct(act, el) {
       const records=await readHistory(),url=URL.createObjectURL(new Blob([JSON.stringify({app:'spotplus-rewind',version:1,records})],{type:'application/json'}));
       const a=document.createElement('a');a.href=url;a.download='SpotPlus-Rewind.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);break;
     }
-    case 'rewind-clear': if(await confirmBox('Clear Rewind history?','This removes imported Spotify history and Spot+ listening stats from this device. Your music library stays saved.')){await clearHistory('all');route({keepScroll:true});}break;
+    case 'rewind-clear': if(await confirmBox('Clear Rewind history?','This removes imported Spotify history and Spot+ listening stats from this device. Your music library stays saved.')){await clearHistory('all');listeningMeter.reset();route({keepScroll:true});}break;
     case 'create-menu': createMenu(); break;
     case 'history': go('#/recent');break;
     case 'devices': deviceMenu();break;

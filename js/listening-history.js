@@ -32,6 +32,7 @@ export function summarizeHistory(records,{source='all',year='all',month='all'}={
 // Count audible progress, not seeks, paused time, or the act of pressing Play.
 export class ListeningMeter {
   constructor(save){this.save=save;this.session=null;this.last=null;this.saved=0;}
+  reset(){this.session=null;this.last=null;this.saved=0;}
   tick(track,{time,playing,sessionKey=track?.id,now=performance.now(),wall=Date.now()}){
     const key=track&&sessionKey;
     if(!key||this.session?.trackId!==key){this.flush();this.session=key?{id:'local-'+crypto.randomUUID(),trackId:key,source:'spotplus',artist:track.artist,title:track.title,spotifyId:track.spotifyId||'',ms:0,endedAt:wall}:null;this.last=null;this.saved=0;}

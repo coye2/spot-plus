@@ -15,4 +15,5 @@ test('listening meter excludes seeks and paused time and separates repeat sessio
  meter.tick(track,{time:0,playing:true,now:0,wall:1000});meter.tick(track,{time:5,playing:true,now:5000,wall:6000});meter.tick(track,{time:100,playing:true,now:6000,wall:7000});meter.tick(track,{time:105,playing:false,now:11000,wall:12000});meter.tick(track,{time:105,playing:false,now:21000,wall:22000});
  assert.equal(saved.at(-1).ms,10000);
  meter.tick(track,{sessionKey:'repeat2',time:0,playing:true,now:22000,wall:23000});meter.tick(track,{sessionKey:'repeat2',time:3,playing:false,now:25000,wall:26000});assert.equal(saved.at(-1).ms,3000);assert.notEqual(saved[0].id,saved.at(-1).id);
+ meter.reset();meter.tick(track,{time:3,playing:true,now:26000,wall:27000});meter.tick(track,{time:5,playing:false,now:28000,wall:29000});assert.equal(saved.at(-1).ms,2000);
 });
