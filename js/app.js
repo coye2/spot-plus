@@ -13,7 +13,7 @@ import * as dj from './dj.js';
 import * as spotify from './spotify.js';
 import * as themes from './themes.js';
 import {bindPlayerDismiss} from './player-gestures.js';
-import {connectionDevice,setupHtml,spotifyConnectionURLs,helperInstallHtml,copyHelperInstallLink,spotifyProfileHtml} from './account-setup.js';
+import {COMPANION_INSTALL_URL,connectionDevice,setupHtml,spotifyConnectionURLs,helperInstallHtml,copyHelperInstallLink,spotifyProfileHtml} from './account-setup.js';
 let accountDevice=connectionDevice(navigator.userAgent,navigator.platform,navigator.maxTouchPoints);
 import {validateAccountSnapshot,isAccountMessage,ACCOUNT_FILE_LIMIT,accountReadNotice} from './spotify-account.js';
 import {decodeLibraryText,isLibraryText} from './spotify-reader.js';
@@ -515,6 +515,7 @@ async function handleAct(act, el) {
     case 'account-helper-copy': await copyHelperInstallLink({clipboard:navigator.clipboard,field:$('#helperInstallLink'),status:$('#helperCopyStatus')});break;
     case 'account-file': $('#spotifyAccountImport').click();break;
     case 'account-paste': await pasteSpotifyAccount();break;
+    case 'account-install-helper': openInSafari(COMPANION_INSTALL_URL);break;
     case 'account-paste-field': {const text=$('#accountPasteField')?.value||'';closeSheet();await applyPastedLibrary(text);break;}
     case 'account-disconnect': if(await confirmBox('Remove this Spotify connection?', 'This removes the Spotify library copy from this device. Your local Spot+ music and Spotify account are kept.')){pendingAccount=null;store.clearSpotifyAccount();toast('Spotify copy removed from this device');}break;
     case 'theme-preset': store.setSettings({themePreset:el.dataset.id,themeCustom:null});route({keepScroll:true});break;
@@ -1057,9 +1058,27 @@ function beginSpotifyConnection(){
     accountStatus('Spotify sign-in opened. Waiting for the Spot+ helper on Spotify’s website…');
     setTimeout(()=>{if(pendingAccount?.nonce===nonce&&!pendingAccount.helperReady)accountStatus('No helper detected yet. If Spotify opened its app, return here and use Copy Spotify browser link. Enable the Spot+ helper in Safari/Firefox, then reload Spotify’s website.');},15000);
   }};
-  if(accountDevice==='iphone')return copy.fn(); // One tap: copy the Safari link straight away.
+  if(accountDevice==='iphone'){
+    // One tap. In Safari, open Spotify in a tab so the library returns by itself.
+    // In the Home Screen app, jump to real Safari (extensions don't run in-app) and
+    // offer Paste the moment the user comes back.
+    navigator.clipboard?.writeText(urls.browser).catch(()=>{});
+    awaitingPaste=true;
+    if(isStandalone()){location.href='x-safari-'+urls.browser;accountStatus('Opening Safari… When the Spot+ panel says ready, tap Copy for Spot+ and come back.');return;}
+    const win=window.open(urls.browser,'spotplus-spotify');pendingAccount.window=win;
+    accountStatus(win?'Spotify opened. Sign in — your library comes back here by itself.':'Link copied. Paste it into Safari’s address bar.');
+    return;
+  }
   openSheet({head:'<div class="sheet-title">Connect your Spotify library</div>',body:`<p class="sheet-note">${phone?'Use '+browser+' with the Spot+ helper installed. Pasting the browser link avoids the Spotify app and blank-screen handoff.':'Install the Spot+ helper once, then sign in on Spotify’s website.'}</p><p class="sheet-note">${accountDevice==='iphone'?'When your library is ready, tap <b>Copy for Spot+</b> on Spotify, come back here and tap <b>Paste from Spotify</b>.':'When your library is ready, choose <b>Send to Spot+</b>.'}</p>`,items:phone?[copy,login]:[login,copy]});
 }
+let awaitingPaste=false;
+function isStandalone(){return navigator.standalone===true||matchMedia('(display-mode: standalone)').matches;}
+function openInSafari(url){if(isStandalone())location.href='x-safari-'+url;else window.open(url,'_blank','noopener');}
+// Coming back from Spotify: one tap pastes (iOS requires the tap for clipboard access).
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden||!awaitingPaste||accountReviewBusy||!sheet.hidden)return;
+  openSheet({head:'<div class="sheet-title">Welcome back</div>',body:'<p class="sheet-note">Tapped <b>Copy for Spot+</b> on Spotify? Add your library now.</p>',items:[{icon:I.copy,label:'Paste from Spotify',sub:'iPhone will ask to allow paste.',fn:pasteSpotifyAccount},{icon:I.close,label:'Not yet',fn:()=>{}}]});
+});
 // iPhone: Safari and the Home Screen app share only the clipboard. readText is the
 // first call inside the tap so Safari shows its Paste prompt.
 async function pasteSpotifyAccount(){
@@ -1085,7 +1104,7 @@ async function reviewSpotifyAccount(raw){
     const readNotice=accountReadNotice(snapshot);
     const message=`${snapshot.account.name}: ${plural(snapshot.likes.length,'liked song')}, ${plural(snapshot.playlists.length,'playlist')}, ${plural(snapshot.albums.length,'album')} and ${plural(snapshot.artists.length,'artist')}. ${changed?'This replaces the other Spotify account’s copy on this device. ':''}${readNotice?readNotice+' ':''}Complete collections replace the Spotify copy, including removed songs. Your local Spot+ playlists and likes are kept. No changes are sent to Spotify.`;
     if(!await confirmBox('Apply this Spotify library?',message,'Apply library'))return false;
-    store.setSpotifyAccount(snapshot);toast('Spotify library saved on this device');go('#/spotify-account');return true;
+    store.setSpotifyAccount(snapshot);awaitingPaste=false;toast('Spotify library saved on this device');go('#/spotify-account');return true;
   }catch(e){toast(e.message);return false;}finally{accountReviewBusy=false;}
 }
 window.addEventListener('message',async event=>{

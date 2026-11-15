@@ -6,11 +6,10 @@ Open Spot+ → Settings → Spotify account → **Set up helper**. This opens th
 
 ## iPhone, without a PC
 
-1. Install [Userscripts](https://github.com/quoid/userscripts#installation) from the App Store, enable it in Settings → Apps → Safari → Extensions, then use **Set up helper** in Spot+ to add the helper.
-2. In Spot+, tap **Copy Spotify link**, paste it into Safari and sign in. The Spot+ panel reads your library by itself.
-3. In the Spot+ panel on Spotify, tap **Copy for Spot+**. Return to Spot+ (Safari or the Home Screen app) and tap **Paste from Spotify**, then review and apply.
+1. **Install the helper (once).** Tap **Get Userscripts**, allow it in Settings → Apps → Safari → Extensions, then tap **Install helper** and choose ᴀA → Userscripts → Install.
+2. **Connect.** Tap **Open Spotify** and sign in. In Safari the library comes back by itself. From the Home Screen app, tap the big **Copy for Spot+** button on Spotify, switch back, and tap **Paste from Spotify** in the prompt Spot+ shows on return.
 
-Since helper 1.4.0 the library travels through the iPhone clipboard (gzip-compressed, metadata only), so the Home Screen app no longer needs the Files-app handoff. If iOS denies the paste prompt, Spot+ shows a box to paste into manually. **Save library file** → **Import library file** remains the fallback.
+From the Home Screen app, Spot+ opens real Safari (`x-safari-https://`), because Safari extensions do not run in the in-app browser. The library travels through the clipboard (gzip-compressed, metadata only) because Safari and the Home Screen app share no storage. A manual paste box and **Save library file** → **Import library file** remain fallbacks.
 
 ## Android, without a PC
 
@@ -61,7 +60,7 @@ Opens the hosted account setup screen. `-ShowFiles` locates the bundled companio
 
 ## Verification
 
-Helper **1.4.0** adds **Copy for Spot+**: after a read, the library is compressed into a prefixed text block and copied inside the tap. Spot+ reads it with **Paste from Spotify** (or a manual paste box), decodes with a 12 MB streaming cap, and sends it through the same validation and review as every other import. Safari and the Home Screen app share the clipboard but not storage or tab messaging, which is why this replaces the file step on iPhone. Real-device paste behaviour still needs confirming on the user's iPhone.
+Helper **1.4.1** makes Copy for Spot+ the single primary button on iPhone when no Spot+ tab is attached. Helper **1.4.0** adds **Copy for Spot+**: after a read, the library is compressed into a prefixed text block and copied inside the tap. Spot+ reads it with **Paste from Spotify** (or a manual paste box), decodes with a 12 MB streaming cap, and sends it through the same validation and review as every other import. Safari and the Home Screen app share the clipboard but not storage or tab messaging, which is why this replaces the file step on iPhone. Real-device paste behaviour still needs confirming on the user's iPhone.
 
 Helper **1.3.5** accepts direct artist arrays, `item`/`itemV2`/`track` wrappers, and split `firstArtist`/`otherArtists` lists. An incomplete row with a valid track ID gets a read-only `getTrack` lookup; complete rows need no extra requests. Lookups are cached per ID across collections, capped at 20 per refresh, start only within 15 seconds of the first repair, and time out after 5 seconds each. An unavailable optional query disables further repair attempts. Network, authentication and rate-limit failures still abort; a mismatched track ID is never imported as a repair.
 
@@ -77,7 +76,7 @@ Helper **1.3.3** adds the profile photo and profile link using the existing prof
 
 Helper **1.3.2** fixes the Liked Songs reader: Spotify's recorded response puts the page at `data.me.library.tracks` and the track ID at `track._uri`, outside `track.data`. The previous reader expected a direct page and a track-local URI, reproducing the reported “Spotify changed its library response” error and missing the song IDs. Both the current nested shape and older direct-page shape are supported. Malformed pages abort the transfer instead of replacing the saved library. Broken song records originally also aborted; 1.3.5 adds the recovery and incomplete-collection handling above. Errors identify the affected collection, and the Spotify panel now displays the helper version.
 
-Update the installed script as well as the app: in Tampermonkey, import the helper URL again and confirm the update; in Userscripts, replace the helper file in its scripts folder. Reload Spotify and confirm **Helper 1.4.0** in the panel. Refreshing Spot+ alone does not update an installed userscript.
+Update the installed script as well as the app: in Tampermonkey, import the helper URL again and confirm the update; in Userscripts, replace the helper file in its scripts folder. Reload Spotify and confirm **Helper 1.4.1** in the panel. Refreshing Spot+ alone does not update an installed userscript.
 
 The v40 app retains the dedicated setup page introduced in v35. Desktop/Android setup defaults to Tampermonkey's documented Import from URL path rather than assuming that a direct userscript link opens an installer. Copying a link never marks the helper installed or the account connected. On iPhone, select a scripts folder in Userscripts, download the helper from the setup page, and save the `.user.js` into that folder. The Safari Extensions → Userscripts → Install method remains an alternative. Allow Userscripts on the relevant websites.
 

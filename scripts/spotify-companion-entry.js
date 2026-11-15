@@ -104,7 +104,7 @@ function runSpotifyCompanion(){
     if(!document.body)return;
     host=document.createElement('div');host.id='spotplus-companion';host.style.cssText='position:fixed;right:12px;bottom:88px;z-index:2147483647;max-width:calc(100vw - 24px)';
     const root=host.attachShadow({mode:'open'});
-    root.innerHTML='<style>:host{color-scheme:dark}*{box-sizing:border-box}section{font:14px/1.45 system-ui,sans-serif;color:#fff;background:#090e0b;border:1px solid #315d49;border-radius:16px;padding:16px;width:330px;max-width:100%;box-shadow:0 8px 36px #000a}h2{font-size:18px;margin:0 0 8px}p{color:#c2c9c4;margin:8px 0}button,a{font:inherit;min-height:44px;border:1px solid #315d49;background:#15231b;color:#fff;border-radius:22px;padding:9px 14px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;margin:4px 4px 0 0}button:first-of-type{background:#1b5e46}button:disabled{opacity:.5;cursor:wait}small{display:block;color:#abb6ae;margin-top:12px}#close{float:right;border:0;padding:4px;min-height:28px;margin:0;background:transparent}#cancel[hidden],#copy[hidden],#send[hidden],#save[hidden]{display:none}#copy{background:#1b5e46}</style><section aria-label="Spot+ Spotify companion"><button id="close" aria-label="Minimize companion">−</button><h2>Spot+ companion · Beta</h2><div id="body"><p>Read your signed-in Spotify library. No Premium or developer account needed.</p><p id="status" role="status" aria-live="polite">Sign in and open Your Library, then tap Read library.</p><button id="read">Read library</button><button id="cancel" hidden>Cancel</button><button id="copy" hidden>Copy for Spot+</button><button id="send" hidden>Send to Spot+</button><button id="save" hidden>Save library file</button><small>Reads Liked Songs, playlists, saved albums and followed artists. Only your profile and music details leave this page. Spotify cookies and session tokens stay here.</small></div></section>';
+    root.innerHTML='<style>:host{color-scheme:dark}*{box-sizing:border-box}section{font:14px/1.45 system-ui,sans-serif;color:#fff;background:#090e0b;border:1px solid #315d49;border-radius:16px;padding:16px;width:330px;max-width:100%;box-shadow:0 8px 36px #000a}h2{font-size:18px;margin:0 0 8px}p{color:#c2c9c4;margin:8px 0}button,a{font:inherit;min-height:44px;border:1px solid #315d49;background:#15231b;color:#fff;border-radius:22px;padding:9px 14px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;margin:4px 4px 0 0}button:first-of-type{background:#1b5e46}button:disabled{opacity:.5;cursor:wait}small{display:block;color:#abb6ae;margin-top:12px}#close{float:right;border:0;padding:4px;min-height:28px;margin:0;background:transparent}#cancel[hidden],#copy[hidden],#send[hidden],#save[hidden]{display:none}#copy{background:#1db954;color:#000;font-weight:700;width:100%;justify-content:center;min-height:52px}#read[hidden]{display:none}#save{border:0;background:transparent;color:#abb6ae;text-decoration:underline}</style><section aria-label="Spot+ Spotify companion"><button id="close" aria-label="Minimize companion">−</button><h2>Spot+ companion · Beta</h2><div id="body"><p>Read your signed-in Spotify library. No Premium or developer account needed.</p><p id="status" role="status" aria-live="polite">Sign in and open Your Library, then tap Read library.</p><button id="read">Read library</button><button id="cancel" hidden>Cancel</button><button id="copy" hidden>Copy for Spot+</button><button id="send" hidden>Send to Spot+</button><button id="save" hidden>Save library file</button><small>Reads Liked Songs, playlists, saved albums and followed artists. Only your profile and music details leave this page. Spotify cookies and session tokens stay here.</small></div></section>';
     document.body.append(host);
     const version=document.createElement('small');version.textContent='Helper '+COMPANION_VERSION;root.querySelector('h2').append(version);
     root.getElementById('close').onclick=()=>{const body=root.getElementById('body');body.hidden=!body.hidden;root.getElementById('close').textContent=body.hidden?'+':'−';};
@@ -120,8 +120,12 @@ function runSpotifyCompanion(){
         const unreadable=library.likesUnreadable+library.playlists.reduce((n,p)=>n+(p.unreadable||0),0);
         status('Ready for review: '+library.likes.length+' liked songs, '+library.playlists.length+' playlists.'+(unavailable?' '+unavailable+' unavailable; any saved copies will be kept.':'')+(unreadable?' Song entries with incomplete details: '+unreadable+'. Existing copies of affected collections will be kept; new collections contain the readable songs.':'')+(isIOS?' Tap Copy for Spot+, then open Spot+ and tap Paste from Spotify.':' Review and send your library to Spot+.'));
         encodeLibraryText(library).then(text=>{libraryText=text;},()=>{libraryText=null;});
-        for(const id of ['copy','send','save'])root.getElementById(id).hidden=false;notify('done');
-        sendLibrary();
+        // iPhone without a Spot+ tab to message: Copy is the one button that matters.
+        const pasteOnly=isIOS&&!window.opener;
+        root.getElementById('copy').hidden=false;root.getElementById('send').hidden=pasteOnly;root.getElementById('save').hidden=false;
+        if(pasteOnly){root.getElementById('read').hidden=true;status('Ready: '+library.likes.length+' liked songs, '+library.playlists.length+' playlists. Tap Copy for Spot+, then go back to Spot+.');}
+        notify('done');
+        if(sendLibrary()&&isIOS)status('Sent! Switch back to the Spot+ tab to apply your library.');
       }catch(error){library=null;allowAuthRetry=/sign in|session expired/i.test(error.message||'');status(error.message||'Sync could not complete. Your previous library is kept.');notify('error');}
       finally{controls(false);}
     };
@@ -133,7 +137,7 @@ function runSpotifyCompanion(){
       if(!libraryText){status('Preparing your library… tap Copy for Spot+ again in a moment.');return;}
       if(!navigator.clipboard?.writeText){status('Copying is unavailable here. Choose Save library file instead.');return;}
       navigator.clipboard.writeText(libraryText).then(
-        ()=>status('Copied. Open Spot+ and tap Paste from Spotify. Nothing was sent anywhere else.'),
+        ()=>{status('Copied ✓ Now go back to Spot+ — it will offer to paste. Nothing was sent anywhere else.');root.getElementById('copy').textContent='Copied ✓';},
         ()=>status('Safari blocked copying. Tap Copy for Spot+ again, or choose Save library file.'));
     };
     root.getElementById('save').onclick=()=>{
