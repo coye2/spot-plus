@@ -1,6 +1,6 @@
 // Read-only Spotify web-client adapter. No cookie access, login or audio extraction.
 // Request names/hashes describe Spotify's interface; see ACCOUNT-CONNECTION.md.
-export const COMPANION_VERSION = '1.3.2';
+export const COMPANION_VERSION = '1.3.3';
 export const SPOTIFY_QUERY_URL = 'https://api-partner.spotify.com/pathfinder/v2/query';
 export const READ_QUERIES = Object.freeze({
   profileAttributes:'53bcb064f6cd18c23f752bc324a791194d20df612d8e1239c735144ab0399ced',
@@ -14,6 +14,16 @@ export function spotifyId(value, type) {
 }
 export function spotifyCover(value) {
   try { const u=new URL(value); return u.protocol==='https:' && /(^|\.)(scdn\.co|spotifycdn\.com)$/.test(u.hostname) && !u.username && !u.password ? u.href : ''; } catch { return ''; }
+}
+export function spotifyProfileURL(id) {
+  try { return id ? 'https://open.spotify.com/user/'+encodeURIComponent(cleanText(id,120)) : ''; } catch { return ''; }
+}
+export function readSpotifyProfile(profile) {
+  const id=cleanText(profile?.username,120);
+  if(!id)return null;
+  const sources=Array.isArray(profile.avatar?.sources)?profile.avatar.sources:[];
+  const avatar=[...sources].sort((a,b)=>(Number(b?.width)||0)-(Number(a?.width)||0)).map(source=>spotifyCover(source?.url)).find(Boolean)||'';
+  return {id,name:cleanText(profile.name,120)||id,avatar,externalUrl:spotifyProfileURL(id)};
 }
 function trackRecord(raw) {
   const wrapper=raw?.itemV2 || raw?.track;
@@ -68,7 +78,7 @@ export async function readSpotifyAccount(query,{signal,onProgress=()=>{}}={}) {
   onProgress('Reading your Spotify profile…');
   const profile=(await query('profileAttributes',{})).data?.me?.profile;
   if(!profile?.username || typeof profile.username!=='string')throw new Error('Sign in to Spotify, open Your Library, then try again.');
-  const account={id:cleanText(profile.username,120),name:cleanText(profile.name,120)||cleanText(profile.username,120)};
+  const account=readSpotifyProfile(profile);
   const library={app:'spotplus-account',version:1,complete:true,account,capturedAt:Date.now(),likes:[],playlists:[],albums:[],artists:[],skipped:0};
   const options={signal,max:10000};
   onProgress('Reading Liked Songs…');

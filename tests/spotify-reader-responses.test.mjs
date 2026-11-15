@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {COMPANION_VERSION,readSpotifyAccount,readSpotifyTrack} from '../js/spotify-reader.js';
-import {COMPANION_VERSION as setupVersion} from '../js/account-setup.js';
+import {COMPANION_VERSION,readSpotifyAccount,readSpotifyTrack,readSpotifyProfile} from '../js/spotify-reader.js';
+import {COMPANION_VERSION as setupVersion,spotifyProfileHtml} from '../js/account-setup.js';
+import {validateAccountSnapshot} from '../js/spotify-account.js';
 
 // Independently written minimal responses matching the public Spotify recordings:
 // sonic-liberation/spotube-plugin-spotify, commit 3d1e83b74dce0ba8495f81c083d51d447d09c729,
@@ -100,4 +101,36 @@ test('installed helper, update metadata and setup page publish the same version'
     assert.equal(source.match(/^\/\/ @version\s+(\S+)/m)?.[1],COMPANION_VERSION);
     if(file.endsWith('.user.js'))assert.ok(source.includes("version.textContent='Helper '+COMPANION_VERSION"));
   }
+});
+
+test('profile response preserves display name and best Spotify photo without exporting private fields',async()=>{
+  const profile={username:'fixture user',name:'Fixture listener',uri:'spotify:user:fixture user',email:'never-copy@example.test',accessToken:'never-copy',avatar:{sources:[
+    {width:64,url:'https://i.scdn.co/image/small'},
+    {width:300,url:'https://i.scdn.co/image/profile'},
+    {width:500,url:'https://unsafe.example/photo'}
+  ]}};
+  const expected={id:'fixture user',name:'Fixture listener',avatar:'https://i.scdn.co/image/profile',externalUrl:'https://open.spotify.com/user/fixture%20user'};
+  assert.deepEqual(readSpotifyProfile(profile),expected);
+  const account=await readSpotifyAccount(queryWith({profileAttributes:()=>({data:{me:{profile}}})}));
+  assert.deepEqual(validateAccountSnapshot(account).account,expected);
+  assert.equal(JSON.stringify(account).includes('never-copy'),false);
+});
+
+test('profile import validates photos and rebuilds links instead of trusting an imported destination',async()=>{
+  const account=await readSpotifyAccount(queryWith());
+  account.account={id:'listener/?next=evil',name:'Listener',avatar:'https://i.scdn.co.evil.test/photo',externalUrl:'javascript:alert(1)',email:'private'};
+  const clean=validateAccountSnapshot(account).account;
+  assert.equal(clean.avatar,'');
+  assert.equal(clean.externalUrl,'https://open.spotify.com/user/listener%2F%3Fnext%3Devil');
+  assert.equal(clean.email,undefined);
+  assert.equal(readSpotifyProfile({username:'legacy'}).avatar,'');
+  assert.equal(readSpotifyProfile({username:'legacy',avatar:{sources:{}}}).name,'legacy');
+});
+
+test('profile cards escape names and support older accounts with no photo',()=>{
+  const html=spotifyProfileHtml({id:'old user',name:'<script>bad</script>',avatar:'javascript:bad',externalUrl:'https://evil.test'});
+  assert.ok(html.includes('&lt;script&gt;bad&lt;/script&gt;'));
+  assert.ok(html.includes('https://open.spotify.com/user/old%20user'));
+  assert.doesNotMatch(html,/<script>|<img|evil\.test|javascript:/);
+  assert.equal(spotifyProfileHtml(null),'');
 });

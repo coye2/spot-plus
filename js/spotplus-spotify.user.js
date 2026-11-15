@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Spot+ Spotify Library Companion
 // @namespace    https://coye2.github.io/spot-plus/
-// @version      1.3.2
+// @version      1.3.3
 // @description  Copy your signed-in Spotify music library to Spot+ on this device. Read only; no Premium requirement.
 // @updateURL    https://coye2.github.io/spot-plus/js/spotplus-spotify.meta.js
 // @downloadURL  https://coye2.github.io/spot-plus/js/spotplus-spotify.user.js
@@ -15,7 +15,7 @@
 (()=>{if(window.top!==window.self)return;(()=>{
 // Read-only Spotify web-client adapter. No cookie access, login or audio extraction.
 // Request names/hashes describe Spotify's interface; see ACCOUNT-CONNECTION.md.
-const COMPANION_VERSION = '1.3.2';
+const COMPANION_VERSION = '1.3.3';
 const SPOTIFY_QUERY_URL = 'https://api-partner.spotify.com/pathfinder/v2/query';
 const READ_QUERIES = Object.freeze({
   profileAttributes:'53bcb064f6cd18c23f752bc324a791194d20df612d8e1239c735144ab0399ced',
@@ -29,6 +29,16 @@ function spotifyId(value, type) {
 }
 function spotifyCover(value) {
   try { const u=new URL(value); return u.protocol==='https:' && /(^|\.)(scdn\.co|spotifycdn\.com)$/.test(u.hostname) && !u.username && !u.password ? u.href : ''; } catch { return ''; }
+}
+function spotifyProfileURL(id) {
+  try { return id ? 'https://open.spotify.com/user/'+encodeURIComponent(cleanText(id,120)) : ''; } catch { return ''; }
+}
+function readSpotifyProfile(profile) {
+  const id=cleanText(profile?.username,120);
+  if(!id)return null;
+  const sources=Array.isArray(profile.avatar?.sources)?profile.avatar.sources:[];
+  const avatar=[...sources].sort((a,b)=>(Number(b?.width)||0)-(Number(a?.width)||0)).map(source=>spotifyCover(source?.url)).find(Boolean)||'';
+  return {id,name:cleanText(profile.name,120)||id,avatar,externalUrl:spotifyProfileURL(id)};
 }
 function trackRecord(raw) {
   const wrapper=raw?.itemV2 || raw?.track;
@@ -83,7 +93,7 @@ async function readSpotifyAccount(query,{signal,onProgress=()=>{}}={}) {
   onProgress('Reading your Spotify profile…');
   const profile=(await query('profileAttributes',{})).data?.me?.profile;
   if(!profile?.username || typeof profile.username!=='string')throw new Error('Sign in to Spotify, open Your Library, then try again.');
-  const account={id:cleanText(profile.username,120),name:cleanText(profile.name,120)||cleanText(profile.username,120)};
+  const account=readSpotifyProfile(profile);
   const library={app:'spotplus-account',version:1,complete:true,account,capturedAt:Date.now(),likes:[],playlists:[],albums:[],artists:[],skipped:0};
   const options={signal,max:10000};
   onProgress('Reading Liked Songs…');
@@ -220,7 +230,7 @@ function runSpotifyCompanion(){
     if(!document.body)return;
     host=document.createElement('div');host.id='spotplus-companion';host.style.cssText='position:fixed;right:12px;bottom:88px;z-index:2147483647;max-width:calc(100vw - 24px)';
     const root=host.attachShadow({mode:'open'});
-    root.innerHTML='<style>:host{color-scheme:dark}*{box-sizing:border-box}section{font:14px/1.45 system-ui,sans-serif;color:#fff;background:#090e0b;border:1px solid #315d49;border-radius:16px;padding:16px;width:330px;max-width:100%;box-shadow:0 8px 36px #000a}h2{font-size:18px;margin:0 0 8px}p{color:#c2c9c4;margin:8px 0}button,a{font:inherit;min-height:44px;border:1px solid #315d49;background:#15231b;color:#fff;border-radius:22px;padding:9px 14px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;margin:4px 4px 0 0}button:first-of-type{background:#1b5e46}button:disabled{opacity:.5;cursor:wait}small{display:block;color:#abb6ae;margin-top:12px}#close{float:right;border:0;padding:4px;min-height:28px;margin:0;background:transparent}#cancel[hidden],#send[hidden],#save[hidden]{display:none}</style><section aria-label="Spot+ Spotify companion"><button id="close" aria-label="Minimize companion">−</button><h2>Spot+ companion · Beta</h2><div id="body"><p>Read your signed-in Spotify library. No Premium or developer account needed.</p><p id="status" role="status" aria-live="polite">Sign in and open Your Library, then tap Read library.</p><button id="read">Read library</button><button id="cancel" hidden>Cancel</button><button id="send" hidden>Send to Spot+</button><button id="save" hidden>Save library file</button><small>Reads Liked Songs, playlists, saved albums and followed artists. Only music metadata leaves this page. Spotify cookies and session tokens stay here.</small></div></section>';
+    root.innerHTML='<style>:host{color-scheme:dark}*{box-sizing:border-box}section{font:14px/1.45 system-ui,sans-serif;color:#fff;background:#090e0b;border:1px solid #315d49;border-radius:16px;padding:16px;width:330px;max-width:100%;box-shadow:0 8px 36px #000a}h2{font-size:18px;margin:0 0 8px}p{color:#c2c9c4;margin:8px 0}button,a{font:inherit;min-height:44px;border:1px solid #315d49;background:#15231b;color:#fff;border-radius:22px;padding:9px 14px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;margin:4px 4px 0 0}button:first-of-type{background:#1b5e46}button:disabled{opacity:.5;cursor:wait}small{display:block;color:#abb6ae;margin-top:12px}#close{float:right;border:0;padding:4px;min-height:28px;margin:0;background:transparent}#cancel[hidden],#send[hidden],#save[hidden]{display:none}</style><section aria-label="Spot+ Spotify companion"><button id="close" aria-label="Minimize companion">−</button><h2>Spot+ companion · Beta</h2><div id="body"><p>Read your signed-in Spotify library. No Premium or developer account needed.</p><p id="status" role="status" aria-live="polite">Sign in and open Your Library, then tap Read library.</p><button id="read">Read library</button><button id="cancel" hidden>Cancel</button><button id="send" hidden>Send to Spot+</button><button id="save" hidden>Save library file</button><small>Reads Liked Songs, playlists, saved albums and followed artists. Only your profile and music details leave this page. Spotify cookies and session tokens stay here.</small></div></section>';
     document.body.append(host);
     const version=document.createElement('small');version.textContent='Helper '+COMPANION_VERSION;root.querySelector('h2').append(version);
     root.getElementById('close').onclick=()=>{const body=root.getElementById('body');body.hidden=!body.hidden;root.getElementById('close').textContent=body.hidden?'+':'−';};

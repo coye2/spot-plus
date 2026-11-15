@@ -61,12 +61,14 @@ test('saving an account copy preserves local music and a failed write preserves 
 
 test('general backup restores a sanitized Spotify library copy on a new device',async()=>{
   globalThis.localStorage=storageMock();const store=await import('../js/store.js');
-  const account=snapshot();account.account.token='never-copy';store.setSpotifyAccount(account);
+  const account=snapshot();account.account.token='never-copy';account.account.avatar='https://i.scdn.co/image/profile';store.setSpotifyAccount(account);
   const playlist=store.createPlaylist('Local music',[{id:'local-song',title:'Local song'}]);
   store.setSettings({density:'compact'});const backup=JSON.parse(JSON.stringify(store.exportData()));
   assert.equal(JSON.stringify(backup).includes('never-copy'),false);localStorage.clear();
   assert.equal(store.importData(backup).spotifyAccount,'restored');
   assert.equal(store.getSpotifyAccount().account.id,'test-user');
+  assert.equal(store.getSpotifyAccount().account.avatar,'https://i.scdn.co/image/profile');
+  assert.equal(store.getSpotifyAccount().account.externalUrl,'https://open.spotify.com/user/test-user');
   assert.equal(store.getSpotifyAccount().playlists[0].tracks.length,1);
   assert.ok(store.getPlaylist(playlist.id));assert.equal(store.getSettings().density,'compact');
 });

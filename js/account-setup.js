@@ -1,7 +1,13 @@
 export function connectionDevice(ua='',platform='',touches=0){if(/iPhone|iPad|iPod/i.test(ua)||(platform==='MacIntel'&&touches>1))return 'iphone';if(/Android/i.test(ua))return 'android';return 'computer';}
-import {COMPANION_VERSION} from './spotify-reader.js';
+import {COMPANION_VERSION,spotifyCover,spotifyProfileURL} from './spotify-reader.js';
 export {COMPANION_VERSION};
 export const COMPANION_INSTALL_URL='https://coye2.github.io/spot-plus/js/spotplus-spotify.user.js';
+const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+export function spotifyProfileHtml(account) {
+ if(!account?.id)return '';
+ const name=account.name||account.id,avatar=spotifyCover(account.avatar),link=spotifyProfileURL(account.id);
+ return '<div class="spotify-profile"><div class="spotify-profile-photo" aria-hidden="true"><span>'+escapeHtml([...name][0]?.toUpperCase()||'S')+'</span>'+(avatar?'<img src="'+escapeHtml(avatar)+'" alt="" width="88" height="88" loading="lazy" decoding="async" referrerpolicy="no-referrer">':'')+'</div><div class="spotify-profile-details"><div class="kicker">Your Spotify profile</div><h2>'+escapeHtml(name)+'</h2><p class="muted">'+escapeHtml(account.id)+'</p>'+(link?'<a class="link" href="'+escapeHtml(link)+'" target="_blank" rel="noopener noreferrer">View on Spotify ↗</a>':'')+'</div></div>';
+}
 const deviceInfo={
  iphone:{browser:'Safari',manager:'Userscripts',url:'https://github.com/quoid/userscripts#installation'},
  android:{browser:'Firefox',manager:'Tampermonkey',url:'https://www.tampermonkey.net/index.php?browser=firefox'},

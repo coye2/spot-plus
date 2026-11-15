@@ -1,4 +1,4 @@
-import {spotifyCover} from './spotify-reader.js';
+import {spotifyCover,spotifyProfileURL} from './spotify-reader.js';
 
 export const ACCOUNT_FILE_LIMIT=12*1024*1024;
 const text=(v,n=500)=>typeof v==='string'?v.slice(0,n):'';
@@ -20,7 +20,7 @@ export function validateAccountSnapshot(raw){
   });
   const likes=raw.likes.map(track).filter(Boolean);
   if(likes.length+playlists.reduce((n,p)=>n+p.tracks.length,0)>20000)throw new Error('This library exceeds the 20,000-track limit.');
-  return {app:'spotplus-account',version:1,complete:true,account:{id:text(raw.account.id,120),name:text(raw.account.name,120)||text(raw.account.id,120)},capturedAt:raw.capturedAt,likes,playlists,albums:raw.albums.filter(p=>p&&validId(p.id)).map(p=>entity(p,'album')),artists:raw.artists.filter(p=>p&&validId(p.id)).map(p=>entity(p,'artist')),skipped:Math.max(0,Math.min(20000,Number(raw.skipped)||0))};
+  return {app:'spotplus-account',version:1,complete:true,account:{id:text(raw.account.id,120),name:text(raw.account.name,120)||text(raw.account.id,120),avatar:spotifyCover(raw.account.avatar),externalUrl:spotifyProfileURL(raw.account.id)},capturedAt:raw.capturedAt,likes,playlists,albums:raw.albums.filter(p=>p&&validId(p.id)).map(p=>entity(p,'album')),artists:raw.artists.filter(p=>p&&validId(p.id)).map(p=>entity(p,'artist')),skipped:Math.max(0,Math.min(20000,Number(raw.skipped)||0))};
 }
 export function mergeAccountSnapshot(previous,incoming){
   const next=validateAccountSnapshot(incoming);
