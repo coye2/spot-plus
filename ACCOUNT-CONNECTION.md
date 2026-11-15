@@ -2,12 +2,12 @@
 
 The experimental browser companion reads the library of the Spotify account signed in to the device's browser. It requires neither Spotify Premium nor a developer Client ID. It is **one-way, user-initiated refresh**, not continuous background sync or Spotify audio playback. A real signed-in account and physical Android/iPhone tests are still required to verify it end to end.
 
-Open Spot+ → Settings → Spotify account. The screen selects your device, shows three setup steps, and keeps troubleshooting/file import collapsed. The GitHub Pages app is public at https://coye2.github.io/spot-plus/. Your music library is stored in your own browser.
+Open Spot+ → Settings → Spotify account → **Set up helper**. This opens the full in-app setup page at `#/spotify-account/helper`, keeping the instructions visible while you work in the extension. The GitHub Pages app is public at https://coye2.github.io/spot-plus/. Your music library is stored in your own browser.
 
 ## iPhone, without a PC
 
 1. Install [Userscripts](https://github.com/quoid/userscripts#installation) using the project's official App Store link. Open the app once, then enable its extension in Safari.
-2. In Safari, open the **Spot+ companion** link in the Spot+ account screen. In Safari's extensions menu, open Userscripts and install the script.
+2. In Spot+, choose **Set up helper → iPhone → Download helper file**, then save it into the folder selected in Userscripts. The setup page also offers installation through Safari's extensions menu.
 3. Allow the extension on `open.spotify.com`. Open Spot+ in Safari, choose **Connect Spotify → Copy Spotify browser link**, paste it into Safari’s address bar, and sign in on Spotify itself.
 4. Keep Spotify open. After sign-in, the helper attempts to read the library and send it back automatically. If it does not start, open Your Library and choose **Read library**, then **Send to Spot+**.
 5. Return to Spot+ and review/apply the library. If the tabs cannot communicate, choose **Save library file** on Spotify, save it to Files, and use **Import library file** in Spot+.
@@ -15,7 +15,7 @@ Open Spot+ → Settings → Spotify account. The screen selects your device, sho
 ## Android, without a PC
 
 1. Use Firefox and install [Tampermonkey](https://www.tampermonkey.net/index.php?browser=firefox) from its official Firefox extension link.
-2. Open the companion link from Spot+'s account screen and install it.
+2. Choose **Set up helper → Copy install link**. In Tampermonkey, open **Dashboard → Utilities → Import from URL**, paste the link, and confirm installation. The automatic file link is an optional alternative; direct import also works when link detection fails or only code appears.
 3. Choose **Connect Spotify → Copy Spotify browser link** and paste it into Firefox’s address bar. Request Desktop site if needed.
 4. Keep Spotify open while the helper reads your library and sends it back for review. If nothing arrives, open Your Library → **Read library → Send to Spot+**. The file fallback works here too.
 
@@ -24,7 +24,7 @@ For a home-screen app, use Safari/Firefox for the connection step. Browser and i
 ## Computer (Windows, macOS or Linux)
 
 1. In Chrome, Edge or Firefox, install [Tampermonkey](https://www.tampermonkey.net/) from its official extension-store link. Chrome/Edge may require **Allow User Scripts** in the extension's Details.
-2. Open **Install Spot+ helper** on the account setup page and install it. The helper runs on Spotify's website, not its desktop app.
+2. Choose **Set up helper → Copy install link**. In Tampermonkey, open **Dashboard → Utilities → Import from URL**, paste the link, and confirm installation. The setup page keeps these steps and a selectable copy of the URL visible. If clipboard access is denied, it selects the URL for manual copying and does not report success. The helper runs on Spotify's website, not its desktop app.
 3. Choose **Connect Spotify**, sign in on Spotify itself, and keep both tabs open. The helper reads the library and sends it for review. If the automatic step fails, use **Read library → Send to Spot+** or the file fallback.
 
 Both Tampermonkey and Safari Userscripts explicitly run the helper in the page context. There is no blob-injection branch. Sign-in with a real account is still unverified. Use a regular browser with its userscript extension enabled; installing an extension in Chrome does not install it in a separate embedded browser.
@@ -60,7 +60,7 @@ Opens the hosted account setup screen. `-ShowFiles` locates the bundled companio
 
 ## Verification
 
-Update/reinstall the helper to **1.3.1** from the account screen. The install button now opens device-specific instructions, an installer link, and a download fallback. On iPhone, select a scripts folder in Userscripts first. Open the helper file in Safari, then choose Extensions → Userscripts → Install; alternatively, save the downloaded `.user.js` into that folder. Allow Userscripts on the download website and on `open.spotify.com`.
+The helper remains **1.3.1**. The v35 app replaces the install sheet with a dedicated setup page. Desktop/Android setup defaults to Tampermonkey's documented Import from URL path rather than assuming that a direct userscript link opens an installer. Copying a link never marks the helper installed or the account connected. On iPhone, select a scripts folder in Userscripts, download the helper from the setup page, and save the `.user.js` into that folder. The Safari Extensions → Userscripts → Install method remains an alternative. Allow Userscripts on the relevant websites.
 
 The blank install page was reproduced: the v33 service worker treated a navigation to the `.user.js` file as an app route and returned `index.html`. Its relative assets then resolved below `/js/`, leaving an unstyled, unusable white page. v34 fetches the installer/update files directly, bypasses stale caches, and only uses the cached app document for the actual app entry URLs. Regression tests cover the install navigation, update fetch, offline failure, offline app entry, and missing-file responses. After opening Spot+, refresh once if Helper 1.3.1 is not yet visible. No library reset or browsing-data deletion is needed.
 

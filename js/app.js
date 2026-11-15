@@ -13,7 +13,7 @@ import * as dj from './dj.js';
 import * as spotify from './spotify.js';
 import * as themes from './themes.js';
 import {bindPlayerDismiss} from './player-gestures.js';
-import {connectionDevice,setupHtml,spotifyConnectionURLs,helperInstallHtml} from './account-setup.js';
+import {connectionDevice,setupHtml,spotifyConnectionURLs,helperInstallHtml,copyHelperInstallLink} from './account-setup.js';
 let accountDevice=connectionDevice(navigator.userAgent,navigator.platform,navigator.maxTouchPoints);
 import {validateAccountSnapshot,isAccountMessage,ACCOUNT_FILE_LIMIT} from './spotify-account.js';
 
@@ -368,6 +368,7 @@ const routes = [
   [/^#\/essentials\/(\d+)$/, viewEssentials],
   [/^#\/spotify$/, viewSpotify],
   [/^#\/spotify-account$/, viewSpotifyAccount],
+  [/^#\/spotify-account\/helper$/, viewSpotifyHelper],
   [/^#\/spotify-account\/receive\/([a-f0-9]{32})$/, receiveSpotifyAccount],
   [/^#\/spotify-account\/(likes)$/, viewSpotifyAccountList],
   [/^#\/spotify-account\/playlist\/([a-zA-Z0-9]{22})$/, viewSpotifyAccountList],
@@ -509,7 +510,8 @@ async function handleAct(act, el) {
     case 'spotify-save': {const item=await spotify.metadata({type:el.dataset.type,id:el.dataset.id});store.saveSpotifyLink({...item,saved:Date.now()});toast('Spotify link saved to your library');break;}
     case 'spotify-import': $('#spotifyImport').click();break;
     case 'account-connect': beginSpotifyConnection();break;
-    case 'account-helper': openSheet({head:'<div class="sheet-title">Install the Spot+ helper</div>',body:helperInstallHtml(accountDevice)});break;
+    case 'account-helper': go('#/spotify-account/helper');break;
+    case 'account-helper-copy': await copyHelperInstallLink({clipboard:navigator.clipboard,field:$('#helperInstallLink'),status:$('#helperCopyStatus')});break;
     case 'account-file': $('#spotifyAccountImport').click();break;
     case 'account-disconnect': if(await confirmBox('Remove this Spotify connection?', 'This removes the Spotify library copy from this device. Your local Spot+ music and Spotify account are kept.')){pendingAccount=null;store.clearSpotifyAccount();toast('Spotify copy removed from this device');}break;
     case 'theme-preset': store.setSettings({themePreset:el.dataset.id,themeCustom:null});route({keepScroll:true});break;
@@ -552,7 +554,7 @@ async function handleAct(act, el) {
     case 'dj-suggestion': await dj.start(el.dataset.prompt);break;
     case 'dj-host': await dj.voice.preview(el.dataset.host);syncDJVoice();break;
     case 'search-clear': clearTimeout(searchTimer);$('#globalQ').value='';$('#globalClear').hidden=true;if($('#q')){$('#q').value='';$('#searchClear').hidden=true;runSearch('');}else go('#/search');(matchMedia('(min-width:768px)').matches?$('#globalQ'):$('#q'))?.focus();break;
-    case 'account-device': accountDevice=el.dataset.device;$('#accountSetup').innerHTML=setupHtml(accountDevice);break;
+    case 'account-device': accountDevice=el.dataset.device;if($('#helperSetup'))$('#helperSetup').innerHTML=helperInstallHtml(accountDevice);else $('#accountSetup').innerHTML=setupHtml(accountDevice);break;
     case 'dj-live-remove': dj.disableLive();await dj.liveVoice.removeDownloads();await dj.localModel.removeModel();toast('DJ downloads removed. Your music is kept.');break;
     case 'dj-edit': dj.stop();$('#djPrompt').value=dj.voice.state.transcript;$('#djPrompt').focus();break;
     case 'dj-live-enable': await dj.enableLive().catch(e=>toast(e.message));break;
@@ -1086,6 +1088,7 @@ $('#spotifyAccountImport').addEventListener('change',async event=>{
   const file=event.target.files?.[0];event.target.value='';if(!file)return;
   try{if(file.size>ACCOUNT_FILE_LIMIT)throw new Error('Choose a companion library file under 12 MB.');await reviewSpotifyAccount(JSON.parse(await file.text()));}catch(e){toast(e instanceof SyntaxError?'That file is not a valid JSON library.':e.message);}
 });
+function viewSpotifyHelper(){return `<div class="helper-page"><a class="link helper-back" href="#/spotify-account">← Spotify setup</a><div class="connect-heading"><span class="account-badge">Your music, together</span><h1>Install the Spot+ helper</h1><p>Add your library with a free browser extension.</p></div><div id="helperSetup">${helperInstallHtml(accountDevice)}</div></div>`;}
 function viewSpotifyAccount(){
  const account=store.getSpotifyAccount();
  return `<div class="connect-heading"><span class="account-badge">Your music, together</span><h1>Connect Spotify</h1><p>Bring your liked songs and playlists into Spot+.</p></div>
