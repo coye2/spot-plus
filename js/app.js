@@ -7,6 +7,7 @@ import {ListeningMeter,saveHistory,readHistory,clearHistory} from './listening-h
 // app.js — Spot+ UI: router, views, player bar, now-playing screen.
 import * as api from './api.js';
 import * as store from './store.js';
+await store.ready(); // Load the Spotify account copy from IndexedDB before the first render.
 import * as player from './player.js';
 import { libraryItems, visibleTracks, parseRoute } from './library.js';
 import * as dj from './dj.js';
@@ -1123,7 +1124,7 @@ async function reviewSpotifyAccount(raw){
     const readNotice=accountReadNotice(snapshot);
     const message=`${snapshot.account.name}: ${plural(snapshot.likes.length,'liked song')}, ${plural(snapshot.playlists.length,'playlist')}, ${plural(snapshot.albums.length,'album')} and ${plural(snapshot.artists.length,'artist')}. ${changed?'This replaces the other Spotify account’s copy on this device. ':''}${readNotice?readNotice+' ':''}Complete collections replace the Spotify copy, including removed songs. Your local Spot+ playlists and likes are kept. No changes are sent to Spotify.`;
     if(!await confirmBox('Apply this Spotify library?',message,'Apply library'))return false;
-    store.setSpotifyAccount(snapshot);awaitingPaste=false;toast('Spotify library saved on this device');go('#/spotify-account');return true;
+    store.setSpotifyAccount(snapshot);await store.flushSpotifyAccount();awaitingPaste=false;toast('Spotify library saved on this device');go('#/spotify-account');return true;
   }catch(e){toast(e.message);return false;}finally{accountReviewBusy=false;}
 }
 window.addEventListener('message',async event=>{

@@ -156,9 +156,44 @@ export function addLocalFile(track) { write('localFiles', [slim(track), ...getLo
 export const removeLocalFile = id => write('localFiles', getLocalFiles().filter(t=>t.id!==id));
 export const getSpotifyLinks=()=>read('spotifyLinks',[]).filter(p=>p&&/^[A-Za-z0-9]{22}$/.test(p.id)&&['playlist','album','artist','track'].includes(p.type));
 export function saveSpotifyLink(item){write('spotifyLinks',[item,...getSpotifyLinks().filter(x=>x.id!==item.id||x.type!==item.type)]);}
-export const getSpotifyAccount=()=>read('spotifyAccount',null);
-export function setSpotifyAccount(snapshot){const next=mergeAccountSnapshot(getSpotifyAccount(),snapshot);write('spotifyAccount',next);return next;}
-export function clearSpotifyAccount(){localStorage.removeItem(P+'spotifyAccount');emit('spotifyAccount');}
+/* ---------- Spotify account copy (IndexedDB) ----------
+   A full Spotify library easily exceeds Safari's ~5 MB localStorage quota, so the
+   account copy lives in IndexedDB with an in-memory cache for synchronous reads.
+   Older copies in localStorage are moved over by ready(). Without IndexedDB (tests,
+   restricted modes) the original localStorage path is used. */
+const STORAGE_FULL='Your browser storage is full or unavailable. Export a backup or free some space and try again.';
+let useIdb=typeof indexedDB!=='undefined',accountCache=null,accountWrite=Promise.resolve(),dbPromise=null;
+function idb(){
+  return dbPromise||=new Promise((resolve,reject)=>{const r=indexedDB.open('spotplus',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);r.onblocked=()=>reject(new Error('blocked'));});
+}
+function idbRun(mode,fn){
+  return idb().then(db=>new Promise((resolve,reject)=>{const tx=db.transaction('kv',mode),req=fn(tx.objectStore('kv'));tx.oncomplete=()=>resolve(req?.result);tx.onerror=tx.onabort=()=>reject(tx.error||new Error('aborted'));}));
+}
+export async function ready(){
+  if(!useIdb)return;
+  try{
+    const saved=await idbRun('readonly',kv=>kv.get('spotifyAccount')),legacy=read('spotifyAccount',null);
+    accountCache=saved||legacy||null;
+    if(!saved&&legacy)await idbRun('readwrite',kv=>kv.put(legacy,'spotifyAccount'));
+    if(legacy)localStorage.removeItem(P+'spotifyAccount');
+  }catch{useIdb=false;accountCache=null;}
+}
+export const getSpotifyAccount=()=>useIdb?accountCache:read('spotifyAccount',null);
+export function setSpotifyAccount(snapshot){
+  const previous=getSpotifyAccount(),next=mergeAccountSnapshot(previous,snapshot);
+  if(!useIdb){write('spotifyAccount',next);return next;}
+  accountCache=next;
+  accountWrite=idbRun('readwrite',kv=>kv.put(next,'spotifyAccount')).then(()=>{navigator.storage?.persist?.().catch(()=>{});},()=>{if(accountCache===next)accountCache=previous;emit('spotifyAccount');throw new Error(STORAGE_FULL);});
+  accountWrite.catch(()=>{});
+  emit('spotifyAccount');return next;
+}
+/** Resolves once the last account change is on disk; rejects if it could not be saved. */
+export const flushSpotifyAccount=()=>accountWrite;
+export function clearSpotifyAccount(){
+  if(useIdb){accountCache=null;accountWrite=idbRun('readwrite',kv=>kv.delete('spotifyAccount'));accountWrite.catch(()=>{});}
+  try{localStorage.removeItem(P+'spotifyAccount');}catch{ /* Nothing to remove. */ }
+  emit('spotifyAccount');
+}
 export const getThemes=()=>read('themes',[]);
 export function saveTheme(theme){write('themes',[theme,...getThemes().filter(x=>x.id!==theme.id)]);}
 export function importSpotify(bundle){
