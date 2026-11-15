@@ -1,5 +1,5 @@
 // Spot+ service worker: offline app shell + cached cover art. Audio downloads live in their own cache.
-const SHELL_CACHE = 'spotplus-shell-v24';
+const SHELL_CACHE = 'spotplus-shell-v25';
 const IMG_CACHE = 'spotplus-img-v1';
 const KEEP = [SHELL_CACHE, IMG_CACHE, 'spotplus-audio-v1', 'spotplus-live-voice-v1'];
 const SHELL = [
@@ -13,7 +13,9 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(SHELL_CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // A new shell must bypass the browser's still-fresh copies from the old release.
+  const fresh = SHELL.map(path => new Request(new URL(path,self.location.href),{cache:'reload'}));
+  e.waitUntil(caches.open(SHELL_CACHE).then((c) => c.addAll(fresh)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e) => {

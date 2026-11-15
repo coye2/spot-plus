@@ -1077,7 +1077,7 @@ store.onChange((key) => {
   if(key==='localFiles'&&h==='#/local')route({keepScroll:true});
 });
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; const b = $('#installBtn'); if (b) b.hidden = false; });
-if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('SW failed', e));
+if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'}).catch((e) => console.warn('SW failed', e));
 
 player.restore();
 applyPreferences();
