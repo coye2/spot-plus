@@ -2,11 +2,12 @@
 import * as api from './api.js';
 import * as store from './store.js';
 import { NextAudioBuffer } from './audio-buffer.js';
+import {audioHasHeadroom} from './playback-policy.js';
 
 export const AUDIO_CACHE = 'spotplus-audio-v1';
-const audio = new Audio();
+let audio = new Audio();
 audio.preload = 'auto';
-export const el = audio;
+export let el = audio;
 
 const listeners = { state: new Set(), time: new Set(), error: new Set() };
 export const on = (ev, fn) => listeners[ev].add(fn);
@@ -28,6 +29,17 @@ let pendingPlay = true;
 const nextBuffer = new NextAudioBuffer();
 let prefetchTimer = 0, warmGeneration = 0, startedAt = 0;
 let volumeLevel = 1;
+let stallTimer;
+function clearStall(){clearTimeout(stallTimer);stallTimer=null;}
+function watchStall(){clearStall();const generation=token;stallTimer=setTimeout(()=>{if(generation===token&&pendingPlay&&isRealSrc())recoverMedia();},8000);stallTimer.unref?.();}
+function recoverMedia(){
+  clearStall();if(!isRealSrc()||!current())return;
+  const alternatives=state.source?.alternatives||[];
+  if(!state.offline&&alternatives.length){const [variant,...rest]=alternatives;load({keepSkip:true,startAt:audio.currentTime||0,sourceOverride:{...state.source,...variant,alternatives:rest}});return;}
+  api.reportPlaybackSource(state.source,false);
+  if(!state.offline&&state.source&&errRetries<2){errRetries++;skipList.push(state.source.instance);load({keepSkip:true,startAt:audio.currentTime||0});return;}
+  state.loading=false;state.error=`Playback failed for “${current().title}”. Retry or choose another audio source in Settings.`;audio.pause();emit('error',state.error);emit('state');
+}
 const ducks = new Set();
 export function duck(reason, enabled) { if (enabled) ducks.add(reason); else ducks.delete(reason); audio.volume = volumeLevel * (ducks.size ? .18 : 1); }
 
@@ -50,6 +62,7 @@ export function unlockElement(element) {
   element.play().then(()=>{if(element.src===SILENT)element.pause();}).catch(()=>{});
 }
 function unlock() {
+  unlockElement(nextBuffer.spare);
   if (audio.src) return;
   audio.src = SILENT;
   audio.play().then(() => { if (audio.src === SILENT) audio.pause(); }).catch(() => {});
@@ -62,15 +75,26 @@ async function load(opts = {}) {
   const t = current();
   if (!t) return;
   const my = ++token;
+  if(!opts.keepSkip)state.playbackId=(state.playbackId||0)+1;
+  clearStall();
   startedAt = performance.now();
   state.startupMs = null;
   cancelLoad?.abort();
   cancelLoad = new AbortController();
   const controller = cancelLoad;
   pendingPlay = opts.autoplay !== false;
+  ++warmGeneration; clearTimeout(prefetchTimer);
+  api.cancelPrewarm(t);
+  const warmed = !opts.keepSkip && nextBuffer.take(api.streamKey(t));
   audio.pause();
-  audio.removeAttribute('src');
-  audio.load();
+  if (warmed) {
+    const previous = audio;
+    audio = warmed.media; el = audio; bindAudio(audio);
+    audio.volume = volumeLevel * (ducks.size ? .18 : 1);
+    nextBuffer.recycle(previous);
+  } else {
+    nextBuffer.clear(); audio.removeAttribute('src'); audio.load();
+  }
   state.error = null;
   restorePos = opts.startAt || 0;
   if (!opts.keepSkip) skipList = [];
@@ -80,30 +104,34 @@ async function load(opts = {}) {
   updateSession(t);
   try {
     let src;
-    const warmed = !opts.keepSkip && nextBuffer.take(api.streamKey(t));
-    const blob = warmed?.blob || ((t.local || store.getDownloads().some(d => d.id === t.id)) ? await offlineBlob(t.id) : null);
+    const blob = !warmed && ((t.local || store.getDownloads().some(d => d.id === t.id)) ? await offlineBlob(t.id) : null);
     if (my !== token) return;
-    if (blob) {
+    if (warmed) {
+      if (objUrl) { URL.revokeObjectURL(objUrl); objUrl = null; }
+      state.source = warmed.source; src = warmed.source.url;
+    } else if (blob) {
       if (objUrl) URL.revokeObjectURL(objUrl);
       objUrl = URL.createObjectURL(blob);
       src = objUrl;
-      state.offline = !warmed;
-      state.source = warmed?.source || null;
+      state.offline = true;
     } else {
       if (objUrl) { URL.revokeObjectURL(objUrl); objUrl = null; }
-      const r = await api.resolve(t, { skip: skipList, signal:controller.signal });
+      const r = opts.sourceOverride || await api.resolve(t, { skip: skipList, signal:controller.signal });
       if (my !== token) return;
       state.source = r;
       src = r.url;
     }
-    audio.src = src;
+    if (!warmed) audio.src = src;
+    audio.preload = 'auto';
     audio.addEventListener('loadedmetadata', () => { if(my!==token)return;if(opts.startAt)audio.currentTime=Math.min(opts.startAt,duration());restorePos=0; }, { once: true });
     emit('state');
     if (pendingPlay) {
-      await audio.play().catch((e) => { if (e.name === 'NotAllowedError' || e.name === 'AbortError') { state.loading = false; emit('state'); } else throw e; });
+      watchStall();
+      await audio.play().catch((e) => { if(my!==token)return;if (e.name === 'NotAllowedError' || e.name === 'AbortError') { clearStall();state.loading = false; emit('state'); } else {recoverMedia();} });
     } else {
       state.loading = false; emit('state');
     }
+    if(my!==token)return;
     failStreak = 0;
     store.addRecent(t);
     prefetch();
@@ -122,52 +150,46 @@ function prefetch() {
   const generation = ++warmGeneration;
   clearTimeout(prefetchTimer);
   const next = state.queue[state.index + 1] || (state.repeat === 'all' ? state.queue[0] : null);
-  if (store.getSettings().preloadNext === false || navigator.connection?.saveData || /2g/.test(navigator.connection?.effectiveType || '') || !next || next.local) { nextBuffer.clear(); return; }
-  api.prewarm(next);
+  if (store.getSettings().preloadNext === false || navigator.connection?.saveData || /2g/.test(navigator.connection?.effectiveType || '') || !next || next.local || !isPlaying() || state.loading) { nextBuffer.clear(); return; }
   prefetchTimer = setTimeout(async () => {
     try {
-      const source = await api.resolve(next);
-      if (generation !== warmGeneration || !isPlaying()) return;
-      await nextBuffer.warm(api.streamKey(next), source);
-      if (generation === warmGeneration) api.prewarm(state.queue[state.index + 2]);
+      if (generation !== warmGeneration || !isPlaying() || state.loading) return;
+      if (!audioHasHeadroom(audio,12)) { prefetch(); return; }
+      const source = await (api.prewarm(next) || api.resolve(next));
+      if (generation !== warmGeneration || !isPlaying() || state.loading || !audioHasHeadroom(audio,8)) return;
+      nextBuffer.warm(api.streamKey(next), source);
     } catch { /* Foreground playback retains its own retry path. */ }
-  }, 900);
+  }, 250);
   prefetchTimer.unref?.();
 }
 
 /* ---------- Audio element events ---------- */
-audio.addEventListener('playing', () => { if (state.startupMs == null && startedAt && isRealSrc()) state.startupMs = Math.round(performance.now() - startedAt); state.loading = false; errRetries = 0; emit('state'); });
-audio.addEventListener('play', () => emit('state'));
-audio.addEventListener('pause', () => { emit('state'); save(); prefetch(); });
-audio.addEventListener('waiting', () => { if (isRealSrc()) { state.loading = true; emit('state'); } });
-audio.addEventListener('canplay', () => { if (state.loading && !audio.paused) { state.loading = false; emit('state'); } });
 let lastSave = 0, lastPos = 0;
-audio.addEventListener('timeupdate', () => {
+const boundAudio = new WeakSet();
+function bindAudio(media) {
+if (boundAudio.has(media)) return;
+boundAudio.add(media);
+const listen = (event,fn) => media.addEventListener(event,() => { if (media === audio) fn(); });
+listen('playing', () => { clearStall();if (state.startupMs == null && startedAt && isRealSrc()) state.startupMs = Math.round(performance.now() - startedAt); state.loading = false; api.reportPlaybackSource(state.source); emit('state'); prefetch(); });
+listen('play', () => { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'; emit('state'); });
+listen('pause', () => { clearStall();if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'; emit('state'); save(); ++warmGeneration; clearTimeout(prefetchTimer); if(nextBuffer.entry)nextBuffer.clear(); });
+listen('waiting', () => { if (isRealSrc()) { watchStall();state.loading = true; ++warmGeneration; clearTimeout(prefetchTimer); nextBuffer.clear(); api.cancelPrewarm(); emit('state'); } });
+listen('canplay', () => { if (state.loading && !audio.paused) { state.loading = false; emit('state'); } });
+listen('progress', () => emit('state'));
+listen('timeupdate', () => {
   if(isRealSrc() && audio.currentTime>0)restorePos=0;
   emit('time');
   const now = Date.now();
   if (now - lastPos > 1000) { lastPos = now; positionState(); }
   if (now - lastSave > 10000) { lastSave = now; save(); }
 });
-audio.addEventListener('ended', () => {
-  if (state.repeat === 'one') { audio.currentTime = 0; audio.play().catch(() => {}); }
+listen('ended', () => {
+  if (state.repeat === 'one') { state.playbackId=(state.playbackId||0)+1;audio.currentTime = 0;emit('state');audio.play().catch(() => {}); }
   else next();
 });
-audio.addEventListener('error', () => {
-  if (!isRealSrc() || !current()) return;
-  const t = current();
-  if (!state.offline && state.source && errRetries < 2) {
-    errRetries++;
-    skipList.push(state.source.instance);
-    load({ keepSkip: true, startAt: audio.currentTime || 0 });
-    return;
-  }
-  errRetries = 0;
-  state.loading = false;
-  state.error = `Playback failed for “${t.title}”. Retry or choose another audio source in Settings.`;
-  emit('error', state.error);
-  emit('state');
-});
+listen('error',recoverMedia);
+}
+bindAudio(audio);
 
 /* ---------- Controls ---------- */
 function shuffled(a) {
@@ -197,6 +219,7 @@ export function playIndex(i) { if (i >= 0 && i < state.queue.length) { state.ind
 export function toggle() {
   if (!current()) return;
   if (state.loading) { cancelLoad?.abort(); ++token; state.loading = false; pendingPlay = false; audio.pause(); audio.removeAttribute('src'); audio.load(); emit('state'); return; }
+  if(!isRealSrc()){const at=restorePos;restorePos=0;load({startAt:at});return;}
   if (audio.paused) {
     if (!isRealSrc()) { const at = restorePos; restorePos = 0; load({ startAt: at }); }
     else audio.play().catch(() => {});
@@ -326,8 +349,6 @@ if ('mediaSession' in navigator) {
   h('seekto', (d) => seek(d.seekTime));
   h('seekbackward', (d) => seek(audio.currentTime - (d.seekOffset || 10)));
   h('seekforward', (d) => seek(audio.currentTime + (d.seekOffset || 10)));
-  audio.addEventListener('play', () => { navigator.mediaSession.playbackState = 'playing'; });
-  audio.addEventListener('pause', () => { navigator.mediaSession.playbackState = 'paused'; });
 }
 
 /* ---------- Offline downloads ---------- */

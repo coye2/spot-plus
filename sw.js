@@ -1,8 +1,10 @@
 // Spot+ service worker: offline app shell + cached cover art. Audio downloads live in their own cache.
-const SHELL_CACHE = 'spotplus-shell-v25';
+const SHELL_CACHE = 'spotplus-shell-v32';
 const IMG_CACHE = 'spotplus-img-v1';
 const KEEP = [SHELL_CACHE, IMG_CACHE, 'spotplus-audio-v1', 'spotplus-live-voice-v1'];
 const SHELL = [
+  './js/audio-selection.js','./js/player-colors.js','./js/spotify-stats.js','./js/listening-history.js','./js/history-import-worker.js','./js/rewind.js','./css/rewind.css',
+  './js/playback-policy.js',
   './js/canvas.js','./js/video-loops.js','./js/player-gestures.js','./js/account-setup.js','./js/dj-recognition.js','./js/live-voice.js','./js/live-voice-worker.js','./js/dj-dialogue.js','./js/vendor/supertonic-text.js',
   ...['afterhours','daylight','classic'].map(host=>'./audio/dj/'+host+'/preview.mp3'),
   './css/app-shell.css','./css/dj-voice.css','./js/shell.js','./js/dj-voice.js','./js/dj-hosts.js','./js/audio-buffer.js',
@@ -39,7 +41,7 @@ self.addEventListener('fetch', (e) => {
     e.respondWith((async () => {
       const cache = await caches.open(SHELL_CACHE);
       const hit = await cache.match(req, { ignoreSearch: true }) || (req.mode === 'navigate' ? await cache.match('./index.html') : null);
-      if (hit) return hit;
+      if (hit && !(req.mode==='cors' && hit.type==='opaque')) return hit;
       try {const res=await fetch(req);if(res.ok)await cache.put(req,res.clone());return res;}catch{return new Response('Offline',{status:503});}
     })());
     return;
@@ -50,7 +52,7 @@ self.addEventListener('fetch', (e) => {
     e.respondWith((async () => {
       const cache = await caches.open(IMG_CACHE);
       const hit = await cache.match(req);
-      if (hit) return hit;
+      if (hit && !(req.mode==='cors' && hit.type==='opaque')) return hit;
       try {
         const res = await fetch(req);
         cache.put(req, res.clone()).then(() => trim(IMG_CACHE, 600));

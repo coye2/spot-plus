@@ -41,7 +41,7 @@ export async function findCanvas(track, signal, endpoint = CANVAS_ENDPOINT) {
   const cancel = () => controller.abort();
   signal?.addEventListener('abort', cancel, {once:true});
   if (signal?.aborted) controller.abort();
-  const timer = setTimeout(cancel, 10000);
+  const timer = setTimeout(cancel, 3500);
   try {
     const response = await fetch(endpoint + '?' + key, {signal:controller.signal, credentials:'omit', referrerPolicy:'no-referrer'});
     if (!response.ok && response.status !== 404) throw new Error('Canvas lookup unavailable');
@@ -126,9 +126,22 @@ export class CanvasPlayer {
       else if (error.name !== 'AbortError') this.report('blocked');
     });
   }
-  sync(track, {visible, enabled, playing, retry = false}) {
+  sync(track, {visible, enabled, playing, networkReady = true, retry = false}) {
     const key = canvasQuery(track)?.toString();
     if (!visible || !enabled || !key) { if (this.key) this.clear(); return; }
+    if (!networkReady) {
+      if (key !== this.key) { this.clear(); this.key=key; this.track=track; }
+      this.playing=false;
+      if (this.controller) { this.generation++; this.controller.abort(); this.controller=null; }
+      this.video.pause(); clearTimeout(this.mediaTimer); this.mediaTimer=null;
+      if (this.video.getAttribute('src')) { this.video.removeAttribute('src'); this.video.load(); }
+      this.report('deferred'); return;
+    }
+    if (key === this.key && this.state === 'deferred') {
+      this.playing=playing;
+      if(this.url)this.resume();else {this.report('loading');this.load();}
+      return;
+    }
     if (key === this.key && retry && this.state === 'blocked') { this.playing = playing; this.resume(); return; }
     if (key === this.key && !retry) {
       this.playing = playing;
@@ -143,13 +156,15 @@ export class CanvasPlayer {
     const generation = this.generation, controller = new AbortController(); this.controller = controller;
     this.lookup(this.track, controller.signal,options).then(value => {
       if (generation !== this.generation) return;
+      this.controller=null;
       const canvas = canvasURL(typeof value === 'string' ? value : value?.kind === 'canvas' ? value.url : null);
       this.clip = canvas ? {kind:'canvas',url:canvas} : musicVideoLoop(value);
       if (!this.clip) { this.report('missing'); return; }
       this.url = this.clip.url;
+      if(this.clip.kind==='canvas')this.video.crossOrigin='anonymous';else this.video.removeAttribute('crossorigin');
       if (!this.playing) this.report('waiting');
       // Reveal only after a real frame plays, so failures leave the cover intact.
       this.resume();
-    }).catch(() => { if (generation === this.generation) this.report('error'); });
+    }).catch(() => { if (generation === this.generation) { this.controller=null; this.report('error'); } });
   }
 }

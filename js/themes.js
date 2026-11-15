@@ -23,7 +23,8 @@ export function applyTheme(settings){
   const p=palette(settings),root=document.documentElement;
   for(const [key,value]of Object.entries({'--canvas':p.canvas,'--bg':p.canvas,'--bg2':p.surface,'--bg3':p.raised,'--accent':p.accent,'--accent2':p.accent,'--accent-text':p.accentText,'--accent-ink':p.ink,'--line':p.line,'--radius':p.radius+'px'}))root.style.setProperty(key,value);
   document.body.dataset.cover=settings.coverStyle||'square';document.body.dataset.theme=p.id;
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content',p.canvas);
+  root.style.setProperty('--chrome-color',p.surface);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content',p.surface);
   return p;
 }
 export function normalizeTheme(data){

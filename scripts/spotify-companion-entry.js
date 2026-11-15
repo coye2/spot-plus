@@ -3,10 +3,10 @@
 function runSpotifyCompanion(){
   if(location.origin!=='https://open.spotify.com'||document.getElementById('spotplus-companion'))return;
   const permittedOrigins=['https://coye2.github.io','https://spot-plus-coyeb.coyeboymitchell2000.chatgpt.site'];
-  let targetOrigin=permittedOrigins[1]; // Compatibility with the previous site's nonce-only links.
+  let targetOrigin=permittedOrigins[0];
   const originalFetch=window.fetch.bind(window), credentials={};
   const observedQueries=new Map();
-  let controller=null,library=null,host=null,bridge=null,autoAttempted=false,autoTimer,attemptedAuth=null,allowAuthRetry=false,autoCancelled=false;
+  let controller=null,library=null,host=null,bridge=null,receiver=null,autoAttempted=false,autoTimer,attemptedAuth=null,allowAuthRetry=false,autoCancelled=false;
   try {
     const params=new URL(location.href).searchParams;
     const nonce=params.get('spotplus_bridge');
@@ -46,6 +46,7 @@ function runSpotifyCompanion(){
   XMLHttpRequest.prototype.setRequestHeader=function(name,value){if(xhrRequests.get(this)?.query&&allowedHeaders.includes(String(name).toLowerCase()))credentials[String(name).toLowerCase()]=String(value);return xhrHeader.call(this,name,value);};
   XMLHttpRequest.prototype.send=function(body){if(xhrRequests.get(this)?.query){rememberBody(body);maybeAutoRead();}return xhrSend.call(this,body);};
   function status(message){const p=host?.shadowRoot?.getElementById('status');if(p)p.textContent=message;}
+  function notify(phase){if(bridge&&window.opener&&Date.now()-bridge.started<1800000)window.opener.postMessage({type:'spotplus-connection-status',nonce:bridge.nonce,phase},targetOrigin);}
   function controls(busy){for(const id of ['read','send','save']){const b=host?.shadowRoot?.getElementById(id);if(b)b.disabled=busy;}const cancel=host?.shadowRoot?.getElementById('cancel');if(cancel)cancel.hidden=!busy;}
   async function query(name,variables){
     if(!Object.hasOwn(READ_QUERIES,name))throw new Error('Only reading your music library is supported.');
@@ -76,10 +77,19 @@ function runSpotifyCompanion(){
     if(!canAutoRead({bridge,hostReady:!!host,authorization:credentials.authorization,attempted:autoCancelled||(autoAttempted&&!(allowAuthRetry&&attemptedAuth!==credentials.authorization))}))return;
     autoAttempted=true;attemptedAuth=credentials.authorization;allowAuthRetry=false;status('Connected to Spotify. Reading your library…');autoTimer=setTimeout(()=>host?.shadowRoot?.getElementById('read')?.click(),600);
   }
-  function sendLibrary(){
-    if(!library||!bridge||!window.opener||Date.now()-bridge.started>=1800000)return false;
-    window.opener.postMessage({type:'spotplus-library',nonce:bridge.nonce,library},targetOrigin);
-    status('Sent for review. Return to Spot+ to apply your library. If nothing arrives, use Save library file.');return true;
+  function sendLibrary(openReceiver=false){
+    if(!library)return false;
+    if(bridge&&window.opener&&Date.now()-bridge.started<1800000){
+      window.opener.postMessage({type:'spotplus-library',nonce:bridge.nonce,library},targetOrigin);
+      status('Sent for review. Return to Spot+ to apply your library. If nothing arrives, use Save library file.');
+      if(!openReceiver)return true;
+    }
+    if(!openReceiver)return false;
+    if(!bridge||Date.now()-bridge.started>=1800000)bridge={nonce:[...crypto.getRandomValues(new Uint8Array(16))].map(b=>b.toString(16).padStart(2,'0')).join(''),origin:targetOrigin,started:Date.now()};
+    const base=targetOrigin===permittedOrigins[0]?targetOrigin+'/spot-plus/':targetOrigin+'/';
+    receiver=window.open(base+'#/spotify-account/receive/'+bridge.nonce,'spotplus-library-return');
+    status(receiver?'Spot+ opened for review. Keep this Spotify tab open until the transfer finishes.':'Your browser blocked the return tab. Choose Save library file, then import it in Spot+.');
+    return !!receiver;
   }
   function mount(){
     if(!document.body)return;
@@ -92,23 +102,29 @@ function runSpotifyCompanion(){
     root.getElementById('read').onclick=async()=>{
       clearTimeout(autoTimer);autoAttempted=true;if(controller&&!controller.signal.aborted&&root.getElementById('read').disabled)return;
       library=null;controller=new AbortController();controls(true);root.getElementById('send').hidden=true;root.getElementById('save').hidden=true;
+      notify('reading');
       try{
         library=await readSpotifyAccount(query,{signal:controller.signal,onProgress:status});
         if(JSON.stringify(library).length>12*1024*1024)throw new Error('Your library exceeds the 12 MB phone transfer limit. Use Spotify’s data export.');
         status('Ready: '+library.likes.length+' liked songs, '+library.playlists.length+' playlists. Review and send your library to Spot+.');
-        root.getElementById('send').hidden=!(bridge&&window.opener);root.getElementById('save').hidden=false;
+        root.getElementById('send').hidden=false;root.getElementById('save').hidden=false;notify('done');
         sendLibrary();
-      }catch(error){library=null;allowAuthRetry=/sign in|session expired/i.test(error.message||'');status(error.message||'Sync could not complete. Your previous library is kept.');}
+      }catch(error){library=null;allowAuthRetry=/sign in|session expired/i.test(error.message||'');status(error.message||'Sync could not complete. Your previous library is kept.');notify('error');}
       finally{controls(false);}
     };
-    root.getElementById('send').onclick=sendLibrary;
+    root.getElementById('send').onclick=()=>sendLibrary(true);
     root.getElementById('save').onclick=()=>{
       if(!library)return;const url=URL.createObjectURL(new Blob([JSON.stringify(library)],{type:'application/json'}));
       const a=document.createElement('a');a.href=url;a.download='spotplus-spotify-library.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);
       status('In Spot+, open Spotify account → Choose companion file. On iPhone, save the file to Files if Safari opens a preview.');
     };
     maybeAutoRead();
-    window.addEventListener('message',event=>{if(bridge&&event.origin===targetOrigin&&event.source===window.opener&&event.data?.type==='spotplus-library-applied'&&event.data.nonce===bridge.nonce)status('Your library is now saved in Spot+. You can close this Spotify tab.');});
+    notify('ready');
+    window.addEventListener('message',event=>{
+      if(!bridge||Date.now()-bridge.started>=1800000||event.origin!==targetOrigin||event.data?.nonce!==bridge.nonce)return;
+      if(event.data.type==='spotplus-receiver-ready'&&event.source===receiver&&library)receiver.postMessage({type:'spotplus-library',nonce:bridge.nonce,library},targetOrigin);
+      if(event.data.type==='spotplus-library-applied'&&(event.source===window.opener||event.source===receiver))status('Your library is now saved in Spot+. You can close this Spotify tab.');
+    });
   }
   if(document.body)mount();else document.addEventListener('DOMContentLoaded',mount,{once:true});
 }

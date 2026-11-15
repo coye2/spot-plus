@@ -8,7 +8,7 @@ const types = { '.html':'text/html', '.js':'text/javascript', '.mjs':'text/javas
 createServer(async (req, res) => {
   try {
     const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
-    if (pathname === '/canvas') {
+    if (['/canvas','/spotify-stats'].includes(pathname)) {
       const response = await canvasBridge(new Request('http://localhost'+req.url));
       res.writeHead(response.status, Object.fromEntries(response.headers));
       res.end(Buffer.from(await response.arrayBuffer()));

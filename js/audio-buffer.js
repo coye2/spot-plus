@@ -1,32 +1,25 @@
-// A bounded, disposable next-song buffer; never persisted as a download.
+// Hand off the same preloaded media element, even when only its beginning is ready.
 export class NextAudioBuffer {
-  constructor(fetcher = (...args) => fetch(...args), limit = 16 * 1024 * 1024) { this.fetcher = fetcher; this.limit = limit; this.entry = null; }
-  clear() { this.entry?.controller.abort(); this.entry = null; }
+  constructor(createAudio = () => new Audio()) {
+    this.spare = createAudio(); this.spare.preload = 'none'; this.entry = null;
+  }
+  clear() {
+    this.entry = null;
+    this.spare.pause(); this.spare.removeAttribute('src'); this.spare.load(); this.spare.preload = 'none';
+  }
   take(key) {
     const entry = this.entry;
-    if (entry?.key !== key || !entry.blob || Date.now() - entry.created > 5 * 60000) return null;
+    if (entry?.key !== key || entry.media.error || Date.now() - entry.created > 480000) return null;
     this.entry = null;
-    return { blob: entry.blob, source: entry.source };
+    return entry;
   }
-  async warm(key, source) {
-    if (this.entry?.key === key) return;
+  warm(key, source) {
+    if (this.entry?.key === key && Date.now() - this.entry.created < 480000) return;
     this.clear();
-    const entry = { key, source, created: Date.now(), controller: new AbortController(), blob: null };
-    this.entry = entry;
-    const timer = setTimeout(() => entry.controller.abort(), 20000);
-    try {
-      const response = await this.fetcher(source.url, { signal: entry.controller.signal });
-      if (!response.ok || Number(response.headers.get('content-length')) > this.limit || !response.body?.getReader) throw new Error('Not bufferable');
-      const reader = response.body.getReader(), chunks = []; let size = 0;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        size += value.byteLength;
-        if (size > this.limit) { await reader.cancel(); throw new Error('Buffer limit'); }
-        chunks.push(value);
-      }
-      if (this.entry === entry && !entry.controller.signal.aborted && size > 0) entry.blob = new Blob(chunks, { type: source.mime?.split(';')[0] || response.headers.get('content-type') || 'audio/mpeg' });
-    } catch { if (this.entry === entry) this.clear(); }
-    finally { clearTimeout(timer); }
+    this.entry = {key, source, created:Date.now(), media:this.spare};
+    this.spare.preload = 'auto'; this.spare.src = source.url; this.spare.load();
+  }
+  recycle(media) {
+    this.spare = media; this.clear();
   }
 }

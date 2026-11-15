@@ -4,6 +4,8 @@
 //   Lyrics   : LRCLib (time-synced)
 // Requests go from the listener's browser to public providers; availability and CORS vary.
 import { getSettings, getVideoCache, setVideoCache } from './store.js';
+import {loopQuality} from './playback-policy.js';
+import {rankAudioMatches,chooseAudioFormat,raceAudioSources} from './audio-selection.js';
 
 const DEEZER = 'https://api.deezer.com';
 const LRCLIB = 'https://lrclib.net/api';
@@ -143,6 +145,7 @@ const PIPED_FALLBACK = [
   'https://pipedapi.reallyaweso.me', 'https://pipedapi.leptons.xyz', 'https://pipedapi.nosebs.ru',
 ];
 const INV_FALLBACK = [
+  'https://yt.chocolatemoo53.com',
   'https://inv.nadeko.net', 'https://invidious.nerdvpn.de', 'https://iv.melmac.space',
   'https://invidious.privacyredirect.com', 'https://yt.artemislena.eu', 'https://invidious.f5.si',
 ];
@@ -193,26 +196,22 @@ export function instances(force = false) {
 }
 
 const goodKey = 'spotplus.goodInstance';
+const failedInstances = new Map();
 function lastGood() { try { return JSON.parse(localStorage.getItem(goodKey) || '{}'); } catch { return {}; } }
 function markGood(kind, base) { const g = lastGood(); g[kind] = base; try { localStorage.setItem(goodKey, JSON.stringify(g)); } catch {} }
+export function reportPlaybackSource(source, ok = true) {
+  if (!source?.instance || !['piped','invidious'].includes(source.kind)) return;
+  if (ok) { failedInstances.delete(source.instance); markGood(source.kind,source.instance); }
+  else { failedInstances.set(source.instance,Date.now()+60000); for (const [key,value] of streamCache) if (value.stream.instance===source.instance) streamCache.delete(key); }
+}
 
 function orderedInstances(kind, inst, set) {
   const custom = (kind === 'piped' ? set.customPiped : set.customInvidious).split(/[\s,]+/).filter((x) => /^https?:\/\//.test(x)).map(clean);
-  return uniq([...custom, lastGood()[kind], ...(inst[kind] || [])]);
+  return uniq([...custom, lastGood()[kind], ...(kind==='invidious'?INV_FALLBACK.slice(0,1):[]), ...(inst[kind] || [])]).sort((a,b)=>Number((failedInstances.get(a)||0)>Date.now())-Number((failedInstances.get(b)||0)>Date.now()));
 }
 
-const BAD = /\b(live|cover|karaoke|instrumental|remix|8d|slowed|sped ?up|nightcore|reverb|reaction|tutorial|1 hour|10 hours)\b/i;
-function score(c, t) {
-  let s = c.duration ? Math.abs(c.duration - (t.duration || c.duration)) : 30;
-  const title = (c.title || '').toLowerCase();
-  const m = title.match(BAD);
-  if (m && !t.title.toLowerCase().includes(m[1].toLowerCase())) s += 60;
-  const want = (t.searchTitle || t.title).toLowerCase().replace(/[^\p{L}\p{N} ]/gu, '').slice(0, 14).trim();
-  if (want && !title.replace(/[^\p{L}\p{N} ]/gu, '').includes(want)) s += 20;
-  return s;
-}
-const best = (items, t) => items.map((c) => ({ ...c, score: score(c, t) })).sort((a, b) => a.score - b.score);
-const query = (t) => `${t.artist} ${t.searchTitle || t.title}`.trim();
+const best = rankAudioMatches;
+const query = (t) => `${t.artist} ${t.title}`.trim();
 
 async function pipedSearch(base, t, signal) {
   for (const filter of ['music_songs', 'videos']) {
@@ -220,7 +219,7 @@ async function pipedSearch(base, t, signal) {
     const items = (d.items || [])
       .filter((x) => x && typeof x.url === 'string' && x.url.includes('v='))
       .map((x) => ({ id: new URL(x.url, 'https://youtube.com').searchParams.get('v'), title: x.title, duration: x.duration, channel: x.uploaderName }));
-    if (items.length) return best(items, t);
+    const matches=best(items,t);if(matches.length)return matches;
   }
   throw new Error('no results');
 }
@@ -228,38 +227,48 @@ async function invSearch(base, t, signal) {
   const d = await fetchJSON(`${base}/api/v1/search?q=${encodeURIComponent(query(t))}&type=video&fields=videoId,title,lengthSeconds,author`, 7000, signal);
   const items = (Array.isArray(d) ? d : []).filter((x) => x.videoId).map((x) => ({ id: x.videoId, title: x.title, duration: x.lengthSeconds, channel: x.author }));
   if (!items.length) throw new Error('no results');
-  return best(items, t);
+  const matches=best(items,t);if(!matches.length)throw new Error('No matching recording');return matches;
 }
 
 const probe = typeof document !== 'undefined' ? document.createElement('audio') : null;
-const canOpus = !!probe?.canPlayType('audio/webm; codecs="opus"');
 function pickFormat(list) {
-  const q = getSettings().quality;
-  const webm = list.filter((s) => s.mime.includes('webm'));
-  const mp4 = list.filter((s) => s.mime.includes('mp4'));
-  const pool = (canOpus && webm.length ? webm : mp4.length ? mp4 : list).sort((a, b) => b.bitrate - a.bitrate);
-  return q === 'low' ? pool[pool.length - 1] : pool[0];
+  const picked=chooseAudioFormat(list,{quality:getSettings().quality,canPlay:mime=>!!probe?.canPlayType(mime)});
+  if(!picked)throw new Error('No compatible audio format');
+  const rest=list.filter(f=>f.url!==picked.url&&probe?.canPlayType(f.mime));
+  const alternatives=[];if(picked.fallbackURL)alternatives.push({...picked,url:picked.fallbackURL,fallbackURL:undefined});
+  const other=chooseAudioFormat(rest,{quality:getSettings().quality,canPlay:mime=>!!probe?.canPlayType(mime)});if(other)alternatives.unshift(other);
+  return {...picked,alternatives};
 }
-async function pipedStream(base, id, signal) {
+async function pipedStream(base, id, signal, track) {
   const d = await fetchJSON(`${base}/streams/${id}`, 7000, signal);
-  const list = (d.audioStreams || []).filter((s) => s.url).map((s) => ({ url: s.url, mime: s.mimeType || '', bitrate: s.bitrate || 0 }));
+  if(d.livestream || (track&&d.title&&!best([{title:d.title,channel:d.uploader,duration:d.duration}],track).length))throw new Error('Recording did not match');
+  const list = (d.audioStreams || []).filter((s) => s.url && s.videoOnly!==true).map((s) => ({ url: s.url, mime: s.mimeType || '', codec:s.codec||'', bitrate: Number(s.bitrate) || parseFloat(s.quality)*1000 || 0 }));
   if (!list.length) throw new Error(d.error || d.message || 'no audio streams');
   return pickFormat(list);
 }
-async function invStream(base, id, signal) {
-  const d = await fetchJSON(`${base}/api/v1/videos/${id}?fields=adaptiveFormats,error`, 7000, signal);
+async function invStream(base, id, signal, track) {
+  const d = await fetchJSON(`${base}/api/v1/videos/${id}?fields=adaptiveFormats,error,title,author,lengthSeconds,liveNow`, 7000, signal);
+  if(d.liveNow || (track&&d.title&&!best([{title:d.title,channel:d.author,duration:d.lengthSeconds}],track).length))throw new Error('Recording did not match');
   const list = (d.adaptiveFormats || [])
     .filter((f) => (f.type || '').startsWith('audio/'))
-    .map((f) => ({ url: `${base}/latest_version?id=${id}&itag=${f.itag}&local=true`, mime: f.type, bitrate: Number(f.bitrate) || 0 }));
+    .map((f) => {const proxy=`${base}/latest_version?id=${id}&itag=${f.itag}&local=true`;return {url:publicMediaURL(f.url)||proxy,fallbackURL:publicMediaURL(f.url)?proxy:undefined,mime:f.type,bitrate:Number(f.bitrate)||0};});
   if (!list.length) throw new Error(d.error || 'no audio streams');
   return pickFormat(list);
 }
 const ENGINES = { piped: { search: pipedSearch, stream: pipedStream }, invidious: { search: invSearch, stream: invStream } };
+async function audiusStream(track,signal) {
+  const base='https://api.audius.co';
+  const data=await fetchJSON(base+'/v1/tracks/search?query='+encodeURIComponent(query(track))+'&limit=10&app_name=SpotPlus',4500,signal);
+  const matches=best((data.data||[]).filter(t=>t.is_streamable===true&&!t.is_stream_gated&&t.access?.stream!==false&&t.user?.is_verified).map(t=>({id:t.id,title:t.title,channel:t.user.name,duration:t.duration,verified:true})),track);
+  if(!matches.length)throw new Error('No matching public Audius release');
+  return {url:base+'/v1/tracks/'+encodeURIComponent(matches[0].id)+'/stream?app_name=SpotPlus',mime:'audio/mpeg',bitrate:0,kind:'audius',instance:base,catalogId:matches[0].id};
+}
 
 // Only used after Canvas is missing. Audio resolution never waits on this work.
 const videoLoopCache = new Map();
 export async function resolveVideoLoop(track, {signal, source, skip = []} = {}) {
-  const key = JSON.stringify([track.searchTitle || track.title, track.artist]);
+  const target = loopQuality(globalThis.navigator?.connection);
+  const key = JSON.stringify([track.searchTitle || track.title, track.artist,target]);
   const cached = videoLoopCache.get(key);
   if (cached?.expires > Date.now() && !skip.includes(cached.value.instance)) return cached.value;
   const list = await instances(), settings = getSettings(), controller = new AbortController();
@@ -283,10 +292,10 @@ export async function resolveVideoLoop(track, {signal, source, skip = []} = {}) 
       const details = {...match,title:data.title,channel:data.author || data.uploader,duration:data.lengthSeconds || data.duration || match.duration};
       if (!matchMusicVideo([details],track) || data.liveNow || data.livestream) throw new Error('Video metadata did not match');
       const formats = kind === 'invidious'
-        ? (data.adaptiveFormats || []).filter(f=>/^\d{1,3}$/.test(String(f.itag))).map(f=>({url:base+'/latest_version?id='+match.id+'&itag='+f.itag+'&local=true',mime:f.type || '',height:parseInt(f.qualityLabel || f.resolution,10),bitrate:f.bitrate}))
-        : (data.videoStreams || []).filter(f=>f.videoOnly === true).map(f=>({url:f.url,mime:f.mimeType || '',codec:f.codec || '',height:f.height || parseInt(f.quality,10),bitrate:f.bitrate}));
-      const format = chooseLoopFormat(formats); if (!format) throw new Error('No small compatible video');
-      return musicVideoLoop({kind:'music-video',engine:kind,instance:base,url:format.url,videoId:match.id,title:details.title,duration:details.duration});
+        ? (data.adaptiveFormats || []).filter(f=>/^\d{1,3}$/.test(String(f.itag))).map(f=>({url:publicMediaURL(f.url)||base+'/latest_version?id='+match.id+'&itag='+f.itag+'&local=true',mime:f.type || '',height:parseInt(f.qualityLabel || f.resolution,10),bitrate:f.bitrate,fps:f.fps}))
+        : (data.videoStreams || []).filter(f=>f.videoOnly === true).map(f=>({url:f.url,mime:f.mimeType || '',codec:f.codec || '',height:f.height || parseInt(f.quality,10),bitrate:f.bitrate,fps:f.fps}));
+      const format = chooseLoopFormat(formats,target); if (!format) throw new Error('No compatible video');
+      return musicVideoLoop({kind:'music-video',engine:kind,instance:base,url:format.url,videoId:match.id,title:details.title,duration:details.duration,height:format.height});
     }).map(async promise=>{const value=await promise;if(!value)throw new Error('Invalid video');return value;}));
     videoLoopCache.set(key,{value:result,expires:Date.now()+5*60e3});
     if (videoLoopCache.size > 30) videoLoopCache.delete(videoLoopCache.keys().next().value);
@@ -295,7 +304,7 @@ export async function resolveVideoLoop(track, {signal, source, skip = []} = {}) 
 }
 
 function kinds(s = getSettings().source) {
-  return s === 'piped' ? ['piped'] : s === 'invidious' ? ['invidious'] : ['piped', 'invidious'];
+  return s === 'piped' ? ['piped'] : s === 'invidious' ? ['invidious'] : s==='audius'?['audius']:['invidious','piped','audius'];
 }
 
 /** Find a playable audio URL for a track. Returns { url, mime, bitrate, videoId, instance, kind }. */
@@ -309,22 +318,25 @@ async function resolveUncached(t, { skip = [], signal } = {}, _retry = false) {
     return {url:track.preview, mime:'audio/mpeg', bitrate:128000, kind:'preview', instance:DEEZER, preview:true};
   }
   const inst = await instances();
-  const cached = getVideoCache(t.id);
+  const stored = getVideoCache(t.id);
+  const cached = stored?.manual || stored?.matchVersion===2 ? stored : null;
   const control=new AbortController();
   const deadline=setTimeout(()=>control.abort(),18000);
   const combined=signal?AbortSignal.any([signal,control.signal]):control.signal;
   try {
-    const attempts=kinds(set.source).flatMap(kind=>orderedInstances(kind,inst,set).filter(u=>!skip.includes(u)).slice(0,3).map(async base=>{
+    const groups=kinds(set.source).map(kind=>kind==='audius'?[{kind,base:'https://api.audius.co'}]:orderedInstances(kind,inst,set).slice(0,10).map(base=>({kind,base})));
+    const sources=[];for(let i=0;i<10;i++)for(const group of groups)if(group[i]&&!skip.includes(group[i].base))sources.push(group[i]);
+    const result=await raceAudioSources(sources,async({kind,base})=>{
       combined.throwIfAborted();
-      const id=cached?.id||(await ENGINES[kind].search(base,t,combined))[0].id;
-      const stream=await ENGINES[kind].stream(base,id,combined);
-      combined.throwIfAborted();
-      return {...stream,videoId:id,instance:base,kind};
-    }));
-    const result=await Promise.any(attempts);
+      if(kind==='audius')return audiusStream(t,combined);
+      const choices=cached?[cached]:(await ENGINES[kind].search(base,t,combined)).slice(0,3);
+      for(const choice of choices){
+        try {const stream=await ENGINES[kind].stream(base,choice.id,combined,cached?.manual?null:t);combined.throwIfAborted();return {...stream,videoId:choice.id,instance:base,kind};}
+        catch(error){combined.throwIfAborted();if(choice===choices.at(-1))throw error;}
+      }
+    },{signal:combined,quality:set.quality,concurrency:4});
     combined.throwIfAborted();
-    setVideoCache(t.id,{id:result.videoId,manual:!!cached?.manual});
-    markGood(result.kind,result.instance);
+    if(result.videoId)setVideoCache(t.id,{id:result.videoId,manual:!!cached?.manual,matchVersion:2});
     return result;
   } catch {
     if(signal?.aborted)throw new DOMException('Playback cancelled','AbortError');
@@ -339,12 +351,33 @@ const streamCache=new Map(),warmups=new Map(),warmControllers=new Map();
 export const streamKey=(t,s=getSettings(),videoId=getVideoCache(t.id)?.id||'')=>[t.id,s.source,s.quality,s.customPiped,s.customInvidious,videoId].join('|');
 function remember(key,stream){streamCache.set(key,{time:Date.now(),stream});if(streamCache.size>6)streamCache.delete(streamCache.keys().next().value);}
 export function clearStreamCache(){streamCache.clear();for(const c of warmControllers.values())c.abort();warmups.clear();warmControllers.clear();}
+export function cancelPrewarm(except) {
+  const keep = except && streamKey(except);
+  for (const [key,controller] of warmControllers) if (key !== keep) { controller.abort(); warmControllers.delete(key); warmups.delete(key); }
+}
+function abortable(promise,signal) {
+  if (!signal) return promise;
+  signal.throwIfAborted();
+  return new Promise((resolve,reject)=>{
+    const cancel=()=>reject(new DOMException('Playback cancelled','AbortError'));
+    signal.addEventListener('abort',cancel,{once:true});
+    promise.then(resolve,reject).finally(()=>signal.removeEventListener('abort',cancel));
+  });
+}
+const connectedOrigins=new Set();
+function preconnect(url) {
+  if (!globalThis.document?.head || !/^https:\/\//.test(url || '')) return;
+  const origin=new URL(url).origin;
+  if (connectedOrigins.has(origin) || connectedOrigins.size>=8) return;
+  connectedOrigins.add(origin);
+  const link=document.createElement('link');link.rel='preconnect';link.href=origin;link.crossOrigin='anonymous';document.head.append(link);
+}
 export async function resolve(t,options={}) {
   const settings=getSettings(),key=streamKey(t,settings),hit=streamCache.get(key);
   if(!options.skip?.length && hit && Date.now()-hit.time<120000){options.signal?.throwIfAborted();return hit.stream;}
   if(options.skip?.length)streamCache.delete(key);
   const warm=warmups.get(key);
-  if(warm&&!options.skip?.length){try {const stream=await warm;options.signal?.throwIfAborted();return stream;}catch {options.signal?.throwIfAborted();}}
+  if(warm&&!options.skip?.length){try {const stream=await abortable(warm,options.signal);options.signal?.throwIfAborted();return stream;}catch {options.signal?.throwIfAborted();}}
   const stream=await resolveUncached(t,options);
   options.signal?.throwIfAborted();
   remember(streamKey(t,settings,stream.videoId||getVideoCache(t.id)?.id||''),stream);
@@ -352,11 +385,14 @@ export async function resolve(t,options={}) {
 }
 export function prewarm(t){
   if(!t||t.local||navigator.connection?.saveData||/2g/.test(navigator.connection?.effectiveType||''))return;
-  const settings=getSettings(),key=streamKey(t,settings);if(warmups.has(key))return;
-  const hit=streamCache.get(key);if(hit&&Date.now()-hit.time<120000)return;
+  const settings=getSettings(),key=streamKey(t,settings);if(warmups.has(key))return warmups.get(key);
+  const hit=streamCache.get(key);if(hit&&Date.now()-hit.time<120000)return Promise.resolve(hit.stream);
+  for (const base of Object.values(lastGood())) preconnect(base);
+  if(warmControllers.size>=2){const oldest=warmControllers.keys().next().value;warmControllers.get(oldest).abort();warmControllers.delete(oldest);warmups.delete(oldest);}
   const controller=new AbortController();warmControllers.set(key,controller);
-  const promise=resolveUncached(t,{signal:controller.signal}).then(stream=>{controller.signal.throwIfAborted();remember(streamKey(t,settings,stream.videoId||getVideoCache(t.id)?.id||''),stream);return stream;}).finally(()=>{warmups.delete(key);warmControllers.delete(key);});
+  const promise=resolveUncached(t,{signal:controller.signal}).then(stream=>{controller.signal.throwIfAborted();remember(streamKey(t,settings,stream.videoId||getVideoCache(t.id)?.id||''),stream);preconnect(stream.url);return stream;}).finally(()=>{if(warmControllers.get(key)===controller){warmups.delete(key);warmControllers.delete(key);}});
   warmups.set(key,promise);promise.catch(()=>{});
+  return promise;
 }
 export async function matchCatalogTrack(t){
   const result=data(await jsonp('/search',{q:`${t.artist} ${t.title}`,limit:20})).map(x=>normTrack(x));
@@ -371,6 +407,7 @@ export async function candidates(t) {
   const inst = await instances();
   const set = getSettings();
   for (const kind of kinds()) {
+    if(!ENGINES[kind])continue;
     for (const base of orderedInstances(kind, inst, set).slice(0, 4)) {
       try { return (await ENGINES[kind].search(base, t)).slice(0, 10); } catch {}
     }

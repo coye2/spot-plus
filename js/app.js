@@ -1,4 +1,9 @@
 import {CanvasPlayer,canvasEnabled,setCanvasEnabled,findVisualLoop} from './canvas.js';
+import {audioHasHeadroom} from './playback-policy.js';
+import {PlayerColors,syncChrome} from './player-colors.js';
+import {getTrackStats,matchPlayCount,hydrateStatistics} from './spotify-stats.js';
+import {rewindView,importRewind,filters as rewindFilters} from './rewind.js';
+import {ListeningMeter,saveHistory,readHistory,clearHistory} from './listening-history.js';
 // app.js — Spot+ UI: router, views, player bar, now-playing screen.
 import * as api from './api.js';
 import * as store from './store.js';
@@ -8,7 +13,7 @@ import * as dj from './dj.js';
 import * as spotify from './spotify.js';
 import * as themes from './themes.js';
 import {bindPlayerDismiss} from './player-gestures.js';
-import {connectionDevice,setupHtml} from './account-setup.js';
+import {connectionDevice,setupHtml,spotifyConnectionURLs} from './account-setup.js';
 let accountDevice=connectionDevice(navigator.userAgent,navigator.platform,navigator.maxTouchPoints);
 import {validateAccountSnapshot,isAccountMessage,ACCOUNT_FILE_LIMIT} from './spotify-account.js';
 
@@ -132,7 +137,7 @@ function trackRows(tracks, key, { numbered = false } = {}) {
     <div class="trow${cur === t.id ? ' playing' : ''}" data-list="${key}" data-i="${i}" data-id="${esc(t.id)}">
       ${numbered ? `<span class="tnum">${i + 1}</span>` : ''}${img(t.cover, 'tcover')}
       <div class="tmeta"><div class="ttitle">${t.explicit ? '<span class="e">E</span>' : ''}${esc(t.title)}</div>
-      <div class="tsub">${esc(t.artist)}${!numbered && t.album ? ' · ' + esc(t.album) : ''}</div></div>
+      <div class="tsub">${esc(t.artist)}${!numbered && t.album ? ' · ' + esc(t.album) : ''}</div><div class="tplays" data-counter="track" data-track-id="${esc(t.id)}" data-spotify-id="${esc(t.spotifyId||'')}" data-artist-id="${esc(t.artistId||'')}" data-title="${esc(t.title)}" data-duration="${t.duration||0}"></div></div>
       <button class="sr-only" data-act="track-play" data-key="${key}" data-i="${i}" aria-label="Play ${esc(t.title)} by ${esc(t.artist)}">Play</button>
       <span class="talbum">${esc(t.album)}</span>
       ${store.isDownloaded(t.id) ? `<span class="dl-mark" title="Downloaded">${I.download}</span>` : ''}
@@ -168,7 +173,7 @@ async function viewHome() {
   const rk = reg(recent);
   const shortcuts = `<div class="quick-grid"><a class="quick-item" href="#/spotify"><div class="ph-cover grad2">${I.library}</div><b>Spotify collections</b></a><a class="quick-item" href="#/liked"><div class="ph-cover grad">${I.heartFill}</div><b>Liked Songs</b></a><a class="quick-item" href="#/dj"><div class="ph-cover dj-tile">${I.dj}</div><b>Spot+ DJ</b></a>${store.getPlaylists().slice(0,4).map(p=>`<a class="quick-item" href="#/my/${p.id}">${p.tracks[0]?.cover?img(p.tracks[0].cover):`<div class="ph-cover">${I.note}</div>`}<b>${esc(p.name)}</b></a>`).join('')}${recent.slice(0,Math.max(0,5-Math.min(4,store.getPlaylists().length))).map((t,i)=>`<button class="quick-item" data-act="track-play" data-key="${rk}" data-i="${i}">${img(t.cover)}<b>${esc(t.title)}</b></button>`).join('')}</div>`;
   const toolbar = `<div class="view-toolbar"><button class="avatar home-profile" data-act="profile" aria-label="Profile and settings">${esc((store.getSettings().displayName[0]||'S').toUpperCase())}</button><button class="chip on" data-act="home-filter" data-filter="all" aria-pressed="true">All</button><button class="chip" data-act="home-filter" data-filter="music" aria-pressed="false">Music</button><a class="chip" href="#/dj">DJ</a><span class="spacer"></span><span class="source-note">Music discovery · Deezer</span></div>`;
-  const requestBar = homeDJ();
+  const requestBar = homeDJ()+'<a class="rewind-link" href="#/rewind"><div><b>Your Rewind</b><small>Your listening story, all year round</small></div><span>↗</span></a>';
   if(document.body.dataset.page==='home')view.innerHTML=toolbar+shortcuts+requestBar+shelf('Jump back in',recent.slice(0,12).map((t,i)=>trackCard(t,rk,i)))+loadingHtml;
   let d;
   try { d = await api.home(); } catch (e) {
@@ -217,6 +222,7 @@ async function runSearch(q) {
       <div data-search-section="artists">${shelf('Artists', d.artists.map(artistCard))}</div>
       <div data-search-section="albums">${shelf('Albums', d.albums.map(albumCard))}</div>
       <div data-search-section="playlists">${shelf('Playlists', d.playlists.map(playlistCard))}</div>`;
+    hydrateStatistics(box);
   } catch (e) { if (my === searchTok) box.innerHTML = errorHtml(e); }
 }
 
@@ -226,7 +232,7 @@ async function viewArtist(id) {
   d.top=visibleTracks(d.top,store.getSettings());
   const k = reg(d.top);
   return `<div class="hero" style="background-image:url('${esc(d.artist.pictureXl)}')"><div class="hero-shade"></div>
-      <div class="hero-content"><div class="kicker">Artist</div><h1>${esc(d.artist.name)}</h1><p>${fmtNum(d.artist.fans)} fans</p></div></div>
+      <div class="hero-content"><div class="kicker">Artist</div><h1>${esc(d.artist.name)}</h1><p class="spotify-counter" data-counter="artist" data-artist-id="${esc(d.artist.id)}">Loading Spotify listeners…</p><small>${fmtNum(d.artist.fans)} Deezer fans</small></div></div>
     ${actions(k, `<button class="btn" data-act="follow-artist" aria-pressed="${store.hasArtist(id)}">${store.hasArtist(id)?'Following':'Follow'}</button><a class="btn" href="#/radio/${d.artist.id}">${I.radio}<span>Artist radio</span></a>`)}
     ${artistCollections(d.artist)}
     <section><h2>Popular</h2>${trackRows(d.top, k)}</section>
@@ -307,9 +313,9 @@ async function viewSettings() {
   <section class="box"><h2>Your profile</h2><label class="field"><span>Display name<small>Only shown in your browser.</small></span><input maxlength="60" data-setting="displayName" value="${esc(s.displayName)}"></label><a class="btn small" href="#/profile">View profile</a></section>
   <section class="box"><h2>Appearance</h2><p class="settings-note">Winter Pine, pure-black AMOLED, and your own color worlds.</p><a class="btn" href="#/themes">Open Theme Studio</a><label class="field"><span>Library and track spacing</span>${sel('density',[['comfortable','Comfortable'],['compact','Compact']])}</label><label class="field"><span>Text size</span>${sel('textSize',[['normal','Default'],['large','Larger']])}</label><label class="field"><span>Motion</span>${sel('motion',[['system','Follow system'],['reduced','Reduced']])}</label></section>
   <section class="box"><h2>Playback</h2>
-    <label class="field"><span>Audio source<small>Full tracks depend on reachable audio servers. Preview mode plays short samples only.</small></span>${sel('source', [['auto', 'Automatic'], ['piped', 'Piped'], ['invidious', 'Invidious'],['preview','Deezer previews (30 sec)']])}</label>
+    <label class="field"><span>Audio source<small>Full tracks depend on reachable audio servers. Preview mode plays short samples only.</small></span>${sel('source', [['auto', 'Automatic'], ['piped', 'Piped'], ['invidious', 'Invidious'],['audius','Audius public releases'],['preview','Deezer previews (30 sec)']])}</label>
     <label class="field"><span>Streaming quality</span>${sel('quality', [['high', 'High'], ['low', 'Data saver']])}</label>
-    ${toggle('preloadNext','Prepare the next song','Resolves the next audio source while you listen. Skipped on data-saving connections.')}
+    ${toggle('preloadNext','Prepare the next song','Buffers the beginning of the next song after your current music has enough buffered audio. Skipped on data-saving connections.')}
     ${toggle('showExplicit','Allow explicit content','When off, explicit tracks are excluded from discovery and new playback queues.')}
     <button class="btn small" data-act="sleep-timer">Sleep timer</button>
     <label class="field col"><span>Your own Piped API servers <small>(one per line, tried first)</small></span><textarea data-setting="customPiped" rows="2" placeholder="https://pipedapi.example.com">${esc(s.customPiped)}</textarea></label>
@@ -355,12 +361,14 @@ const routes = [
   [/^#\/settings$/, viewSettings],
   [/^#\/profile$/, viewProfile],
   [/^#\/recent$/, viewRecent],
+  [/^#\/rewind$/, rewindView],
   [/^#\/local$/, viewLocal],
   [/^#\/dj$/, viewDJ],
   [/^#\/radio\/(\d+)$/, viewRadio],
   [/^#\/essentials\/(\d+)$/, viewEssentials],
   [/^#\/spotify$/, viewSpotify],
   [/^#\/spotify-account$/, viewSpotifyAccount],
+  [/^#\/spotify-account\/receive\/([a-f0-9]{32})$/, receiveSpotifyAccount],
   [/^#\/spotify-account\/(likes)$/, viewSpotifyAccountList],
   [/^#\/spotify-account\/playlist\/([a-zA-Z0-9]{22})$/, viewSpotifyAccountList],
   [/^#\/spotify\/(playlist|album|artist|track)\/([a-zA-Z0-9]{22})$/, viewSpotifyCollection],
@@ -388,6 +396,7 @@ async function route({ keepScroll = false } = {}) {
       if (my !== routeTok) return;
       lists.forEach((_, k) => { if (+k.slice(1) <= startSeq) lists.delete(k); });
       view.innerHTML = html;
+      hydrateStatistics(view);
       syncVoices();
       view.setAttribute('aria-busy','false');
       renderSidebar();
@@ -512,6 +521,12 @@ async function handleAct(act, el) {
     case 'focus-main': $('#main').focus();break;
     case 'track-play': {dj.stop();const tracks=visibleTracks(listOf(key).tracks,store.getSettings());const track=listOf(key).tracks[+el.dataset.i];const index=tracks.findIndex(t=>t.id===track?.id);if(index<0)return toast('Explicit content is turned off in Settings.');if(player.current()?.id===track.id)player.toggle();else player.playList(tracks,index,{shuffle:false});break;}
     case 'profile': profileMenu(); break;
+    case 'rewind-import': $('#rewindImport').click();break;
+    case 'rewind-export': {
+      const records=await readHistory(),url=URL.createObjectURL(new Blob([JSON.stringify({app:'spotplus-rewind',version:1,records})],{type:'application/json'}));
+      const a=document.createElement('a');a.href=url;a.download='SpotPlus-Rewind.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);break;
+    }
+    case 'rewind-clear': if(await confirmBox('Clear Rewind history?','This removes imported Spotify history and Spot+ listening stats from this device. Your music library stays saved.')){await clearHistory('all');route({keepScroll:true});}break;
     case 'create-menu': createMenu(); break;
     case 'history': go('#/recent');break;
     case 'devices': deviceMenu();break;
@@ -666,6 +681,11 @@ document.addEventListener('input', (e) => {
 });
 document.addEventListener('change', async (e) => {
   const t = e.target;
+  if(t.dataset.rewindFilter){rewindFilters[t.dataset.rewindFilter]=t.value;route({keepScroll:true});return;}
+  if(t.id==='rewindImport'&&t.files.length){
+    t.disabled=true;const status=$('#rewindImportStatus');
+    try{const n=await importRewind([...t.files],message=>{status.textContent=message;});rewindFilters.source='auto';rewindFilters.year='all';rewindFilters.month='all';await route({keepScroll:true});toast(`Added ${n.toLocaleString()} listens. Duplicates skipped.`);}catch(error){status.textContent=error.message;t.disabled=false;t.value='';}return;
+  }
   if (t.dataset.setting) { try { store.setSettings({ [t.dataset.setting]: t.type==='checkbox'?t.checked:t.value.trim() }); applyPreferences(); toast('Saved'); } catch(err) { toast(err.message); } }
   if (['importFile','welcomeBackup'].includes(t.id) && t.files[0]) {
     try { if(t.id==='welcomeBackup')dismissWelcome();if(t.files[0].size>30*1024*1024)throw new Error('Choose a Spot+ backup smaller than 30 MB.');const result=store.importData(JSON.parse(await t.files[0].text()));toast(result.spotifyAccount==='different-account-kept'?'Backup imported. Your current Spotify account copy was kept; the backup belongs to another account.':result.spotifyAccount==='newer-copy-kept'?'Backup imported. Your newer Spotify library copy was kept.':'Backup imported'); }
@@ -700,6 +720,7 @@ function syncPlayer() {
     $('#barArt').src = t.cover || 'icons/icon-192.png';
     $('#barTitle').textContent = t.title;
     $('#barArtist').textContent = t.artist;
+    playerColors.setTrack(t);
   }
   const playing = player.isPlaying();
   $$('[data-role=play]').forEach((b) => setIcon(b, playing ? 'pause' : 'play'));
@@ -735,6 +756,18 @@ const MOBILE_QUERY='(max-width:767px), (max-width:950px) and (max-height:500px) 
 const np = $('#np');
 let npOpen = false;
 let npMode = 'art';
+let currentSongPalette={color:'#1b5e46',surface:'#103829',deep:'#06150f'};
+function syncStatusColor(){syncChrome(npOpen&&matchMedia(MOBILE_QUERY).matches?currentSongPalette.surface:themes.palette(store.getSettings()).surface);}
+const playerColors=new PlayerColors(p=>{
+  currentSongPalette=p;
+  for(const node of [np,bar])for(const [key,value]of Object.entries(p))node.style.setProperty('--song-'+key,value);
+  syncStatusColor();
+});
+const listeningMeter=new ListeningMeter(record=>saveHistory([record]).catch(()=>{}));
+const trackListening=()=>listeningMeter.tick(player.current(),{sessionKey:player.current()?.id+':'+player.state.playbackId,time:player.el.currentTime||0,playing:player.isPlaying()&&!player.state.loading});
+player.on('time',trackListening);player.on('state',trackListening);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)listeningMeter.flush();});
+window.addEventListener('pagehide',()=>listeningMeter.flush());
 function openNP(mode) {
   if (!player.current() && mode!=='queue') return;
   if (!npOpen) {
@@ -748,10 +781,12 @@ function openNP(mode) {
   }
   setNPMode(mode || 'art');
   syncNP();
+  syncStatusColor();
 }
 function closeNP({ fromPop = false, nav = false } = {}) {
   if (!npOpen) return;
   npOpen = false;
+  syncStatusColor();
   canvasPlayer.clear();
   document.body.classList.remove('has-panel');
   $('.app').inert=false;
@@ -762,7 +797,7 @@ function closeNP({ fromPop = false, nav = false } = {}) {
   if (!fromPop && history.state?.np) { if (nav) history.replaceState(null, ''); else history.back(); }
 }
 window.addEventListener('popstate', () => { if (npOpen && matchMedia(MOBILE_QUERY).matches) closeNP({ fromPop: true }); });
-matchMedia(MOBILE_QUERY).addEventListener('change',()=>{if(!npOpen)return;const mobile=matchMedia(MOBILE_QUERY).matches;$('.app').inert=mobile;if(mobile){np.setAttribute('role','dialog');np.setAttribute('aria-modal','true');np.focus();}else{np.removeAttribute('role');np.removeAttribute('aria-modal');}});
+matchMedia(MOBILE_QUERY).addEventListener('change',()=>{if(!npOpen)return;const mobile=matchMedia(MOBILE_QUERY).matches;syncStatusColor();$('.app').inert=mobile;if(mobile){np.setAttribute('role','dialog');np.setAttribute('aria-modal','true');np.focus();}else{np.removeAttribute('role');np.removeAttribute('aria-modal');}});
 function setNPMode(mode,{retryCanvas=false}={}) {
   if (mode === npMode && mode !== 'art' && matchMedia(MOBILE_QUERY).matches && np.dataset.mode===mode && np.classList.contains('open')) mode = 'art';
   npMode = mode;
@@ -783,6 +818,8 @@ function syncNP() {
     $('#npBg').style.backgroundImage = `url("${safeImage(t.coverXl || t.cover || 'icons/icon-512.png').replace(/"/g, '')}")`;
     $('#npTitle').textContent = t.title;
     $('#npArtist').textContent = t.artist;
+    $('#npPlays').textContent='';
+    getTrackStats(t).then(data=>{if(player.current()?.id!==t.id)return;const count=matchPlayCount(t,data);$('#npPlays').textContent=count?count.plays.toLocaleString()+' Spotify plays':'Spotify play count unavailable';});
   }
   $('#npSrc').textContent = s.offline ? (t.local?'Local audio · On this device':'Downloaded audio · On this device') : s.source?.preview ? '30-second preview · Deezer' : s.source ? `Audio · ${api.host(s.source.instance)}` : s.loading ? 'Finding audio… Tap play to cancel.' : s.error?'Audio unavailable. Retry or change audio source.':'Ready to play';
   syncCanvas();
@@ -793,8 +830,9 @@ let canvasPreference=canvasEnabled({reducedMotion:matchMedia('(prefers-reduced-m
 const canvasPlayer=new CanvasPlayer($('#npCanvas'),{lookup:(track,signal,options)=>findVisualLoop(track,signal,{...options,source:player.state.source}),onState:(state,clip)=>{
   np.classList.toggle('has-canvas',state==='ready');
   np.dataset.canvasState=state;
+  np.dataset.visualKind=clip?.kind || '';
   const status=$('#npCanvasStatus');
-  status.textContent=({loading:'Finding a loop…',fallback:'Finding a matching video…',waiting:'Loop ready · Press play',ready:clip?.kind==='music-video'?'Music video loop · ':'Spotify Canvas',missing:'No matching clip found · Cover shown',error:'Clips unavailable right now · Cover shown',blocked:'Tap Loops to start the clip'})[state]||'';
+  status.textContent=({loading:'Finding a loop…',fallback:'Finding a matching video…',deferred:player.isPlaying()?'Starting your music first…':'Loops play with your music',waiting:'Loop ready · Press play',ready:clip?.kind==='music-video'?`${clip.height?clip.height+'p · ':''}Music video loop · `:'Spotify Canvas',missing:'No matching clip found · Cover shown',error:'Clips unavailable right now · Cover shown',blocked:'Tap Loops to start the clip'})[state]||'';
   if(state==='ready'&&clip?.kind==='music-video'){const link=document.createElement('a');link.href=clip.sourceURL;link.target='_blank';link.rel='noopener';link.textContent='Watch video';status.append(link);}
 }});
 function syncCanvas(retry=false){
@@ -803,9 +841,10 @@ function syncCanvas(retry=false){
   $('#npCoverButton').setAttribute('aria-pressed',String(inCover&&!canvasPreference));
   $('#npCanvasButton').classList.toggle('on',inCover&&canvasPreference);
   $('#npCanvasButton').setAttribute('aria-pressed',String(inCover&&canvasPreference));
-  canvasPlayer.sync(player.current(),{visible:npOpen&&inCover&&!document.hidden,enabled:canvasPreference,playing:player.isPlaying()&&!player.state.loading,retry});
+  canvasPlayer.sync(player.current(),{visible:npOpen&&inCover&&!document.hidden,enabled:canvasPreference,playing:player.isPlaying()&&!player.state.loading,networkReady:!player.state.loading&&audioHasHeadroom(player.el),retry});
 }
 player.on('state',()=>syncCanvas());
+player.on('time',()=>{if(npOpen&&canvasPreference){syncCanvas();if(np.classList.contains('has-canvas'))playerColors.sampleVideo($('#npCanvas'));}});
 document.addEventListener('visibilitychange',()=>syncCanvas());
 function qRow(t, idx, cur) {
   return `<div class="trow${cur ? ' playing' : ''}" data-act="q-jump" data-qi="${idx}">${img(t.cover, 'tcover')}
@@ -911,6 +950,7 @@ function applyPreferences(){
   const s=store.getSettings();
   document.body.dataset.density=s.density;delete document.body.dataset.accent;document.body.dataset.motion=s.motion;document.body.dataset.textSize=s.textSize;
   const palette=themes.applyTheme(s);
+  syncStatusColor();
   if($('#themeLiveName'))$('#themeLiveName').textContent=s.themeCustom?'Your mix':palette.name;
   if($('#themeContrast'))$('#themeContrast').textContent=themes.contrast(palette.accentText,palette.raised).toFixed(1)+':1 accent text contrast';
   const width=Math.max(224,Math.min(420,Number(s.sidebarWidth)||288));
@@ -960,7 +1000,7 @@ function syncVoices(){syncDJVoice();}
 
 
 function createMenu(){openSheet({head:'<div class="sheet-title">Create</div>',items:[{icon:I.plus,label:'Create a playlist',sub:'Collect your favorite tracks',fn:()=>handleAct('new-playlist',{})},{icon:I.folder,label:'Create a folder',sub:'Organize playlists in your library',fn:()=>handleAct('new-folder',{})},{icon:I.library,label:'Spotify account & collections',sub:'Connect your account or explore playlists',fn:()=>go('#/spotify')},{icon:I.import,label:'Import a Deezer playlist',fn:()=>handleAct('import-playlist',{})},{icon:I.note,label:'Add local audio files',sub:'From this phone or computer',fn:()=>$('#localFilesInput').click()},{icon:I.dj,label:'Start a DJ session',fn:()=>go('#/dj')}]});}
-function profileMenu(){openSheet({head:`<div class="sheet-title">${esc(store.getSettings().displayName)}</div>`,items:[{icon:I.person,label:'Profile',sub:'Your library on this device',fn:()=>go('#/profile')},{icon:I.history,label:'Listening history',fn:()=>go('#/recent')},{icon:I.settings,label:'Theme Studio',sub:'Make Spot+ yours',fn:()=>go('#/themes')},{icon:I.library,label:'Spotify account',fn:()=>go('#/spotify-account')},{icon:I.settings,label:'Settings',fn:()=>go('#/settings')},{icon:I.dj,label:'Spot+ DJ',fn:()=>go('#/dj')}]});}
+function profileMenu(){openSheet({head:`<div class="sheet-title">${esc(store.getSettings().displayName)}</div>`,items:[{icon:I.person,label:'Profile',sub:'Your library on this device',fn:()=>go('#/profile')},{icon:I.history,label:'Your Rewind',sub:'Your listening, all year round',fn:()=>go('#/rewind')},{icon:I.history,label:'Listening history',fn:()=>go('#/recent')},{icon:I.settings,label:'Theme Studio',sub:'Make Spot+ yours',fn:()=>go('#/themes')},{icon:I.library,label:'Spotify account',fn:()=>go('#/spotify-account')},{icon:I.settings,label:'Settings',fn:()=>go('#/settings')},{icon:I.dj,label:'Spot+ DJ',fn:()=>go('#/dj')}]});}
 function deviceMenu(){openSheet({head:'<div class="sheet-title">Connect to a device</div>',body:`<div class="device-card">${I.device}<div><b>This browser</b><small>Current audio output</small></div></div><p class="sheet-note">Use your phone or computer’s audio controls for Bluetooth or AirPlay. Spotify Connect is not available through these music sources.</p>`,items:typeof player.el.setSinkId==='function' && navigator.mediaDevices?.selectAudioOutput?[{icon:I.device,label:'Choose audio output',fn:async()=>{try{const d=await navigator.mediaDevices.selectAudioOutput();await player.el.setSinkId(d.deviceId);toast('Audio output changed');}catch(e){toast(e.name==='NotAllowedError'?'Audio output selection was cancelled.':e.message);}}}]:[]});}
 function sleepMenu(){openSheet({head:'<div class="sheet-title">Sleep timer</div>',items:[...[5,15,30,60].map(minutes=>({icon:I.history,label:`${minutes} minutes`,fn:()=>{clearTimeout(sleepTimer);sleepTimer=setTimeout(()=>{player.el.pause();dj.stop();toast('Sleep timer ended');},minutes*60000);toast(`Playback will pause in ${minutes} minutes`);}})),{icon:I.close,label:'Turn off timer',fn:()=>{clearTimeout(sleepTimer);sleepTimer=null;toast('Sleep timer off');}}]});}
 function trapFocus(e,root){if(e.key!=='Tab')return;const focusable=$$('button:not(:disabled),a[href],input:not(:disabled),select,textarea,[tabindex="0"]',root).filter(el=>el.getClientRects().length);if(!focusable.length)return;const first=focusable[0],last=focusable.at(-1);if(e.shiftKey&&(document.activeElement===first||!root.contains(document.activeElement))){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}
@@ -996,12 +1036,26 @@ dj.localModel.onChange(()=>{if($('#modelState'))$('#modelState').innerHTML=model
 /* ---------------- Spotify collections and Theme Studio ---------------- */
 let themeUndo=null;
 let pendingAccount=null,accountReviewBusy=false;
+function accountStatus(message){const status=$('#accountConnectionStatus');if(status)status.textContent=message;}
 function beginSpotifyConnection(){
   const nonce=[...crypto.getRandomValues(new Uint8Array(16))].map(b=>b.toString(16).padStart(2,'0')).join('');
-  const spotifyWindow=window.open('https://open.spotify.com/collection?spotplus_origin='+encodeURIComponent(location.origin)+'&spotplus_bridge='+nonce,'spotplus-spotify');
-  if(!spotifyWindow)return toast('Allow this Spotify tab to open, or use the companion’s Save library file button.');
-  pendingAccount={nonce,window:spotifyWindow,started:Date.now()};if($('#accountConnectionStatus'))$('#accountConnectionStatus').textContent='Waiting for Spotify. Sign in in the new tab; the helper will send your library here for review.';
-  toast('In Spotify, sign in and tap the Spot+ companion’s Read library button.');
+  const urls=spotifyConnectionURLs(location.origin,nonce),phone=accountDevice!=='computer',browser=accountDevice==='iphone'?'Safari':accountDevice==='android'?'Firefox':'your browser';
+  pendingAccount={nonce,window:null,started:Date.now()};
+  const copy={icon:I.copy,label:'Copy Spotify browser link',sub:`Paste into ${browser}’s address bar to stay on the website.`,fn:async()=>{
+    try{await navigator.clipboard.writeText(urls.browser);accountStatus(`Link copied. Paste it in ${browser}, sign in, then use the Spot+ helper’s Send to Spot+ button.`);toast('Browser link copied');}
+    catch{openSheet({head:'<div class="sheet-title">Copy this browser link</div>',body:`<p class="sheet-note">Select and copy this link into ${browser}’s address bar.</p><input class="connection-link" aria-label="Spotify browser link" readonly value="${esc(urls.browser)}">`});}
+  }};
+  const login={icon:I.person,label:'Open Spotify sign-in',sub:'Sign in on accounts.spotify.com. Keep the helper enabled.',fn:()=>{
+    const win=window.open(urls.login,'spotplus-spotify');pendingAccount.window=win;
+    if(!win){accountStatus('The browser blocked the sign-in tab. Choose Copy Spotify browser link instead.');toast('Use Copy Spotify browser link');return;}
+    accountStatus('Spotify sign-in opened. Waiting for the Spot+ helper on Spotify’s website…');
+    setTimeout(()=>{if(pendingAccount?.nonce===nonce&&!pendingAccount.helperReady)accountStatus('No helper detected yet. If Spotify opened its app, return here and use Copy Spotify browser link. Enable the Spot+ helper in Safari/Firefox, then reload Spotify’s website.');},15000);
+  }};
+  openSheet({head:'<div class="sheet-title">Connect your Spotify library</div>',body:`<p class="sheet-note">${phone?'Use '+browser+' with the Spot+ helper installed. Pasting the browser link avoids the Spotify app and blank-screen handoff.':'Install the Spot+ helper once, then sign in on Spotify’s website.'}</p><p class="sheet-note">When your library is ready, choose <b>Send to Spot+</b>. For the iPhone Home Screen app, use <b>Save library file</b> and import it here.</p>`,items:phone?[copy,login]:[login,copy]});
+}
+function receiveSpotifyAccount(nonce){
+  if(window.opener){pendingAccount={nonce,window:window.opener,started:Date.now()};setTimeout(()=>window.opener?.postMessage({type:'spotplus-receiver-ready',nonce},'https://open.spotify.com'),0);}
+  return viewSpotifyAccount()+`<p class="connection-feedback" role="status">${window.opener?'Waiting for your library from Spotify. Keep its tab open.':'The browser disconnected the Spotify tab. Use Save library file on Spotify, then Import library file here.'}</p>`;
 }
 async function reviewSpotifyAccount(raw){
   if(accountReviewBusy)return false;
@@ -1015,6 +1069,11 @@ async function reviewSpotifyAccount(raw){
   }catch(e){toast(e.message);return false;}finally{accountReviewBusy=false;}
 }
 window.addEventListener('message',async event=>{
+  if(isAccountMessage(event,pendingAccount,'spotplus-connection-status')){
+    pendingAccount.helperReady=true;
+    const phase=event.data.phase;
+    accountStatus(({ready:'Helper connected. Reading your Spotify library…',reading:'Reading your Spotify library…',done:'Library received. Review it before applying.',error:'The helper needs attention. Return to Spotify’s website to see its message.'})[phase]||'Spotify helper connected.');return;
+  }
   if(!isAccountMessage(event,pendingAccount))return;
   const request=pendingAccount;
   if(await reviewSpotifyAccount(event.data.library)){
@@ -1050,7 +1109,7 @@ async function viewEssentials(id){const d=await api.artist(id),tracks=visibleTra
 async function viewSpotify(){
   return `<div class="spotify-heading"><div><div class="kicker">Your music, brought together</div><h1>Spotify collections</h1><p class="muted">Official playlists and your own Spotify library. No developer account needed.</p></div><button class="btn white" data-act="spotify-import">${I.import}Import my Spotify data</button></div><div class="account-actions"><a class="btn primary" href="#/spotify-account">Connect my Spotify account</a></div><form id="spotifyLinkForm" class="dj-request"><label class="sr-only" for="spotifyLink">Spotify playlist, artist, album or track link</label><input id="spotifyLink" type="url" required placeholder="Paste a Spotify playlist link…"><button class="btn primary">Open link</button></form><div class="view-toolbar"><a class="chip" href="https://open.spotify.com/user/spotify" target="_blank" rel="noopener">Explore Spotify’s full playlist catalog ${I.arrow}</a><a class="chip" href="https://www.spotify.com/account/privacy/" target="_blank" rel="noopener">Get my Spotify data ${I.arrow}</a></div>${shelf('Spotify editorial',spotify.collections.filter(p=>p.category==='Editorial').map(spotifyCard))}${shelf('This Is',spotify.collections.filter(p=>p.category==='This Is').map(spotifyCard))}${store.getSpotifyLinks().length?shelf('Your saved Spotify links',store.getSpotifyLinks().map(spotifyCard)):''}<section class="box"><h2>Bring your library over</h2><ol class="setup-steps"><li>Request <b>Account data</b> from Spotify’s privacy page.</li><li>Choose the downloaded ZIP, or YourLibrary.json and Playlist*.json.</li><li>Review the counts, then merge your saved songs and playlists into Spot+.</li></ol><button class="btn" data-act="spotify-import">Choose Spotify export</button><p class="settings-note">The import runs on this device. Existing Spot+ music is kept. Re-import a newer export to merge additions. This is an import, not a live Spotify login or two-way sync.</p><p class="settings-note">Spotify embeds keep their own player and account rules. Personal Spotify radio, private playlists, and a complete automatic catalog mirror are not exposed through this no-sign-in method.</p></section>`;
 }
-async function viewSpotifyCollection(type,id){const known=spotify.collections.find(p=>p.id===id)||store.getSpotifyLinks().find(p=>p.id===id);let p;try{p=await spotify.metadata({type,id,...known});}catch{p={type,id,title:known?.title||'Spotify '+type,cover:known?.cover||''};}return header({cover:p.cover,kicker:'Spotify · '+type,title:p.title,sub:'Official Spotify player · Content and playback are provided by Spotify.'})+`<div class="actions"><button class="btn primary" data-act="spotify-open-player" data-type="${type}" data-id="${id}">${I.play}Open Spotify player</button><button class="btn" data-act="spotify-save" data-type="${type}" data-id="${id}">${I.plus}Save link</button><a class="btn" href="${spotify.urlFor({type,id})}" target="_blank" rel="noopener">Open in Spotify ${I.arrow}</a></div><div id="spotifyPlayer"></div><p class="settings-note">Spotify’s player has its own queue. To bring your own playlist tracks into the Spot+ player, import your Spotify data from <a href="#/spotify">Spotify collections</a>.</p>`;}
+async function viewSpotifyCollection(type,id){const known=spotify.collections.find(p=>p.id===id)||store.getSpotifyLinks().find(p=>p.id===id);let p;try{p=await spotify.metadata({type,id,...known});}catch{p={type,id,title:known?.title||'Spotify '+type,cover:known?.cover||''};}return header({cover:p.cover,kicker:'Spotify · '+type,title:p.title,sub:'Official Spotify player · Content and playback are provided by Spotify.'})+(type==='artist'?'<p class="spotify-counter" data-counter="artist" data-spotify-artist-id="'+id+'">Loading Spotify listeners…</p>':'')+`<div class="actions"><button class="btn primary" data-act="spotify-open-player" data-type="${type}" data-id="${id}">${I.play}Open Spotify player</button><button class="btn" data-act="spotify-save" data-type="${type}" data-id="${id}">${I.plus}Save link</button><a class="btn" href="${spotify.urlFor({type,id})}" target="_blank" rel="noopener">Open in Spotify ${I.arrow}</a></div><div id="spotifyPlayer"></div><p class="settings-note">Spotify’s player has its own queue. To bring your own playlist tracks into the Spot+ player, import your Spotify data from <a href="#/spotify">Spotify collections</a>.</p>`;}
 function themeSettings(s){const p=themes.palette(s);return {themePreset:s.themePreset||'pine',themeCustom:{accent:p.accent,surface:p.surface,raised:p.raised},amoled:s.amoled!==false,cornerRadius:p.radius,coverStyle:s.coverStyle||'square',density:s.density,textSize:s.textSize,motion:s.motion};}
 function downloadJson(data,name){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000);}
 function viewThemes(){

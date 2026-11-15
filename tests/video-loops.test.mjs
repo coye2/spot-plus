@@ -16,6 +16,8 @@ test('Video matching rejects different songs, wrong artists, covers and static a
 test('Video loops choose small H264 streams and reject unsafe or unrelated source URLs',()=>{
  const formats=[{url:clip.url,mime:'video/mp4; codecs="avc1.42E01E"',height:360},{url:clip.url,mime:'video/mp4; codecs="av01"',height:360},{url:clip.url,mime:'video/mp4; codecs="avc1.42E01E"',height:1080}];
  assert.equal(chooseLoopFormat(formats),formats[0]);assert.equal(chooseLoopFormat(formats.slice(1)),null);
+ const hd={...formats[0],height:720};assert.equal(chooseLoopFormat([...formats,hd]),hd);assert.equal(chooseLoopFormat([...formats,hd],480),formats[0]);
+ assert.ok(musicVideoLoop({...clip,url:'https://rr1.googlevideo.com/videoplayback?itag=136'}));assert.equal(musicVideoLoop({...clip,url:'https://googlevideo.com.attacker.example/videoplayback?itag=136'}),null);
  assert.equal(musicVideoLoop({...clip,url:'https://127.0.0.1/latest_version?id=4NRXx6U8ABQ&itag=134'}),null);
  assert.equal(musicVideoLoop({...clip,url:clip.url.replace('4NRXx6U8ABQ','aaaaaaaaaaa')}),null);
  assert.deepEqual(loopWindow(263),{start:45,end:53});assert.deepEqual(loopWindow(6),{start:0,end:6});

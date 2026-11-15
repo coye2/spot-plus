@@ -1,4 +1,5 @@
 // A narrow public-metadata adapter, never an arbitrary URL or credential proxy.
+import {spotifyStats} from './spotify-stats.js';
 const SOURCE = 'https://canvas.auramusic.site/api/canvas';
 const CORS = {'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, OPTIONS','Content-Type':'application/json; charset=utf-8','X-Content-Type-Options':'nosniff'};
 export function queryFor(input) {
@@ -41,6 +42,7 @@ export async function handle(request, {fetcher=fetch,cache,waitUntil=()=>{}} = {
   if (request.method === 'OPTIONS') return new Response(null,{status:204,headers:CORS});
   if (request.method !== 'GET') return json({error:'Use GET'},405);
   const url = new URL(request.url);
+  if (url.pathname === '/spotify-stats') return spotifyStats(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/health') return json({service:'Spot+ Canvas bridge',status:'ok'});
   if (url.pathname !== '/canvas') return json({error:'Not found'},404);
   const query = queryFor(url.searchParams);

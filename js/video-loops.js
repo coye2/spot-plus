@@ -28,10 +28,10 @@ export function publicMediaURL(value) {
     return url.href;
   } catch { return null; }
 }
-export function chooseLoopFormat(formats) {
-  // Small H.264 MP4 streams work with Safari and Android without another decoder.
-  return formats.filter(format => /^video\/mp4/i.test(format.mime || '') && /avc1|h264/i.test(format.mime+' '+format.codec) && format.height > 0 && format.height <= 480 && publicMediaURL(format.url))
-    .sort((a,b)=>Math.abs(a.height-360)-Math.abs(b.height-360) || Number(a.bitrate)-Number(b.bitrate))[0] || null;
+export function chooseLoopFormat(formats, target = 720) {
+  // HD H.264 at ordinary frame rates; constrained connections use 480p/360p.
+  return formats.filter(format => /^video\/mp4/i.test(format.mime || '') && /avc1|h264/i.test(format.mime+' '+format.codec) && format.height > 0 && format.height <= target && (!format.fps || format.fps <= 30) && publicMediaURL(format.url))
+    .sort((a,b)=>b.height-a.height || Number(a.bitrate)-Number(b.bitrate))[0] || null;
 }
 export function loopWindow(duration) {
   if (!Number.isFinite(duration) || duration <= 0) return {start:0,end:8};
@@ -41,7 +41,8 @@ export function loopWindow(duration) {
 export function musicVideoLoop(value) {
   if (value?.kind !== 'music-video' || !/^[\w-]{11}$/.test(value.videoId || '') || !publicMediaURL(value.url) || !publicMediaURL(value.instance)) return null;
   const media = new URL(value.url), instance = new URL(value.instance);
-  if (value.engine === 'invidious' && (media.origin !== instance.origin || media.pathname !== '/latest_version' || media.searchParams.get('id') !== value.videoId || !/^\d{1,3}$/.test(media.searchParams.get('itag') || ''))) return null;
+  const direct=/(^|\.)googlevideo\.com$/.test(media.hostname)&&media.pathname==='/videoplayback'&&/^\d{1,3}$/.test(media.searchParams.get('itag')||'');
+  if (value.engine === 'invidious' && !direct && (media.origin !== instance.origin || media.pathname !== '/latest_version' || media.searchParams.get('id') !== value.videoId || !/^\d{1,3}$/.test(media.searchParams.get('itag') || ''))) return null;
   if (!['invidious','piped'].includes(value.engine)) return null;
   return {...value,sourceURL:'https://www.youtube.com/watch?v='+value.videoId,...loopWindow(Number(value.duration))};
 }

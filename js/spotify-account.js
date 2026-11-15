@@ -30,6 +30,6 @@ export function mergeAccountSnapshot(previous,incoming){
   }
   return next;
 }
-export function isAccountMessage(event,pending){
-  return !!pending && Date.now()-pending.started<30*60*1000 && event.origin==='https://open.spotify.com' && event.source===pending.window && event.data?.type==='spotplus-library' && event.data.nonce===pending.nonce;
+export function isAccountMessage(event,pending,type='spotplus-library'){
+  return !!pending && !!pending.window && Date.now()>=pending.started && Date.now()-pending.started<30*60*1000 && event.origin==='https://open.spotify.com' && event.source===pending.window && event.data?.type===type && event.data.nonce===pending.nonce;
 }

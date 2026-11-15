@@ -8,15 +8,15 @@ Open Spot+ → Settings → Spotify account. The screen selects your device, sho
 
 1. Install [Userscripts](https://github.com/quoid/userscripts#installation) using the project's official App Store link. Open the app once, then enable its extension in Safari.
 2. In Safari, open the **Spot+ companion** link in the Spot+ account screen. In Safari's extensions menu, open Userscripts and install the script.
-3. Allow the extension on `open.spotify.com`. Open Spot+ in Safari, choose **Open Spotify to connect**, and sign in on Spotify itself.
+3. Allow the extension on `open.spotify.com`. Open Spot+ in Safari, choose **Connect Spotify → Copy Spotify browser link**, paste it into Safari’s address bar, and sign in on Spotify itself.
 4. Keep Spotify open. After sign-in, the helper attempts to read the library and send it back automatically. If it does not start, open Your Library and choose **Read library**, then **Send to Spot+**.
-5. Return to Spot+ and review/apply the library. If the tabs cannot communicate, choose **Save library file** on Spotify, save it to Files, and use **Choose companion file** in Spot+.
+5. Return to Spot+ and review/apply the library. If the tabs cannot communicate, choose **Save library file** on Spotify, save it to Files, and use **Import library file** in Spot+.
 
 ## Android, without a PC
 
 1. Use Firefox and install [Tampermonkey](https://www.tampermonkey.net/index.php?browser=firefox) from its official Firefox extension link.
 2. Open the companion link from Spot+'s account screen and install it.
-3. Choose **Open Spotify to connect**. Keep sign-in in Firefox; request the desktop site if Spotify redirects to its native app.
+3. Choose **Connect Spotify → Copy Spotify browser link** and paste it into Firefox’s address bar. Request Desktop site if needed.
 4. Keep Spotify open while the helper reads your library and sends it back for review. If nothing arrives, open Your Library → **Read library → Send to Spot+**. The file fallback works here too.
 
 For a home-screen app, use Safari/Firefox for the connection step. Browser and installed-web-app storage can differ, so import the companion file in the app where you want to keep the music.
@@ -59,6 +59,8 @@ ListenBrainz was investigated but is not used: its current Spotify track-import 
 Opens the hosted account setup screen. `-ShowFiles` locates the bundled companion. It does not install an extension, change execution policy, read credentials, or complete sign-in. Helper installation and Spotify sign-in happen in each device’s browser.
 
 ## Verification
+
+Update/reinstall the helper to **1.3.0** from the account screen. It explicitly runs in the page context so Safari Userscripts can observe Spotify’s authorized requests. Connect first opens instructions inside Spot+ instead of immediately launching the native app. Computer sign-in starts at accounts.spotify.com. If the original tab connection is lost, Send to Spot+ opens a visible receiving page with an origin/window/nonce handshake. The page reports progress instead of leaving a blank intermediary. On iPhone Home Screen installations, use the file handoff when Safari storage is separate. Listening statistics use the separate streaming-history import in Your Rewind.
 
 Automated fixtures cover pagination, failed/truncated reads, account changes during a refresh, secret-field removal, invalid image URLs, old snapshots, message origin/window/nonce checks and storage failure. Fixture validation is not evidence of a successful Spotify login. The browser interface and import/refresh flow are tested separately; physical-device and real-account authentication remain unverified until the user completes the setup.
 
