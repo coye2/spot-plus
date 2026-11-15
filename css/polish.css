@@ -307,3 +307,4 @@ body.has-panel .jam-chip{display:none}
 /* iOS 26 Home Screen apps can lay out shorter than the screen (a WebKit bug); the
    system already keeps that strip clear, so don't add our own bottom inset too. */
 html.ios-app.ios-short-viewport{--safe-bottom:0px}
+html{background-color:var(--edge,var(--canvas))!important}

@@ -141,7 +141,7 @@ function reg(tracks, meta = {}) { const k = 'l' + ++listSeq; lists.set(k, { trac
 const listOf = (k) => lists.get(k) || { tracks: [], meta: {} };
 
 /* ---------------- Renderers ---------------- */
-const img = (src, cls = '') => !src ? `<div class="${cls} ph-cover">${I.note}</div>` : `<img class="${cls}" loading="lazy" decoding="async" src="${esc(safeImage(src))}" alt="">`;
+const img = (src, cls = '') => !src ? `<div class="${cls} ph-cover">${I.note}</div>` : `<img class="${cls}" loading="lazy" src="${esc(safeImage(src))}" alt="">`;
 function trackRows(tracks, key, { numbered = false } = {}) {
   if (!tracks.length) return '<p class="muted pad">No songs here yet.</p>';
   const cur = player.current()?.id;
@@ -815,7 +815,14 @@ const np = $('#np');
 let npOpen = false;
 let npMode = 'art';
 let currentSongPalette={color:'#1b5e46',surface:'#103829',deep:'#06150f'};
-function syncStatusColor(){syncChrome(npOpen&&matchMedia(MOBILE_QUERY).matches?currentSongPalette.surface:themes.palette(store.getSettings()).surface);}
+function syncStatusColor(){
+  const mobile=matchMedia(MOBILE_QUERY).matches,p=themes.palette(store.getSettings()),nowPlaying=npOpen&&mobile;
+  syncChrome(nowPlaying?currentSongPalette.surface:p.canvas);
+  // iOS 26 Home Screen apps leave a strip at the bottom that the page can't draw into;
+  // iOS fills it from the page background, so keep that matching the bottom of the screen.
+  const edge=nowPlaying?(currentSongPalette.deep||p.canvas):p.canvas;
+  document.documentElement.style.setProperty('--edge',edge);
+}
 const playerColors=new PlayerColors(p=>{
   currentSongPalette=p;
   for(const node of [np,bar])for(const [key,value]of Object.entries(p))node.style.setProperty('--song-'+key,value);
@@ -917,9 +924,14 @@ function qRow(t, idx, cur) {
     <div class="tmeta"><div class="ttitle">${esc(t.title)}</div><div class="tsub">${esc(t.artist)}</div></div>
     <button class="sr-only" data-act="q-jump" data-qi="${idx}" aria-label="Play ${esc(t.title)}">Play</button>${cur ? '' : `<div class="q-actions"><button class="icon" data-act="q-up" data-qi="${idx}" aria-label="Move ${esc(t.title)} up" ${idx<=player.state.index+1?'disabled':''}>${I.up}</button><button class="icon" data-act="q-down" data-qi="${idx}" aria-label="Move ${esc(t.title)} down" ${idx===player.state.queue.length-1?'disabled':''}>${I.down}</button><button class="icon" data-act="q-remove" data-qi="${idx}" aria-label="Remove ${esc(t.title)} from queue">${I.close}</button></div>`}</div>`;
 }
+let queueSignature='';
 function renderQueue() {
   const { queue, index } = player.state;
   const up = queue.slice(index + 1, index + 151);
+  // Re-rendering recreates every cover image (a visible blink), so only rebuild on change.
+  const signature=index+'|'+queue.slice(index,index+151).map(t=>t.id).join(',')+'|'+player.current()?.id;
+  if(signature===queueSignature&&$('#npQueue').childElementCount)return;
+  queueSignature=signature;
   $('#npQueue').innerHTML = `<div class="q-head">Now playing</div>${queue[index] ? qRow(queue[index], index, true) : ''}
     <div class="q-head">Up next ${up.length ? '<button class="link" data-act="q-clear">Clear</button>' : ''}</div>
     ${up.length ? up.map((t, j) => qRow(t, index + 1 + j, false)).join('') : '<p class="muted pad">Nothing queued.</p>'}`;
@@ -1016,6 +1028,7 @@ function applyPreferences(){
   const s=store.getSettings();
   document.body.dataset.density=s.density;delete document.body.dataset.accent;document.body.dataset.motion=s.motion;document.body.dataset.textSize=s.textSize;
   const palette=themes.applyTheme(s);
+  if(typeof syncStatusColor==='function')queueMicrotask(()=>syncStatusColor());
   syncStatusColor();
   if($('#themeLiveName'))$('#themeLiveName').textContent=s.themeCustom?'Your mix':palette.name;
   if($('#themeContrast'))$('#themeContrast').textContent=themes.contrast(palette.accentText,palette.raised).toFixed(1)+':1 accent text contrast';
