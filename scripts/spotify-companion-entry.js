@@ -1,5 +1,5 @@
 // Bundled with spotify-reader.js by build-companion.mjs. Runs only on open.spotify.com.
-/* global READ_QUERIES, SPOTIFY_QUERY_URL, COMPANION_VERSION, readSpotifyAccount, canAutoRead, encodeLibraryText */
+/* global READ_QUERIES, SPOTIFY_QUERY_URL, COMPANION_VERSION, readSpotifyAccount, canAutoRead, encodeLibraryText, readSpotifyStats */
 function runSpotifyCompanion(){
   if(location.origin!=='https://open.spotify.com'||document.getElementById('spotplus-companion'))return;
   const permittedOrigins=['https://coye2.github.io','https://spot-plus-coyeb.coyeboymitchell2000.chatgpt.site'];
@@ -82,6 +82,20 @@ function runSpotifyCompanion(){
     }
     finally{clearTimeout(id);controller.signal.removeEventListener('abort',abort);}
   }
+  // GET-only access to the allowlisted listening-stats paths on Spotify's public Web API,
+  // using the web player's own authorization. Nothing is written to the account.
+  async function webGet(path){
+    if(!/^\/v1\/me\/(top\/(tracks|artists)\?time_range=(short|medium|long)_term&limit=50|player\/recently-played\?limit=50)$/.test(path))throw new Error('Only reading listening stats is supported.');
+    controller.signal.throwIfAborted();
+    if(!/^Bearer\s+\S+$/.test(credentials.authorization||''))throw new Error('Spotify session not ready.');
+    const timeout=new AbortController(),id=setTimeout(()=>timeout.abort(),15000),abort=()=>timeout.abort();
+    controller.signal.addEventListener('abort',abort,{once:true});
+    try{
+      const response=await originalFetch('https://api.spotify.com'+path,{headers:{authorization:credentials.authorization,accept:'application/json'},credentials:'omit',cache:'no-store',redirect:'error',signal:timeout.signal});
+      if(!response.ok){const error=new Error('Spotify stats unavailable ('+response.status+').');error.status=response.status;throw error;}
+      return await response.json();
+    }finally{clearTimeout(id);controller.signal.removeEventListener('abort',abort);}
+  }
   function maybeAutoRead(){
     if(!canAutoRead({bridge,hostReady:!!host,authorization:credentials.authorization,attempted:autoCancelled||(autoAttempted&&!(allowAuthRetry&&attemptedAuth!==credentials.authorization))}))return;
     autoAttempted=true;attemptedAuth=credentials.authorization;allowAuthRetry=false;status('Connected to Spotify. Reading your library…');autoTimer=setTimeout(()=>host?.shadowRoot?.getElementById('read')?.click(),600);
@@ -115,10 +129,13 @@ function runSpotifyCompanion(){
       notify('reading');
       try{
         library=await readSpotifyAccount(query,{signal:controller.signal,onProgress:status});
+        // Listening stats ride along automatically. Optional: the library still sends if they fail.
+        try{library.stats=await readSpotifyStats(webGet,{onProgress:status});}
+        catch(error){if(controller.signal.aborted)throw error;library.stats=null;library.statsError=String(error.message||'Stats unavailable').slice(0,200);}
         if(JSON.stringify(library).length>12*1024*1024)throw new Error('Your library exceeds the 12 MB phone transfer limit. Use Spotify’s data export.');
         const unavailable=library.playlists.filter(p=>p.status==='unavailable').length;
         const unreadable=library.likesUnreadable+library.playlists.reduce((n,p)=>n+(p.unreadable||0),0);
-        status('Ready for review: '+library.likes.length+' liked songs, '+library.playlists.length+' playlists.'+(unavailable?' '+unavailable+' unavailable; any saved copies will be kept.':'')+(unreadable?' Song entries with incomplete details: '+unreadable+'. Existing copies of affected collections will be kept; new collections contain the readable songs.':'')+(isIOS?' Tap Copy for Spot+, then open Spot+ and tap Paste from Spotify.':' Review and send your library to Spot+.'));
+        status('Ready for review: '+library.likes.length+' liked songs, '+library.playlists.length+' playlists'+(library.stats?', your top music and recent plays.':'.')+(unavailable?' '+unavailable+' unavailable; any saved copies will be kept.':'')+(unreadable?' Song entries with incomplete details: '+unreadable+'. Existing copies of affected collections will be kept; new collections contain the readable songs.':'')+(isIOS?' Tap Copy for Spot+, then open Spot+ and tap Paste from Spotify.':' Review and send your library to Spot+.'));
         encodeLibraryText(library).then(text=>{libraryText=text;},()=>{libraryText=null;});
         // iPhone without a Spot+ tab to message: Copy is the one button that matters.
         const pasteOnly=isIOS&&!window.opener;

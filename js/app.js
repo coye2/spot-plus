@@ -4,6 +4,7 @@ import {PlayerColors,syncChrome} from './player-colors.js';
 import {getTrackStats,matchPlayCount,hydrateStatistics} from './spotify-stats.js';
 import {rewindView,importRewind,filters as rewindFilters} from './rewind.js';
 import {ListeningMeter,saveHistory,readHistory,clearHistory} from './listening-history.js';
+import {recentPlaysAsHistory} from './stats-api.js';
 // app.js — Spot+ UI: router, views, player bar, now-playing screen.
 import * as api from './api.js';
 import * as store from './store.js';
@@ -530,6 +531,7 @@ async function handleAct(act, el) {
     case 'track-play': {dj.stop();const tracks=visibleTracks(listOf(key).tracks,store.getSettings());const track=listOf(key).tracks[+el.dataset.i];const index=tracks.findIndex(t=>t.id===track?.id);if(index<0)return toast('Explicit content is turned off in Settings.');if(player.current()?.id===track.id)player.toggle();else player.playList(tracks,index,{shuffle:false});break;}
     case 'profile': profileMenu(); break;
     case 'rewind-import': $('#rewindImport').click();break;
+    case 'rewind-top': rewindFilters[el.dataset.key]=el.dataset.value;route({keepScroll:true});break;
     case 'rewind-export': {
       const records=await readHistory(),url=URL.createObjectURL(new Blob([JSON.stringify({app:'spotplus-rewind',version:1,records})],{type:'application/json'}));
       const a=document.createElement('a');a.href=url;a.download='SpotPlus-Rewind.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);break;
@@ -1124,7 +1126,8 @@ async function reviewSpotifyAccount(raw){
     const readNotice=accountReadNotice(snapshot);
     const message=`${snapshot.account.name}: ${plural(snapshot.likes.length,'liked song')}, ${plural(snapshot.playlists.length,'playlist')}, ${plural(snapshot.albums.length,'album')} and ${plural(snapshot.artists.length,'artist')}. ${changed?'This replaces the other Spotify account’s copy on this device. ':''}${readNotice?readNotice+' ':''}Complete collections replace the Spotify copy, including removed songs. Your local Spot+ playlists and likes are kept. No changes are sent to Spotify.`;
     if(!await confirmBox('Apply this Spotify library?',message,'Apply library'))return false;
-    store.setSpotifyAccount(snapshot);await store.flushSpotifyAccount();awaitingPaste=false;toast('Spotify library saved on this device');go('#/spotify-account');return true;
+    store.setSpotifyAccount(snapshot);await store.flushSpotifyAccount();
+    saveHistory(recentPlaysAsHistory(store.getSpotifyAccount())).catch(()=>{}); // Rewind grows automatically.awaitingPaste=false;toast('Spotify library saved on this device');go('#/spotify-account');return true;
   }catch(e){toast(e.message);return false;}finally{accountReviewBusy=false;}
 }
 window.addEventListener('message',async event=>{

@@ -1,6 +1,6 @@
 // Read-only Spotify web-client adapter. No cookie access, login or audio extraction.
 // Request names/hashes describe Spotify's interface; see ACCOUNT-CONNECTION.md.
-export const COMPANION_VERSION = '1.4.3';
+export const COMPANION_VERSION = '1.5.0';
 export const SPOTIFY_QUERY_URL = 'https://api-partner.spotify.com/pathfinder/v2/query';
 export const READ_QUERIES = Object.freeze({
   profileAttributes:'53bcb064f6cd18c23f752bc324a791194d20df612d8e1239c735144ab0399ced',
@@ -170,6 +170,47 @@ export async function readSpotifyAccount(query,{signal,onProgress=()=>{}}={}) {
   const end=(await query('profileAttributes',{})).data?.me?.profile?.username;
   if(end!==account.id)throw new Error('The Spotify account changed during sync. Please start again.');
   return library;
+}
+
+// Listening stats, the same data Stats for Spotify shows: top tracks/artists for
+// Spotify's three windows and the last 50 plays. Read with the web player's own
+// session from api.spotify.com (GET only, allowlisted paths). Optional: a failure here
+// never blocks the library read.
+export const STATS_RANGES = Object.freeze(['short_term','medium_term','long_term']);
+export const STATS_PATHS = Object.freeze({
+  tracks: range => '/v1/me/top/tracks?time_range='+range+'&limit=50',
+  artists: range => '/v1/me/top/artists?time_range='+range+'&limit=50',
+  recent: () => '/v1/me/player/recently-played?limit=50',
+});
+const webArtistNames = artists => Array.isArray(artists) ? artists.map(a => cleanText(a?.name, 200)).filter(Boolean).join(', ') : '';
+const webImage = images => Array.isArray(images) ? spotifyCover(images.find(i => i?.url)?.url) : '';
+export function readWebTrack(t) {
+  const id = typeof t?.id === 'string' && /^[A-Za-z0-9]{22}$/.test(t.id) ? t.id : '';
+  const title = cleanText(t?.name, 300), artist = webArtistNames(t?.artists);
+  if (!id || !title || !artist) return null;
+  return {spotifyId: id, title, artist, album: cleanText(t.album?.name, 300), cover: webImage(t.album?.images), duration: Number.isFinite(t.duration_ms) ? Math.round(t.duration_ms / 1000) : 0};
+}
+export function readWebArtist(a) {
+  const id = typeof a?.id === 'string' && /^[A-Za-z0-9]{22}$/.test(a.id) ? a.id : '';
+  const name = cleanText(a?.name, 200);
+  if (!id || !name) return null;
+  return {id, name, cover: webImage(a.images), genres: Array.isArray(a.genres) ? a.genres.map(g => cleanText(g, 60)).filter(Boolean).slice(0, 8) : []};
+}
+export async function readSpotifyStats(get, {onProgress = () => {}} = {}) {
+  const stats = {capturedAt: Date.now(), top: {}, recent: []};
+  for (const range of STATS_RANGES) {
+    onProgress('Reading your top music (' + {short_term: '4 weeks', medium_term: '6 months', long_term: 'all time'}[range] + ')…');
+    const [tracks, artists] = [await get(STATS_PATHS.tracks(range)), await get(STATS_PATHS.artists(range))];
+    if (!Array.isArray(tracks?.items) || !Array.isArray(artists?.items)) throw new Error('Spotify returned unexpected top-music data.');
+    stats.top[range] = {tracks: tracks.items.map(readWebTrack).filter(Boolean), artists: artists.items.map(readWebArtist).filter(Boolean)};
+  }
+  const recent = await get(STATS_PATHS.recent());
+  if (!Array.isArray(recent?.items)) throw new Error('Spotify returned unexpected recently-played data.');
+  stats.recent = recent.items.map(item => {
+    const track = readWebTrack(item?.track), at = Date.parse(item?.played_at);
+    return track && Number.isFinite(at) ? {...track, playedAt: at} : null;
+  }).filter(Boolean);
+  return stats;
 }
 
 // Auto-read is scoped to an explicit, fresh Connect Spotify launch.

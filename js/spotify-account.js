@@ -14,6 +14,18 @@ function unreadableCount(value){
   if(!Number.isInteger(value)||value<0||value>10000)throw new Error('Invalid incomplete-song count. Your saved copy is unchanged.');
   return value;
 }
+// Listening stats (top tracks/artists per range, recent plays). Invalid stats are
+// dropped rather than failing the whole library.
+const RANGES=['short_term','medium_term','long_term'];
+function statTrack(t){const x=track(t);return x&&{...x,...(Number.isFinite(t.playedAt)&&t.playedAt>0?{playedAt:t.playedAt}:{})};}
+function statArtist(a){return a&&validId(a.id)&&text(a.name,200).trim()?{id:a.id,name:text(a.name,200),cover:spotifyCover(a.cover),genres:Array.isArray(a.genres)?a.genres.map(g=>text(g,60)).filter(Boolean).slice(0,8):[]}:null;}
+export function validateStats(raw){
+  if(!raw||typeof raw!=='object'||!Number.isFinite(raw.capturedAt)||!raw.top)return null;
+  const top={};
+  for(const range of RANGES){const r=raw.top[range];if(!r||!Array.isArray(r.tracks)||!Array.isArray(r.artists))return null;top[range]={tracks:r.tracks.slice(0,50).map(statTrack).filter(Boolean),artists:r.artists.slice(0,50).map(statArtist).filter(Boolean)};}
+  const recent=Array.isArray(raw.recent)?raw.recent.slice(0,50).map(statTrack).filter(t=>t?.playedAt):[];
+  return {capturedAt:raw.capturedAt,top,recent};
+}
 export function validateAccountSnapshot(raw){
   if(!raw||raw.app!=='spotplus-account'||![1,2].includes(raw.version)||raw.complete!==true||!text(raw.account?.id,120)||!Number.isFinite(raw.capturedAt))throw new Error('Choose a completed Spot+ companion library file.');
   if(JSON.stringify(raw).length>ACCOUNT_FILE_LIMIT)throw new Error('This library is too large. The phone connector limit is 12 MB.');
@@ -28,7 +40,7 @@ export function validateAccountSnapshot(raw){
   const likes=raw.likes.map(track).filter(Boolean);
   const likesUnreadable=unreadableCount(unreadableCount(raw.likesUnreadable)+raw.likes.length-likes.length);
   if(likes.length+playlists.reduce((n,p)=>n+p.tracks.length,0)>20000)throw new Error('This library exceeds the 20,000-track limit.');
-  return {app:'spotplus-account',version:2,complete:true,account:{id:text(raw.account.id,120),name:text(raw.account.name,120)||text(raw.account.id,120),avatar:spotifyCover(raw.account.avatar),externalUrl:spotifyProfileURL(raw.account.id)},capturedAt:raw.capturedAt,likes,likesUnreadable,playlists,albums:raw.albums.filter(p=>p&&validId(p.id)).map(p=>entity(p,'album')),artists:raw.artists.filter(p=>p&&validId(p.id)).map(p=>entity(p,'artist')),skipped:Math.max(0,Math.min(20000,Number(raw.skipped)||0))};
+  return {app:'spotplus-account',version:2,complete:true,account:{id:text(raw.account.id,120),name:text(raw.account.name,120)||text(raw.account.id,120),avatar:spotifyCover(raw.account.avatar),externalUrl:spotifyProfileURL(raw.account.id)},capturedAt:raw.capturedAt,likes,likesUnreadable,playlists,albums:raw.albums.filter(p=>p&&validId(p.id)).map(p=>entity(p,'album')),artists:raw.artists.filter(p=>p&&validId(p.id)).map(p=>entity(p,'artist')),skipped:Math.max(0,Math.min(20000,Number(raw.skipped)||0)),stats:validateStats(raw.stats),statsPrevious:validateStats(raw.statsPrevious),statsError:raw.stats?'':text(raw.statsError,200)};
 }
 export function mergeAccountSnapshot(previous,incoming){
   const next=validateAccountSnapshot(incoming);
@@ -42,6 +54,13 @@ export function mergeAccountSnapshot(previous,incoming){
       if(['Unavailable playlist','Spotify playlist'].includes(p.title))p.title=old.title;
       p.cover=p.cover||old.cover;p.owner=p.owner||old.owner;
     }
+  }
+  // Stats: keep the last good copy when a refresh couldn't read them; remember the
+  // previous copy so ranks can show movement, like Stats for Spotify.
+  if(previous?.account?.id===next.account.id){
+    if(!next.stats){next.stats=previous.stats||null;next.statsPrevious=previous.statsPrevious||null;}
+    else if(previous.stats&&previous.stats.capturedAt<next.stats.capturedAt)next.statsPrevious=previous.stats;
+    else next.statsPrevious=previous.statsPrevious||null;
   }
   // Retained tracks also count toward the limits and must remain safe for backup/export.
   return validateAccountSnapshot(next);
