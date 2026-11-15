@@ -1075,17 +1075,36 @@ let awaitingPaste=false;
 function isStandalone(){return navigator.standalone===true||matchMedia('(display-mode: standalone)').matches;}
 function openInSafari(url){if(isStandalone())location.href='x-safari-'+url;else window.open(url,'_blank','noopener');}
 // Coming back from Spotify: one tap pastes (iOS requires the tap for clipboard access).
+// Coming back from Spotify: show the paste box straight away.
 document.addEventListener('visibilitychange',()=>{
   if(document.hidden||!awaitingPaste||accountReviewBusy||!sheet.hidden)return;
-  openSheet({head:'<div class="sheet-title">Welcome back</div>',body:'<p class="sheet-note">Tapped <b>Copy for Spot+</b> on Spotify? Add your library now.</p>',items:[{icon:I.copy,label:'Paste from Spotify',sub:'iPhone will ask to allow paste.',fn:pasteSpotifyAccount},{icon:I.close,label:'Not yet',fn:()=>{}}]});
+  showPasteSheet('Welcome back',false);
 });
-// iPhone: Safari and the Home Screen app share only the clipboard. readText is the
-// first call inside the tap so Safari shows its Paste prompt.
+// iPhone's programmatic clipboard read shows a small Paste bubble that is easy to
+// miss, so on iPhone we use a paste box: tap it, tap Paste, and the paste event hands
+// us the text directly (the multi-MB text never has to sit in the field).
+const IOS_DEVICE=connectionDevice(navigator.userAgent,navigator.platform,navigator.maxTouchPoints)==='iphone';
 async function pasteSpotifyAccount(){
-  let text='';
-  try{text=await navigator.clipboard.readText();}catch{ /* Denied or unsupported; offer a paste field. */ }
-  if(isLibraryText(text))return applyPastedLibrary(text);
-  openSheet({head:'<div class="sheet-title">Paste your Spotify library</div>',body:`<p class="sheet-note">${text?'Your clipboard doesn’t hold a Spot+ library. On Spotify’s website, tap <b>Copy for Spot+</b> in the Spot+ panel, then return here.':'Touch and hold the box below, choose <b>Paste</b>, then tap Add library.'}</p><textarea id="accountPasteField" class="connection-link" rows="3" aria-label="Copied Spotify library" spellcheck="false" autocomplete="off" placeholder="Paste here"></textarea><div class="account-actions"><button class="btn primary" data-act="account-paste-field">Add library</button></div>`});
+  if(!IOS_DEVICE&&navigator.clipboard?.readText){
+    try{const text=await navigator.clipboard.readText();if(isLibraryText(text))return applyPastedLibrary(text);}catch{ /* Denied; use the paste box. */ }
+  }
+  showPasteSheet('Paste your Spotify library',true);
+}
+function showPasteSheet(title,focus){
+  openSheet({head:`<div class="sheet-title">${esc(title)}</div>`,body:`<p class="sheet-note">On Spotify, tap <b>Copy for Spot+</b>. Then tap the box below and choose <b>Paste</b>.</p><textarea id="accountPasteField" class="connection-link paste-box" rows="3" aria-label="Paste your copied Spotify library" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" placeholder="Tap here, then Paste"></textarea><p class="sheet-note" id="accountPasteStatus" role="status"></p>`});
+  const field=$('#accountPasteField'),note=$('#accountPasteStatus');
+  let done=false;
+  const take=text=>{
+    if(done)return true;
+    if(!isLibraryText(text)){note.textContent=text?'That isn’t a Spot+ library. On Spotify, tap Copy for Spot+ again, then paste here.':'';return false;}
+    done=true;field.value='';note.textContent='Library pasted ✓';closeSheet();applyPastedLibrary(text);return true;
+  };
+  field.addEventListener('paste',event=>{
+    const text=event.clipboardData?.getData('text/plain')||event.clipboardData?.getData('text')||'';
+    if(text){event.preventDefault();take(text);}
+  });
+  field.addEventListener('input',()=>take(field.value));
+  if(focus)field.focus();
 }
 async function applyPastedLibrary(text){
   try{accountStatus('Opening your copied library…');const raw=await decodeLibraryText(text);accountStatus('Library received. Review it before applying.');await reviewSpotifyAccount(raw);}

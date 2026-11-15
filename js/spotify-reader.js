@@ -207,16 +207,19 @@ export async function decodeLibraryText(value) {
     if (body.length > LIBRARY_TEXT_LIMIT * 2) throw new Error('The copied library is larger than the 12 MB limit.');
     let bytes;
     try { const raw = atob(body.slice(3)); bytes = new Uint8Array(raw.length); for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i); } catch { throw bad(); }
-    const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip')).pipeThrough(new TextDecoderStream()).getReader();
-    json = '';
+    const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip')).getReader();
+    const chunks = []; let size = 0;
     try {
       for (;;) {
         const {done, value: chunk} = await reader.read();
         if (done) break;
-        json += chunk;
-        if (json.length > LIBRARY_TEXT_LIMIT) { reader.cancel().catch(() => {}); throw new Error('The copied library is larger than the 12 MB limit.'); }
+        size += chunk.length; chunks.push(chunk);
+        if (size > LIBRARY_TEXT_LIMIT) { reader.cancel().catch(() => {}); throw new Error('The copied library is larger than the 12 MB limit.'); }
       }
     } catch (error) { if (/12 MB/.test(error.message)) throw error; throw bad(); }
+    const all = new Uint8Array(size); let at = 0;
+    for (const chunk of chunks) { all.set(chunk, at); at += chunk.length; }
+    json = new TextDecoder().decode(all);
   } else throw bad();
   if (json.length > LIBRARY_TEXT_LIMIT) throw new Error('The copied library is larger than the 12 MB limit.');
   try { return JSON.parse(json); } catch { throw bad(); }
