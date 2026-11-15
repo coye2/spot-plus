@@ -15,7 +15,7 @@ export function spotifyTop(account, {range = 'short_term', kind = 'tracks', limi
   const items = account?.stats?.top?.[range]?.[kind];
   if (!Array.isArray(items)) return [];
   const before = account.statsPrevious?.top?.[range]?.[kind];
-  const key = item => kind === 'tracks' ? item.spotifyId : item.id;
+  const key = item => kind === 'tracks' ? item.spotifyId : (item.id || String(item.name || '').toLowerCase());
   const old = Array.isArray(before) ? new Map(before.map((item, i) => [key(item), i + 1])) : null;
   return items.slice(0, limit).map((item, i) => {
     const rank = i + 1, was = old?.get(key(item));

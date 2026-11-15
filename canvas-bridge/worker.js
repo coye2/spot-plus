@@ -1,5 +1,6 @@
 // A narrow public-metadata adapter, never an arbitrary URL or credential proxy.
 import {spotifyStats} from './spotify-stats.js';
+import {spotifyPublic} from './spotify-public.js';
 const SOURCE = 'https://canvas.auramusic.site/api/canvas';
 const CORS = {'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, OPTIONS','Content-Type':'application/json; charset=utf-8','X-Content-Type-Options':'nosniff'};
 // Lyrics search: Genius's public lyric search, reduced to title, artist and the matching line.
@@ -67,7 +68,8 @@ export async function handle(request, {fetcher=fetch,cache,waitUntil=()=>{},env}
   if (request.method !== 'GET') return json({error:'Use GET'},405);
   const url = new URL(request.url);
   if (url.pathname === '/spotify-stats') return spotifyStats(request,{fetcher,cache,waitUntil});
-  if (url.pathname === '/health') return json({service:'Spot+ Canvas bridge',status:'ok',lyrics:true});
+  if (url.pathname === '/spotify-public') return spotifyPublic(request,{fetcher,cache,waitUntil});
+  if (url.pathname === '/health') return json({service:'Spot+ Canvas bridge',status:'ok',lyrics:true,spotifyPublic:true});
   if (url.pathname === '/lyrics-search') return lyricsSearch(url,{fetcher,cache,waitUntil});
   if (url.pathname !== '/canvas') return json({error:'Not found'},404);
   const query = queryFor(url.searchParams);

@@ -34,7 +34,7 @@ export function hydrateStatistics(root){
     if(node.dataset.counter==='artist'){
       // Spotify style: "12,345,678 monthly listeners". If unavailable, keep the fallback text already shown.
       if(data.available&&data.monthlyListeners!==null){node.textContent=data.monthlyListeners.toLocaleString()+' monthly listeners';node.title='Spotify public count · Checked '+new Date(data.checkedAt).toLocaleString();}
-    }else{const count=matchPlayCount(track,data);node.textContent=count?count.plays.toLocaleString()+(node.closest('.artist-popular')?'':' plays'):'';node.title=count?'Spotify public count · Checked '+new Date(data.checkedAt).toLocaleString():'';}
+    }else{const count=matchPlayCount(track,data);node.textContent=count?.plays>0?count.plays.toLocaleString()+(node.closest('.artist-popular')?'':' plays'):'';node.title=count?'Spotify public count · Checked '+new Date(data.checkedAt).toLocaleString():'';}
   };
   observer=new IntersectionObserver(entries=>{for(const e of entries)if(e.isIntersecting){observer.unobserve(e.target);load(e.target);}}, {rootMargin:'60px'});
   root.querySelectorAll('[data-counter]').forEach(node=>observer.observe(node));

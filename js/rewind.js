@@ -8,6 +8,9 @@ import {readHistory,saveHistory,cachedHistory} from './listening-history.js';
 import {getSpotifyStats} from './store.js';
 import {SPOTIFY_RANGES,spotifyTop,spotifyGenres,topTracks,topArtists,listeningClock,streaks,recentlyPlayed,PLAY_MS} from './stats-api.js';
 import {artistPicture,trackArtwork} from './api.js';
+import {loadLinks,linkStats} from './spotify-links.js';
+/** Spotify stats from the helper when present, otherwise from linked Spotify playlists. */
+async function pickStats(){const own=getSpotifyStats();if(own?.stats)return own;return linkStats(await loadLinks().catch(()=>null))||own;}
 
 const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const number=n=>Math.round(n).toLocaleString();
@@ -39,7 +42,7 @@ export function rewindModel(records,synced,range=filters.range,now=Date.now()){
     minutes:inRange.reduce((n,r)=>n+r.ms,0)/60000,plays:inRange.filter(r=>r.ms>=PLAY_MS).length,
     artistCount:new Set(inRange.map(r=>r.artist.toLowerCase())).size,songCount:new Set(inRange.map(r=>(r.spotifyId||r.artist+'|'+r.title).toLowerCase())).size,
     tracks,artists,genres:spotifyGenres(synced,{range}),clock,persona:persona(clock.peakHour),streak:streaks(records).longest,
-    recent:recentlyPlayed(records,{limit:20}),fromSpotify:!!spotifyTracks.length,syncedAt:synced?.stats?.capturedAt||0,
+    recent:recentlyPlayed(records,{limit:20}),fromSpotify:!!spotifyTracks.length,syncedAt:synced?.stats?.capturedAt||0,moods:(synced?.moods||[]).slice(-12).reverse(),viaLinks:synced?.source==='links',
     empty:!tracks.length&&!records.length};
 }
 
@@ -54,14 +57,14 @@ const art=(src,cls,attrs='')=>src?`<img class="${cls}" src="${esc(src)}" alt="" 
 
 export async function rewindView(){
   const records=cachedHistory()||await readHistory().catch(()=>[]);
-  const synced=getSpotifyStats(),m=rewindModel(records,synced);
+  const synced=await pickStats(),m=rewindModel(records,synced);
   if(m.empty)return `<div class="rw"><header class="rw-head"><p class="kicker">Rewind</p><h1>Your music, all year</h1></header>
-  <section class="rw-empty"><div class="rw-empty-orb" aria-hidden="true"></div><h2>Your Rewind fills itself in</h2><p>Connect Spotify once and your top songs, artists, genres and recent plays sync here automatically, whenever Spotify is open on any of your devices. Everything you play in Spot+ counts too.</p><a class="btn primary" href="#/spotify-account">Connect Spotify</a></section>${optionalTools()}</div>`;
+  <section class="rw-empty"><div class="rw-empty-orb" aria-hidden="true"></div><h2>Your Rewind fills itself in</h2><p>Paste your Spotify profile and On Repeat links once. No login, nothing to install. Spot+ follows your listening from every device from then on, and everything you play in Spot+ counts too.</p><a class="btn primary" href="#/spotify-account">Link Spotify</a></section>${optionalTools()}</div>`;
   const chip=(value,label)=>`<button class="stat-chip" data-act="rewind-range" data-value="${value}" aria-pressed="${filters.range===value}">${label}</button>`;
   const tiles=[[m.minutes,'minutes listened'],[m.plays,'songs played'],[m.artistCount,'artists'],[m.streak,'day streak']].filter(([v])=>v>0);
   const maxHour=Math.max(...m.clock.hours,1);
   return `<div class="rw">
-  <header class="rw-head"><p class="kicker">${m.syncedAt?'Synced from Spotify · '+ago(m.syncedAt):'Automatic'}</p><h1>Rewind</h1>
+  <header class="rw-head"><p class="kicker">${m.syncedAt?(m.viaLinks?'From your Spotify playlists · ':'Synced from Spotify · ')+ago(m.syncedAt):'Automatic'}</p><h1>Rewind</h1>
   <div class="stat-chips" role="group" aria-label="Time range">${Object.entries(SPOTIFY_RANGES).map(([v,l])=>chip(v,l)).join('')}</div></header>
   <button class="rw-cta" data-act="rewind-story"><span class="rw-cta-art" aria-hidden="true">${m.artists.slice(0,3).map((a,i)=>art(a.cover,'rw-cta-face','data-artist="'+esc(a.name)+'" style="--i:'+i+'"')).join('')}</span><span><b>Play your Rewind</b><small>${esc(m.label)}, as a story you can share</small></span><span class="rw-cta-play" aria-hidden="true">▶</span></button>
   ${tiles.length?`<div class="rw-tiles">${tiles.map(([v,l])=>`<div><b>${number(v)}</b><span>${l}</span></div>`).join('')}</div>`:''}
@@ -69,6 +72,7 @@ export async function rewindView(){
   ${m.tracks.length?`<section class="collapsible"><h2>Top songs</h2><ol class="stat-list rw-songs">${m.tracks.slice(0,20).map((t,i)=>`<li class="${i>=10?'more-row':''}"><span class="rewind-rank">${i+1}</span>${art(t.cover,'rw-cover','data-track="'+esc(t.artist+'\u0001'+t.title)+'"')}<div><b>${esc(t.title)}</b><small>${esc(t.artist)}${t.plays?' · '+number(t.plays)+' plays':''}</small></div>${movement(t.change)}${t.spotifyId?`<a href="#/spotify/track/${t.spotifyId}" class="icon" aria-label="Open ${esc(t.title)}">↗</a>`:''}</li>`).join('')}</ol>${m.tracks.length>10?'<button class="see-more" data-act="expand-section">See more</button>':''}</section>`:''}
   ${m.genres.length?`<section><h2>Top genres</h2><ol class="rw-genres">${m.genres.slice(0,6).map(g=>`<li><b>${esc(g.name)}</b><span class="stat-bar"><span style="--w:${Math.round(g.share/m.genres[0].share*100)}%"></span></span></li>`).join('')}</ol></section>`:''}
   ${m.persona?`<section class="rw-clock"><h2>When you listen</h2><p class="rw-persona"><b>${m.persona.name}.</b> ${m.persona.line} Peak: ${hourLabel(m.clock.peakHour)}.</p><div class="rw-hours" role="img" aria-label="Listening by hour of day">${m.clock.hours.map((v,h)=>`<i style="--h:${Math.max(3,v/maxHour*100)}%" class="${h===m.clock.peakHour?'peak':''}"></i>`).join('')}</div><div class="rw-hour-labels"><span>12 AM</span><span>6 AM</span><span>12 PM</span><span>6 PM</span><span>11 PM</span></div></section>`:''}
+  ${m.moods.length?`<section><h2>Your daylist moods</h2><div class="rw-moods">${m.moods.map(x=>`<span>${esc(x.name.replace(/\s*daylist\s*/i,' ').trim())}</span>`).join('')}</div></section>`:''}
   ${m.recent.length?`<section><h2>Recently played</h2><ol class="stat-list">${m.recent.slice(0,10).map(t=>`<li>${art(t.cover,'rw-cover','data-track="'+esc(t.artist+'\u0001'+t.title)+'"')}<div><b>${esc(t.title)}</b><small>${esc(t.artist)}</small></div><small>${ago(t.endedAt)}</small></li>`).join('')}</ol></section>`:''}
   ${m.fromSpotify?'':`<p class="settings-note rw-hint">Connect Spotify to add your Spotify top music and listening here automatically. <a href="#/spotify-account">Connect</a></p>`}
   ${optionalTools()}</div>`;
@@ -89,7 +93,7 @@ export async function warmRewind(){await readHistory().catch(()=>{});}
 /* ---------------- Story mode ---------------- */
 export async function openRewindStory({icons={},canPlayPreview=()=>true}={}){
   if(document.getElementById('rwStory'))return;
-  const records=cachedHistory()||await readHistory().catch(()=>[]),m=rewindModel(records,getSpotifyStats());
+  const records=cachedHistory()||await readHistory().catch(()=>[]),m=rewindModel(records,await pickStats());
   const top=m.artists[0],song=m.tracks[0];
   const [topPhoto,songArt]=await Promise.all([top&&(top.cover||artistPicture(top.name).catch(()=>'')),song&&trackArtwork(song.artist,song.title).catch(()=>null)]);
   // Covers for the top five, so the songs slide is complete.

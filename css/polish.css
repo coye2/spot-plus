@@ -308,3 +308,15 @@ body.has-panel .jam-chip{display:none}
    system already keeps that strip clear, so don't add our own bottom inset too. */
 html.ios-app.ios-short-viewport{--safe-bottom:0px}
 html{background-color:var(--edge,var(--canvas))!important}
+
+/* Spotify links setup. */
+.links-setup h2{margin:10px 0 6px}
+.links-steps{margin:10px 0 14px;padding-left:20px;line-height:1.6;color:var(--muted)}.links-steps b{color:var(--text)}
+.links-paste{display:flex;gap:10px;align-items:stretch}
+.links-paste textarea{flex:1;min-width:0;resize:none;font:inherit;font-size:15px;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--bg2);color:var(--text)}
+.link-chips{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.link-chip{padding:5px 12px;border-radius:999px;font-size:12px;font-weight:600;background:var(--bg3);color:var(--muted)}
+.link-chip.on{background:color-mix(in srgb,var(--accent) 30%,var(--bg3));color:var(--text)}
+.helper-optional>summary{font-weight:700}
+.rw-moods{display:flex;flex-wrap:wrap;gap:8px}
+.rw-moods span{padding:8px 14px;border-radius:999px;background:linear-gradient(120deg,color-mix(in srgb,var(--accent) 35%,var(--bg3)),var(--bg3));font-weight:600;text-transform:capitalize}
