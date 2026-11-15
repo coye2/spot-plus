@@ -39,7 +39,7 @@ body[data-motion=reduced] .dj-eq-bar,body[data-motion=reduced] .dj-orb-small::af
 
 @media(max-width:767px){.np[data-mode=art] .np-body,.np .np-top{touch-action:pan-x}.np .np-top::after{content:"";position:absolute;top:calc(var(--safe-top) + 3px);left:calc(50% - 17px);height:4px;width:34px;border-radius:99px;background:#ffffff55}}
 
-/* Optional video panel: independent playback, never a fake Canvas loop. */
+/* Player tabs and swipe target. */
 .np-art,.np-top{user-select:none;-webkit-user-select:none}.np-tabs button{white-space:nowrap;gap:5px}.np-tabs button svg{width:16px;height:16px}
 @media(max-width:950px) and (max-height:500px) and (orientation:landscape){.np[data-mode=art] .np-body,.np .np-top{touch-action:pan-x}}
 
@@ -50,6 +50,7 @@ body[data-motion=reduced] .dj-eq-bar,body[data-motion=reduced] .dj-orb-small::af
 .np.has-canvas .np-canvas{opacity:1}.np.has-canvas .np-art{opacity:0;pointer-events:none}
 .np-top,.np-body,.np-foot{position:relative;z-index:1}.np-art{transition:opacity .2s ease}
 .np-canvas-status{font-size:11px;line-height:1.4;color:#ced8d2;margin:0 0 10px;text-align:center}.np-canvas-status:empty{display:none}
+.np-canvas-status a{text-decoration:underline;text-underline-offset:3px;color:inherit}
 .np-tabs button{flex:1;justify-content:center}.np.has-canvas{color:#fff}.np.has-canvas .np-top,.np.has-canvas .np-info{text-shadow:0 1px 6px #0008}
 .np.has-canvas #npArtist,.np.has-canvas .np-src{color:#d6dcd8}.np.has-canvas .np-tabs button.on{background:#ffffff26;color:#fff}
 .np.has-canvas .np-top,.np.has-canvas .np-foot{background:transparent}

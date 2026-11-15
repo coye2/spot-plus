@@ -137,6 +137,7 @@ export function parseDeezerPlaylist(input) {
 }
 
 /* =========================== Audio (YouTube via Piped / Invidious) =========================== */
+import {matchMusicVideo,chooseLoopFormat,musicVideoLoop,publicMediaURL} from './video-loops.js';
 const PIPED_FALLBACK = [
   'https://pipedapi.kavin.rocks', 'https://pipedapi.adminforge.de', 'https://api.piped.private.coffee',
   'https://pipedapi.reallyaweso.me', 'https://pipedapi.leptons.xyz', 'https://pipedapi.nosebs.ru',
@@ -254,6 +255,44 @@ async function invStream(base, id, signal) {
   return pickFormat(list);
 }
 const ENGINES = { piped: { search: pipedSearch, stream: pipedStream }, invidious: { search: invSearch, stream: invStream } };
+
+// Only used after Canvas is missing. Audio resolution never waits on this work.
+const videoLoopCache = new Map();
+export async function resolveVideoLoop(track, {signal, source, skip = []} = {}) {
+  const key = JSON.stringify([track.searchTitle || track.title, track.artist]);
+  const cached = videoLoopCache.get(key);
+  if (cached?.expires > Date.now() && !skip.includes(cached.value.instance)) return cached.value;
+  const list = await instances(), settings = getSettings(), controller = new AbortController();
+  const cancel = () => controller.abort();
+  signal?.addEventListener('abort',cancel,{once:true}); if (signal?.aborted) cancel();
+  const timer = setTimeout(cancel,12000);
+  const providers = ['invidious','piped'].flatMap(kind => uniq([source?.kind === kind ? source.instance : '', kind === 'invidious' ? 'https://yt.chocolatemoo53.com' : '', ...orderedInstances(kind,list,settings)])
+    .filter(base => publicMediaURL(base) && !skip.includes(base)).slice(0,kind === 'invidious' ? 3 : 1).map(base=>({kind,base})));
+  try {
+    const result = await Promise.any(providers.map(async ({kind,base}) => {
+      const q = encodeURIComponent(query(track)+' official music video'); let items;
+      if (kind === 'invidious') {
+        const data = await fetchJSON(base+'/api/v1/search?q='+q+'&type=video',5500,controller.signal);
+        items = (Array.isArray(data) ? data : []).map(x=>({id:x.videoId,title:x.title,channel:x.author,verified:x.authorVerified,duration:x.lengthSeconds}));
+      } else {
+        const data = await fetchJSON(base+'/search?q='+q+'&filter=videos',5500,controller.signal);
+        items = (data.items || []).filter(x=>x.url?.includes('v=')).map(x=>({id:new URL(x.url,'https://youtube.com').searchParams.get('v'),title:x.title,channel:x.uploaderName,verified:x.uploaderVerified,duration:x.duration}));
+      }
+      const match = matchMusicVideo(items,track); if (!match) throw new Error('No matching music video');
+      const data = await fetchJSON(base+(kind === 'invidious' ? '/api/v1/videos/' : '/streams/')+match.id,6500,controller.signal);
+      const details = {...match,title:data.title,channel:data.author || data.uploader,duration:data.lengthSeconds || data.duration || match.duration};
+      if (!matchMusicVideo([details],track) || data.liveNow || data.livestream) throw new Error('Video metadata did not match');
+      const formats = kind === 'invidious'
+        ? (data.adaptiveFormats || []).filter(f=>/^\d{1,3}$/.test(String(f.itag))).map(f=>({url:base+'/latest_version?id='+match.id+'&itag='+f.itag+'&local=true',mime:f.type || '',height:parseInt(f.qualityLabel || f.resolution,10),bitrate:f.bitrate}))
+        : (data.videoStreams || []).filter(f=>f.videoOnly === true).map(f=>({url:f.url,mime:f.mimeType || '',codec:f.codec || '',height:f.height || parseInt(f.quality,10),bitrate:f.bitrate}));
+      const format = chooseLoopFormat(formats); if (!format) throw new Error('No small compatible video');
+      return musicVideoLoop({kind:'music-video',engine:kind,instance:base,url:format.url,videoId:match.id,title:details.title,duration:details.duration});
+    }).map(async promise=>{const value=await promise;if(!value)throw new Error('Invalid video');return value;}));
+    videoLoopCache.set(key,{value:result,expires:Date.now()+5*60e3});
+    if (videoLoopCache.size > 30) videoLoopCache.delete(videoLoopCache.keys().next().value);
+    return result;
+  } finally { clearTimeout(timer); controller.abort(); signal?.removeEventListener('abort',cancel); }
+}
 
 function kinds(s = getSettings().source) {
   return s === 'piped' ? ['piped'] : s === 'invidious' ? ['invidious'] : ['piped', 'invidious'];

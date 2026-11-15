@@ -1,4 +1,4 @@
-import {CanvasPlayer,canvasEnabled,setCanvasEnabled} from './canvas.js';
+import {CanvasPlayer,canvasEnabled,setCanvasEnabled,findVisualLoop} from './canvas.js';
 // app.js — Spot+ UI: router, views, player bar, now-playing screen.
 import * as api from './api.js';
 import * as store from './store.js';
@@ -790,10 +790,12 @@ function syncNP() {
   loadLyrics();
 }
 let canvasPreference=canvasEnabled({reducedMotion:matchMedia('(prefers-reduced-motion:reduce)').matches||document.body.dataset.motion==='reduced',saveData:navigator.connection?.saveData});
-const canvasPlayer=new CanvasPlayer($('#npCanvas'),{onState:state=>{
+const canvasPlayer=new CanvasPlayer($('#npCanvas'),{lookup:(track,signal,options)=>findVisualLoop(track,signal,{...options,source:player.state.source}),onState:(state,clip)=>{
   np.classList.toggle('has-canvas',state==='ready');
   np.dataset.canvasState=state;
-  $('#npCanvasStatus').textContent=({loading:'Finding a loop…',waiting:'Canvas ready · Press play',ready:'',missing:'No Canvas for this song · Cover shown',error:'Canvas unavailable right now · Cover shown',blocked:'Tap Canvas to start the loop'})[state]||'';
+  const status=$('#npCanvasStatus');
+  status.textContent=({loading:'Finding a loop…',fallback:'Finding a matching video…',waiting:'Loop ready · Press play',ready:clip?.kind==='music-video'?'Music video loop · ':'Spotify Canvas',missing:'No matching clip found · Cover shown',error:'Clips unavailable right now · Cover shown',blocked:'Tap Loops to start the clip'})[state]||'';
+  if(state==='ready'&&clip?.kind==='music-video'){const link=document.createElement('a');link.href=clip.sourceURL;link.target='_blank';link.rel='noopener';link.textContent='Watch video';status.append(link);}
 }});
 function syncCanvas(retry=false){
   const inCover=npMode==='art';

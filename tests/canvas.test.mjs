@@ -37,7 +37,7 @@ test('Missing, rejected autoplay, and video errors keep a cover fallback without
  const player=new CanvasPlayer(video,{lookup:async()=>{lookups++;return clip;}}),options={visible:true,enabled:true,playing:true};
  player.sync(track,options);await tick();assert.equal(player.state,'blocked');
  for(let i=0;i<10;i++)player.sync(track,options);assert.equal(lookups,1);
- video.dispatchEvent(new Event('error'));assert.equal(player.state,'error');assert.equal(video.src,'');
+ video.dispatchEvent(new Event('error'));assert.equal(player.state,'fallback');assert.equal(video.src,'');player.clear();
  const missing=new CanvasPlayer(new Video(),{lookup:async()=>null});missing.sync(track,options);await tick();assert.equal(missing.state,'missing');
 });
 test('Canvas waits for music before requesting video bytes and resumes without another lookup',async()=>{

@@ -1,4 +1,6 @@
-// Public Canvas metadata only. Music playback is deliberately outside this module.
+// Background visuals only. Music playback is deliberately outside this module.
+import {resolveVideoLoop} from './api.js';
+import {musicVideoLoop,loopWindow} from './video-loops.js';
 export const CANVAS_ENDPOINT = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/canvas';
 const CACHE_KEY = 'spotplus.canvasCache.v1';
 const PREFERENCE_KEY = 'spotplus.canvasEnabled';
@@ -51,31 +53,78 @@ export async function findCanvas(track, signal, endpoint = CANVAS_ENDPOINT) {
   } finally { clearTimeout(timer); signal?.removeEventListener('abort', cancel); }
 }
 
+export async function findVisualLoop(track, signal, {skipCanvas=false,skip=[],source,canvasLookup=findCanvas,videoLookup=resolveVideoLoop} = {}) {
+  signal?.throwIfAborted();
+  if (!skipCanvas) {
+    try {
+      const url = await canvasLookup(track,signal);
+      signal?.throwIfAborted();
+      if (canvasURL(url)) return {kind:'canvas',url};
+    } catch (error) { if (signal?.aborted) throw error; }
+  }
+  signal?.throwIfAborted();
+  const clip = await videoLookup(track,{signal,source,skip});
+  signal?.throwIfAborted();
+  return musicVideoLoop(clip);
+}
+
 // One video, one cancellable lookup. Hidden players never keep downloading loops.
 export class CanvasPlayer {
-  constructor(video, {lookup = findCanvas, onState = () => {}} = {}) {
+  constructor(video, {lookup = findVisualLoop, onState = () => {}} = {}) {
     this.video = video; this.lookup = lookup; this.onState = onState;
     this.generation = 0; this.key = ''; this.url = null; this.state = 'idle'; this.playing = false;
     video.muted = true; video.defaultMuted = true; video.loop = true; video.playsInline = true;
-    video.addEventListener('error', () => { if (this.key && video.getAttribute('src')) this.fail('error'); });
-    video.addEventListener('playing', () => { if (this.key) this.report('ready'); });
+    video.addEventListener('error', () => { if (this.key && video.getAttribute('src')) this.recover(); });
+    video.addEventListener('playing', () => { if (this.key) { clearTimeout(this.mediaTimer); this.mediaTimer = null; this.report('ready'); } });
+    video.addEventListener('loadedmetadata', () => {
+      if (this.clip?.kind !== 'music-video') return;
+      this.clip = {...this.clip,...loopWindow(video.duration)};
+      video.currentTime = this.clip.start;
+    });
+    video.addEventListener('timeupdate', () => {
+      if (this.clip?.kind !== 'music-video' || video.seeking) return;
+      if (video.currentTime >= this.clip.end || video.currentTime < this.clip.start-.5) video.currentTime = this.clip.start;
+    });
+    video.addEventListener('waiting', () => { if (this.playing && !this.mediaTimer) this.armMediaTimeout(); });
   }
-  report(state) { this.state = state; this.onState(state); }
+  report(state) { this.state = state; this.onState(state,this.clip); }
   clear() {
     this.generation++; this.controller?.abort(); this.controller = null;
-    this.key = ''; this.url = null; this.playing = false; this.video.pause();
+    clearTimeout(this.mediaTimer); this.mediaTimer = null;
+    this.key = ''; this.url = null; this.clip = null; this.track = null; this.fallbacks = 0; this.failedProviders = []; this.playing = false; this.video.pause();
     if (this.video.getAttribute('src')) { this.video.removeAttribute('src'); this.video.load(); }
     this.report('idle');
   }
   fail(state) {
+    clearTimeout(this.mediaTimer); this.mediaTimer = null;
     this.url = null; this.video.pause(); this.video.removeAttribute('src'); this.video.load(); this.report(state);
+  }
+  armMediaTimeout() {
+    clearTimeout(this.mediaTimer);
+    const generation = this.generation;
+    this.mediaTimer = setTimeout(() => { if (generation === this.generation && this.playing) this.recover(); },12000);
+  }
+  recover() {
+    const previous = this.clip;
+    this.fail('error');
+    if (!previous || this.fallbacks >= 2 || !this.track) return;
+    this.fallbacks++; this.generation++; this.controller?.abort();
+    if (previous.instance) this.failedProviders.push(previous.instance);
+    this.report('fallback');
+    this.load({skipCanvas:true,skip:[...this.failedProviders]});
   }
   resume() {
     if (!this.url || !this.playing || !this.video.paused) return;
     if (!this.video.getAttribute('src')) { this.video.src = this.url; this.video.load(); }
+    this.armMediaTimeout();
     const generation = this.generation;
     this.video.muted = true;
-    this.video.play().catch(() => { if (generation === this.generation) this.report('blocked'); });
+    this.video.play().catch(error => {
+      if (generation !== this.generation) return;
+      clearTimeout(this.mediaTimer); this.mediaTimer = null;
+      if (error.name === 'NotSupportedError') this.recover();
+      else if (error.name !== 'AbortError') this.report('blocked');
+    });
   }
   sync(track, {visible, enabled, playing, retry = false}) {
     const key = canvasQuery(track)?.toString();
@@ -83,17 +132,21 @@ export class CanvasPlayer {
     if (key === this.key && retry && this.state === 'blocked') { this.playing = playing; this.resume(); return; }
     if (key === this.key && !retry) {
       this.playing = playing;
-      if (!playing) this.video.pause();
+      if (!playing) { this.video.pause(); clearTimeout(this.mediaTimer); this.mediaTimer = null; }
       else if (this.state !== 'blocked') this.resume();
       return;
     }
-    this.clear(); this.key = key; this.playing = playing;
+    this.clear(); this.key = key; this.track = track; this.playing = playing;
+    this.report('loading'); this.load();
+  }
+  load(options = {}) {
     const generation = this.generation, controller = new AbortController(); this.controller = controller;
-    this.report('loading');
-    this.lookup(track, controller.signal).then(url => {
+    this.lookup(this.track, controller.signal,options).then(value => {
       if (generation !== this.generation) return;
-      if (!canvasURL(url)) { this.report('missing'); return; }
-      this.url = url;
+      const canvas = canvasURL(typeof value === 'string' ? value : value?.kind === 'canvas' ? value.url : null);
+      this.clip = canvas ? {kind:'canvas',url:canvas} : musicVideoLoop(value);
+      if (!this.clip) { this.report('missing'); return; }
+      this.url = this.clip.url;
       if (!this.playing) this.report('waiting');
       // Reveal only after a real frame plays, so failures leave the cover intact.
       this.resume();
