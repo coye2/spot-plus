@@ -1,5 +1,6 @@
 .account-hero{display:flex;gap:24px;align-items:center;padding:28px;border:1px solid var(--line);border-radius:var(--radius,12px);background:linear-gradient(125deg,var(--bg3),var(--bg));margin-bottom:24px}
 .connection-link{width:100%;min-height:48px;font-size:16px;padding:12px;background:var(--bg3);color:var(--text);border:1px solid var(--line);border-radius:8px;user-select:text;-webkit-user-select:text}
+.helper-steps{padding-left:24px;color:var(--muted);font-size:14px;line-height:1.6}.helper-steps li{padding-left:4px;margin:0 0 14px}.helper-steps b{color:var(--text)}
 .account-hero>.ph-cover{width:92px;height:92px;flex:0 0 92px;background:var(--accent);border-radius:24px;color:var(--on-accent,#fff)}
 .account-hero h1{font-size:clamp(30px,5vw,48px);margin:6px 0 12px;letter-spacing:-1.5px}
 .account-hero p{margin:0;max-width:660px;color:var(--muted);line-height:1.6}

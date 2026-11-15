@@ -1,5 +1,5 @@
 // Spot+ service worker: offline app shell + cached cover art. Audio downloads live in their own cache.
-const SHELL_CACHE = 'spotplus-shell-v33';
+const SHELL_CACHE = 'spotplus-shell-v34';
 const IMG_CACHE = 'spotplus-img-v1';
 const KEEP = [SHELL_CACHE, IMG_CACHE, 'spotplus-audio-v1', 'spotplus-live-voice-v1'];
 const SHELL = [
@@ -38,9 +38,18 @@ self.addEventListener('fetch', (e) => {
   // Versioned app shell: open immediately from cache; a new worker installs the next complete version.
   if (url.origin === self.location.origin) {
     if (url.pathname.includes('/__offline/')) return;
+    // Opening a userscript is a document navigation too. It must return the
+    // actual script, never the app shell (which renders broken at a /js/ URL).
+    // Ignore both old cache entries and HTTP cache when installing/updating it.
+    const base = new URL('./', self.location.href);
+    if (['js/spotplus-spotify.user.js','js/spotplus-spotify.meta.js'].some(path => url.pathname === new URL(path,base).pathname)) {
+      e.respondWith(fetch(new Request(req,{cache:'no-store'})).catch(() => new Response('The Spot+ helper could not download. Go back to Spot+, check your connection, and try again.',{status:503,headers:{'Content-Type':'text/plain; charset=utf-8'}})));
+      return;
+    }
     e.respondWith((async () => {
       const cache = await caches.open(SHELL_CACHE);
-      const hit = await cache.match(req, { ignoreSearch: true }) || (req.mode === 'navigate' ? await cache.match('./index.html') : null);
+      const appDocument = req.mode === 'navigate' && [base.pathname,new URL('index.html',base).pathname].includes(url.pathname);
+      const hit = await cache.match(req, { ignoreSearch: true }) || (appDocument ? await cache.match('./index.html') : null);
       if (hit && !(req.mode==='cors' && hit.type==='opaque')) return hit;
       try {const res=await fetch(req);if(res.ok)await cache.put(req,res.clone());return res;}catch{return new Response('Offline',{status:503});}
     })());

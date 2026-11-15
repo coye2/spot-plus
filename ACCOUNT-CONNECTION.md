@@ -27,7 +27,7 @@ For a home-screen app, use Safari/Firefox for the connection step. Browser and i
 2. Open **Install Spot+ helper** on the account setup page and install it. The helper runs on Spotify's website, not its desktop app.
 3. Choose **Connect Spotify**, sign in on Spotify itself, and keep both tabs open. The helper reads the library and sends it for review. If the automatic step fails, use **Read library → Send to Spot+** or the file fallback.
 
-The direct Tampermonkey execution path runs in the page's main world; Safari's Userscripts path retains a local blob injection. Neither requests new remote-script permissions. Sign-in with a real account is still unverified.
+Both Tampermonkey and Safari Userscripts explicitly run the helper in the page context. There is no blob-injection branch. Sign-in with a real account is still unverified. Use a regular browser with its userscript extension enabled; installing an extension in Chrome does not install it in a separate embedded browser.
 
 ## What refreshes
 
@@ -60,7 +60,11 @@ Opens the hosted account setup screen. `-ShowFiles` locates the bundled companio
 
 ## Verification
 
-Update/reinstall the helper to **1.3.0** from the account screen. It explicitly runs in the page context so Safari Userscripts can observe Spotify’s authorized requests. Connect first opens instructions inside Spot+ instead of immediately launching the native app. Computer sign-in starts at accounts.spotify.com. If the original tab connection is lost, Send to Spot+ opens a visible receiving page with an origin/window/nonce handshake. The page reports progress instead of leaving a blank intermediary. On iPhone Home Screen installations, use the file handoff when Safari storage is separate. Listening statistics use the separate streaming-history import in Your Rewind.
+Update/reinstall the helper to **1.3.1** from the account screen. The install button now opens device-specific instructions, an installer link, and a download fallback. On iPhone, select a scripts folder in Userscripts first. Open the helper file in Safari, then choose Extensions → Userscripts → Install; alternatively, save the downloaded `.user.js` into that folder. Allow Userscripts on the download website and on `open.spotify.com`.
+
+The blank install page was reproduced: the v33 service worker treated a navigation to the `.user.js` file as an app route and returned `index.html`. Its relative assets then resolved below `/js/`, leaving an unstyled, unusable white page. v34 fetches the installer/update files directly, bypasses stale caches, and only uses the cached app document for the actual app entry URLs. Regression tests cover the install navigation, update fetch, offline failure, offline app entry, and missing-file responses. After opening Spot+, refresh once if Helper 1.3.1 is not yet visible. No library reset or browsing-data deletion is needed.
+
+The helper explicitly runs in the page context so Safari Userscripts can observe Spotify’s authorized requests. Connect first opens instructions inside Spot+ instead of immediately launching the native app. Computer sign-in starts at accounts.spotify.com. If the original tab connection is lost, Send to Spot+ opens a visible receiving page with an origin/window/nonce handshake. On iPhone Home Screen installations, use the file handoff when Safari storage is separate. Listening statistics use the separate streaming-history import in Your Rewind.
 
 Automated fixtures cover pagination, failed/truncated reads, account changes during a refresh, secret-field removal, invalid image URLs, old snapshots, message origin/window/nonce checks and storage failure. Fixture validation is not evidence of a successful Spotify login. The browser interface and import/refresh flow are tested separately; physical-device and real-account authentication remain unverified until the user completes the setup.
 

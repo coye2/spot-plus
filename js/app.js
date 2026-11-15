@@ -13,7 +13,7 @@ import * as dj from './dj.js';
 import * as spotify from './spotify.js';
 import * as themes from './themes.js';
 import {bindPlayerDismiss} from './player-gestures.js';
-import {connectionDevice,setupHtml,spotifyConnectionURLs} from './account-setup.js';
+import {connectionDevice,setupHtml,spotifyConnectionURLs,helperInstallHtml} from './account-setup.js';
 let accountDevice=connectionDevice(navigator.userAgent,navigator.platform,navigator.maxTouchPoints);
 import {validateAccountSnapshot,isAccountMessage,ACCOUNT_FILE_LIMIT} from './spotify-account.js';
 
@@ -509,6 +509,7 @@ async function handleAct(act, el) {
     case 'spotify-save': {const item=await spotify.metadata({type:el.dataset.type,id:el.dataset.id});store.saveSpotifyLink({...item,saved:Date.now()});toast('Spotify link saved to your library');break;}
     case 'spotify-import': $('#spotifyImport').click();break;
     case 'account-connect': beginSpotifyConnection();break;
+    case 'account-helper': openSheet({head:'<div class="sheet-title">Install the Spot+ helper</div>',body:helperInstallHtml(accountDevice)});break;
     case 'account-file': $('#spotifyAccountImport').click();break;
     case 'account-disconnect': if(await confirmBox('Remove this Spotify connection?', 'This removes the Spotify library copy from this device. Your local Spot+ music and Spotify account are kept.')){pendingAccount=null;store.clearSpotifyAccount();toast('Spotify copy removed from this device');}break;
     case 'theme-preset': store.setSettings({themePreset:el.dataset.id,themeCustom:null});route({keepScroll:true});break;
