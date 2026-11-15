@@ -131,20 +131,59 @@ function runSpotifyCompanion(){
     };
     root.getElementById('send').onclick=()=>sendLibrary(true);
     // The clipboard is shared by Safari and the iPhone Home Screen app, so this works
-    // where tab messaging cannot. writeText runs inside the tap with prepared text.
+    // where tab messaging cannot. Every path below starts synchronously inside the tap.
+    const copied=()=>{status('Copied ✓ Now go back to Spot+ — it will offer to paste. Nothing was sent anywhere else.');root.getElementById('copy').textContent='Copied ✓';};
+    const copyFailed=error=>status('Copy failed'+(error?.name?' ('+error.name+')':'')+'. Tap Copy for Spot+ again, or Save library file.');
+    function legacyCopy(text){
+      // execCommand works on iOS Safari within a tap, even where the async API refuses.
+      const field=document.createElement('textarea');field.value=text;field.readOnly=true;
+      field.style.cssText='position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px';
+      root.append(field);field.focus();field.setSelectionRange(0,text.length);
+      let ok=false;try{ok=document.execCommand('copy');}catch{ok=false;}field.remove();return ok;
+    }
     root.getElementById('copy').onclick=()=>{
       if(!library)return;
-      if(!libraryText){status('Preparing your library… tap Copy for Spot+ again in a moment.');return;}
-      if(!navigator.clipboard?.writeText){status('Copying is unavailable here. Choose Save library file instead.');return;}
-      navigator.clipboard.writeText(libraryText).then(
-        ()=>{status('Copied ✓ Now go back to Spot+ — it will offer to paste. Nothing was sent anywhere else.');root.getElementById('copy').textContent='Copied ✓';},
-        ()=>status('Safari blocked copying. Tap Copy for Spot+ again, or choose Save library file.'));
+      const clip=navigator.clipboard;
+      if(libraryText){
+        if(clip?.writeText)clip.writeText(libraryText).then(copied,error=>legacyCopy(libraryText)?copied():copyFailed(error));
+        else if(legacyCopy(libraryText))copied();else copyFailed();
+        return;
+      }
+      // Not encoded yet: Safari accepts a promised ClipboardItem inside the tap.
+      if(clip?.write&&typeof ClipboardItem==='function'){
+        const blob=encodeLibraryText(library).then(text=>{libraryText=text;return new Blob([text],{type:'text/plain'});});
+        clip.write([new ClipboardItem({'text/plain':blob})]).then(copied,copyFailed);
+      }else status('Preparing your library… tap Copy for Spot+ again in a moment.');
     };
     root.getElementById('save').onclick=()=>{
-      if(!library)return;const url=URL.createObjectURL(new Blob([JSON.stringify(library)],{type:'application/json'}));
-      const a=document.createElement('a');a.href=url;a.download='spotplus-spotify-library.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);
-      status('In Spot+, open Spotify account → Choose companion file. On iPhone, save the file to Files if Safari opens a preview.');
+      if(!library)return;
+      const name='spotplus-spotify-library.json',json=JSON.stringify(library);
+      // iPhone: the share sheet's Save to Files is the reliable way to keep a file.
+      try{
+        const file=new File([json],name,{type:'application/json'});
+        if(isIOS&&navigator.canShare?.({files:[file]})){
+          navigator.share({files:[file]}).then(()=>status('Saved. In Spot+, choose Import library file and pick '+name+'.'),error=>{if(error?.name!=='AbortError')status('Sharing failed. Try Copy for Spot+ instead.');});
+          return;
+        }
+      }catch{ /* Fall back to a normal download. */ }
+      const url=URL.createObjectURL(new Blob([json],{type:'application/json'}));
+      const a=document.createElement('a');a.href=url;a.download=name;a.rel='noopener';a.style.display='none';
+      root.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+      status('Downloaded '+name+'. In Spot+, choose Import library file.');
     };
+    // Spotify's mobile site handles touches at the document level, which can cancel
+    // the synthetic click on iOS. Run each button on touchend and keep panel events
+    // away from Spotify's listeners.
+    for(const type of ['touchstart','touchend','pointerdown','pointerup','mousedown','mouseup','click'])host.addEventListener(type,event=>event.stopPropagation());
+    for(const button of root.querySelectorAll('button')){
+      let start=null;
+      button.addEventListener('touchstart',event=>{const t=event.touches[0];start=t&&{x:t.clientX,y:t.clientY};},{passive:true});
+      button.addEventListener('touchend',event=>{
+        const t=event.changedTouches[0];
+        if(!start||!t||Math.abs(t.clientX-start.x)>10||Math.abs(t.clientY-start.y)>10||button.disabled||button.hidden)return;
+        start=null;event.preventDefault();button.onclick?.(event);
+      },{passive:false});
+    }
     maybeAutoRead();
     notify('ready');
     window.addEventListener('message',event=>{
