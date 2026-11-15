@@ -11,7 +11,7 @@ const conversation=[];
 export const liveReady=()=>liveVoice.state.phase==='ready'&&['ready','thinking'].includes(localModel.status.phase);
 export async function enableLive(){await liveVoice.load();await localModel.load();state.message='Live DJ is ready. Ask me anything about your music or your mood.';emit();}
 export function disableLive(){stop();liveVoice.release();localModel.release();conversation.length=0;}
-export const state={busy:false,active:false,tracks:[],message:'Your favorites. Fresh discoveries. Just say the word.',engine:'Quick mix',request:'',seed:0};
+export const state={busy:false,active:false,tracks:[],message:'',engine:'Quick mix',request:'',seed:0};
 const listeners=new Set();let requestToken=0,announced='',trackCount=0;
 export const onChange=fn=>listeners.add(fn);
 function emit(){listeners.forEach(fn=>fn(state));}

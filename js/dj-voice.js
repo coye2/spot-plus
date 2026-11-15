@@ -6,7 +6,7 @@ import {speechChunks} from './dj-dialogue.js';
 import {transcriptParts} from './dj-recognition.js';
 export {HOSTS};
 
-export const state = { phase: 'idle', caption: 'Your next favorite is a request away.', transcript: '', conversation: false, error: '', lastVoice: '', responseMs: 0 };
+export const state = { phase: 'idle', caption: 'Tap the mic and tell me what you want to hear.', transcript: '', conversation: false, error: '', lastVoice: '', responseMs: 0 };
 const listeners = new Set();
 export const onChange = fn => listeners.add(fn);
 const emit = () => listeners.forEach(fn => fn(state));

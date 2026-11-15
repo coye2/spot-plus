@@ -15,5 +15,7 @@ export function audioHasHeadroom(media, seconds = 8) {
 export function loopQuality(connection) {
   if (connection?.saveData || /(^|-)2g$/.test(connection?.effectiveType || '')) return 360;
   if (connection?.effectiveType === '3g' || (connection?.downlink > 0 && connection.downlink < 2)) return 480;
-  return 720;
+  // Fullscreen portrait crops a 16:9 video, so fast connections get 1080p for sharpness.
+  if (connection?.downlink > 0 && connection.downlink < 6) return 720;
+  return 1080;
 }

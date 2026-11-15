@@ -39,5 +39,6 @@ test('iPhone setup uses the copy and paste handoff', () => {
   assert.match(html,/data-act="account-install-helper"/);
   assert.match(html,/data-act="account-connect"/);
   assert.equal((html.match(/step-number/g)||[]).length,2);
-  assert.doesNotMatch(setupHtml('android'),/account-paste/);
+  for(const device of ['android','computer']){const other=setupHtml(device);assert.equal((other.match(/step-number/g)||[]).length,2,device);assert.match(other,/data-act="account-connect"/);}
+  assert.match(setupHtml('android'),/account-paste/);
 });

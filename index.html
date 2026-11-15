@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#000000">
+<script>(function(){
+// Before first paint: match the status bar and page color to the saved theme, so
+// light themes never flash black and the iPhone status bar text stays readable.
+try{var c=JSON.parse(localStorage.getItem('spotplus.chrome')||'null');if(c&&/^#[0-9a-f]{6}$/i.test(c.canvas)){document.querySelector('meta[name=theme-color]').content=c.canvas;document.documentElement.style.background=c.canvas;document.documentElement.dataset.mode=c.mode==='light'?'light':'dark';}
+document.write('<meta name="apple-mobile-web-app-status-bar-style" content="'+(c&&c.mode==='light'?'default':'black-translucent')+'">');}catch(e){document.write('<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">');}
+})();</script>
 <meta name="description" content="Spot+ — a free, open music player in your browser.">
 <title>Spot+</title>
 <link rel="manifest" href="manifest.webmanifest">
@@ -11,7 +17,6 @@
 <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png?v=10">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Spot+">
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/experience.css">
@@ -22,13 +27,14 @@
 <link rel="stylesheet" href="css/app-shell.css">
 <link rel="stylesheet" href="css/dj-voice.css">
 <link rel="stylesheet" href="css/rewind.css">
+<link rel="stylesheet" href="css/polish.css">
 <link rel="preconnect" href="https://api.deezer.com">
 <link rel="preconnect" href="https://e-cdns-images.dzcdn.net">
 <script src="js/shell.js" defer></script>
 </head>
 <body>
 <div class="splash" id="splash" aria-hidden="true"><div><img src="icons/icon-192.png" alt=""><span>YOUR MUSIC. YOUR WAY.</span></div></div>
-<dialog id="welcome" class="welcome-dialog" aria-labelledby="welcomeTitle"><img src="icons/icon-192.png" alt="Spot+"><h2 id="welcomeTitle">Your music belongs here.</h2><p>Bring your Spotify favorites and playlists into Spot+. A free account is welcome.</p><a class="btn primary" href="#/spotify-account" id="welcomeConnect">Connect Spotify</a><button class="btn" id="welcomeLater">Explore first</button><label class="btn" for="welcomeBackup">Import Spot+ backup<input type="file" id="welcomeBackup" accept="application/json,.json" hidden></label><small>The browser helper copies your library when you refresh. Spotify sign-in happens on Spotify.</small></dialog>
+<input type="file" id="welcomeBackup" accept="application/json,.json" hidden>
 <a href="#main" class="skip-link" data-act="focus-main">Skip to content</a>
 <div class="app">
   <header class="topbar">

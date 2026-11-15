@@ -14,6 +14,10 @@ import { libraryItems, visibleTracks, parseRoute } from './library.js';
 import * as dj from './dj.js';
 import * as spotify from './spotify.js';
 import * as themes from './themes.js';
+import {clipSource,hasLocalClip,prefetchClips} from './canvas-cache.js';
+import {Jam,jamLink,validJamCode} from './jam.js';
+import qrcode from './vendor/qrcode.js';
+import {shouldOnboard,showOnboarding} from './onboarding.js';
 import {bindPlayerDismiss} from './player-gestures.js';
 import {COMPANION_INSTALL_URL,connectionDevice,setupHtml,spotifyConnectionURLs,helperInstallHtml,copyHelperInstallLink,spotifyProfileHtml} from './account-setup.js';
 let accountDevice=connectionDevice(navigator.userAgent,navigator.platform,navigator.maxTouchPoints);
@@ -33,6 +37,10 @@ const P = {
   mic: '<path d="M12 15a3 3 0 003-3V5a3 3 0 00-6 0v7a3 3 0 003 3zm-5-3H5a7 7 0 006 6.93V22h2v-3.07A7 7 0 0019 12h-2a5 5 0 01-10 0z"/>',
   folder: '<path d="M3 4h7l2 2h9v14H3zm2 4v10h14V8h-8l-2-2H5z"/>',
   arrow: '<path d="m12 4-1.4 1.4 5.6 5.6H3v2h13.2l-5.6 5.6L12 20l8-8z"/>',
+  back: '<path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>',
+  share: '<path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11A2.99 2.99 0 1 0 15 5c0 .24.04.47.09.7L8.04 9.81a3 3 0 1 0 0 4.38l7.12 4.16c-.05.21-.08.43-.08.65A2.92 2.92 0 1 0 18 16.08z"/>',
+  jam: '<path d="M9 3a3 3 0 1 1 0 6 3 3 0 0 1 0-6zm6.5 1a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5zM9 11c3.3 0 6 1.6 6 4v3H3v-3c0-2.4 2.7-4 6-4zm6.6.1c2.6.3 4.4 1.6 4.4 3.4V18h-3v-3c0-1.5-.5-2.8-1.4-3.9z"/>',
+  sun: '<path d="M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zM2 13h2a1 1 0 0 0 0-2H2a1 1 0 0 0 0 2zm18 0h2a1 1 0 0 0 0-2h-2a1 1 0 0 0 0 2zM11 2v2a1 1 0 0 0 2 0V2a1 1 0 0 0-2 0zm0 18v2a1 1 0 0 0 2 0v-2a1 1 0 0 0-2 0z"/>',
   sort: '<path d="M3 5h18v2H3zm0 6h12v2H3zm0 6h6v2H3z"/>',
   pin: '<path d="m15 2 7 7-2 2-2-1-4 4v3l-2 2-3-3-6 6-1-1 6-6-3-3 2-2h3l4-4-1-2z"/>',
   device: '<path d="M3 3h15v8h-2V5H5v12h5v2H3zm10 10h8v9h-8zm2 2v5h4v-5zM7 21h3v2H7z"/>',
@@ -132,7 +140,7 @@ function reg(tracks, meta = {}) { const k = 'l' + ++listSeq; lists.set(k, { trac
 const listOf = (k) => lists.get(k) || { tracks: [], meta: {} };
 
 /* ---------------- Renderers ---------------- */
-const img = (src, cls = '') => !src ? `<div class="${cls} ph-cover">${I.note}</div>` : `<img class="${cls}" loading="lazy" src="${esc(safeImage(src))}" alt="">`;
+const img = (src, cls = '') => !src ? `<div class="${cls} ph-cover">${I.note}</div>` : `<img class="${cls}" loading="lazy" decoding="async" src="${esc(safeImage(src))}" alt="">`;
 function trackRows(tracks, key, { numbered = false } = {}) {
   if (!tracks.length) return '<p class="muted pad">No songs here yet.</p>';
   const cur = player.current()?.id;
@@ -204,6 +212,17 @@ function viewSearch(q = '') {
   return `<h1 class="settings-top">Search</h1><form id="catalogSearch" class="searchbox" role="search">${I.search}<input id="q" type="search" aria-label="Search songs, artists, albums and playlists" placeholder="Songs, artists, albums…" value="${esc(q)}" autocomplete="off" enterkeyhint="search"><button class="icon search-clear" id="searchClear" type="button" data-act="search-clear" aria-label="Clear search" ${q?'':'hidden'}>×</button></form>
     <div id="results">${q ? loadingHtml : browseHome()}</div>`;
 }
+function highlightLyric(line,q){
+  const want=new Set(q.toLowerCase().split(/\s+/).map(w=>w.replace(/[^\p{L}\p{N}']/gu,'')).filter(Boolean));
+  return line.split(/(\s+)/).map(part=>{const w=part.toLowerCase().replace(/[^\p{L}\p{N}']/gu,'');return want.has(w)?`<mark>${esc(part)}</mark>`:esc(part);}).join('');
+}
+function renderLyricMatches(found,q){
+  const box=$('#lyricMatches');if(!box)return;
+  found=visibleTracks(found,store.getSettings());
+  if(!found.length){box.remove();return;}
+  const k=reg(found);
+  box.innerHTML=`<h2>Lyrics</h2>${found.map((t,i)=>`<button class="lyric-match" data-act="track-play" data-key="${k}" data-i="${i}" aria-label="Play ${esc(t.title)} by ${esc(t.artist)}">${img(t.cover,'tcover')}<div><b>${esc(t.title)}</b><small>${esc(t.artist)}</small><q>${highlightLyric(t.lyricSnippet,q)}</q></div></button>`).join('')}`;
+}
 async function runSearch(q) {
   const my = ++searchTok;
   const box = $('#results');
@@ -211,6 +230,8 @@ async function runSearch(q) {
   history.replaceState(history.state, '', q ? `#/search/${encodeURIComponent(q)}` : '#/search');
   if (!q) { box.innerHTML = browseHome(); return; }
   box.innerHTML = loadingHtml;
+  // Lyrics search runs alongside the normal search and fills in on top when ready.
+  const lyricJob=api.looksLikeLyrics(q)?api.lyricsSearch(q).catch(()=>[]):null;
   try {
     const d = await api.search(q);
     if (my !== searchTok) return;
@@ -221,11 +242,13 @@ async function runSearch(q) {
     box.innerHTML = none ? `<div class="empty"><p class="muted">Nothing found for “${esc(q)}”.</p></div>` : `
       <div class="chips search-filters">${['All','Songs','Artists','Albums','Playlists'].map((name,i)=>`<button class="chip${i?'':' on'}" data-act="search-filter" data-filter="${name.toLowerCase()}" aria-pressed="${!i}">${name}</button>`).join('')}</div>
       ${q.toLowerCase()==='dj'?'<p><a class="btn primary" href="#/dj">Open Spot+ DJ</a></p>':''}
+      ${lyricJob?'<section class="lyrics-matches" data-search-section="songs" id="lyricMatches"><h2>Lyrics</h2><div class="lyric-loading"><span></span><span></span><span></span></div></section>':''}
       ${d.tracks.length ? `<section data-search-section="songs"><h2>Songs</h2>${trackRows(d.tracks, k)}</section>` : ''}
       <div data-search-section="artists">${shelf('Artists', d.artists.map(artistCard))}</div>
       <div data-search-section="albums">${shelf('Albums', d.albums.map(albumCard))}</div>
       <div data-search-section="playlists">${shelf('Playlists', d.playlists.map(playlistCard))}</div>`;
     hydrateStatistics(box);
+    if(lyricJob)lyricJob.then(found=>{if(my===searchTok)renderLyricMatches(found,q);});
   } catch (e) { if (my === searchTok) box.innerHTML = errorHtml(e); }
 }
 
@@ -233,16 +256,26 @@ async function viewArtist(id) {
   const d = await api.artist(id);
   activeArtist=d.artist;
   d.top=visibleTracks(d.top,store.getSettings());
-  const k = reg(d.top);
-  return `<div class="hero" style="background-image:url('${esc(d.artist.pictureXl)}')"><div class="hero-shade"></div>
-      <div class="hero-content"><div class="kicker">Artist</div><h1>${esc(d.artist.name)}</h1><p class="spotify-counter" data-counter="artist" data-artist-id="${esc(d.artist.id)}">Loading Spotify listeners…</p><small>${fmtNum(d.artist.fans)} Deezer fans</small></div></div>
-    ${actions(k, `<button class="btn" data-act="follow-artist" aria-pressed="${store.hasArtist(id)}">${store.hasArtist(id)?'Following':'Follow'}</button><a class="btn" href="#/radio/${d.artist.id}">${I.radio}<span>Artist radio</span></a>`)}
-    ${artistCollections(d.artist)}
-    <section><h2>Popular</h2>${trackRows(d.top, k)}</section>
-    ${shelf('Discography', d.albums.map((a) => albumCard({ ...a, artist: a.type ? a.type[0].toUpperCase() + a.type.slice(1) : '' })))}
-    ${shelf('Fans also like', d.related.map(artistCard))}`;
+  const k = reg(d.top), a=d.artist, following=store.hasArtist(id);
+  const releases=d.albums.slice(0,8).map((x,i)=>`<a class="release-row${i>=4?' more-row':''}" href="#/album/${x.id}">${img(x.cover,'release-cover')}<div><b>${esc(x.title)}</b><small>${i===0?'<span class="latest">Latest release</span> · ':''}${esc([x.year,x.type?x.type[0].toUpperCase()+x.type.slice(1):''].filter(Boolean).join(' · '))}</small></div></a>`).join('');
+  return `<div class="artist-page">
+  <div class="artist-sticky"><button class="icon artist-back" data-act="go-back" aria-label="Back">${I.back}</button><b aria-hidden="true">${esc(a.name)}</b></div>
+  <header class="artist-hero"><img src="${esc(safeImage(a.pictureXl||a.picture))}" alt="" fetchpriority="high" decoding="async"><div class="artist-hero-fade"></div><h1>${esc(a.name)}</h1></header>
+  <p class="artist-listeners spotify-counter" data-counter="artist" data-artist-id="${esc(a.id)}">${fmtNum(a.fans)} fans</p>
+  <div class="artist-actions">
+    <button class="btn small follow-btn" data-act="follow-artist" aria-pressed="${following}">${following?'Following':'Follow'}</button>
+    <button class="icon" data-act="artist-more" data-id="${esc(a.id)}" aria-label="More options for ${esc(a.name)}">${I.more}</button>
+    <span class="spacer"></span>
+    <button class="icon" data-act="shuffle-all" data-key="${k}" aria-label="Shuffle ${esc(a.name)}">${I.shuffle}</button>
+    <button class="play-fab" data-act="play-all" data-key="${k}" aria-label="Play ${esc(a.name)}">${I.play}</button>
+  </div>
+  ${d.top.length?`<section class="artist-popular collapsible"><h2>Popular</h2>${trackRows(d.top.slice(0,10), k, {numbered:true})}${d.top.length>5?'<button class="see-more" data-act="expand-section">See more</button>':''}</section>`:''}
+  ${releases?`<section class="artist-releases collapsible"><h2>Popular releases</h2>${releases}${d.albums.length>4?'<button class="see-more" data-act="expand-section">See discography</button>':''}</section>`:''}
+  ${shelf('Fans also like', d.related.map(artistCard))}
+  ${artistCollections(a)}
+  <section class="artist-about"><h2>About</h2><a class="about-card" href="#/radio/${a.id}" style="--about:url('${esc(safeImage(a.pictureXl||a.picture)).replace(/'/g,'')}')"><div><b class="spotify-counter" data-counter="artist" data-artist-id="${esc(a.id)}">${fmtNum(a.fans)} fans</b><span>Start ${esc(a.name)} Radio for an endless mix of their music and similar artists.</span></div></a></section>
+  </div>`;
 }
-
 async function viewAlbum(id) {
   const { album: a, tracks } = await api.album(id);
   activeAlbum=a;
@@ -313,8 +346,8 @@ async function viewSettings() {
   const sel = (k, opts) => `<select data-setting="${k}">${opts.map(([v, l]) => `<option value="${v}"${s[k] === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`;
   const toggle=(key,label,detail='')=>`<label class="field"><span>${label}<small>${detail}</small></span><input type="checkbox" role="switch" data-setting="${key}" ${s[key]?'checked':''}></label>`;
   return `<h1 class="settings-top">Settings</h1>
-  <section class="box"><h2>Your profile</h2><label class="field"><span>Display name<small>Only shown in your browser.</small></span><input maxlength="60" data-setting="displayName" value="${esc(s.displayName)}"></label><a class="btn small" href="#/profile">View profile</a></section>
-  <section class="box"><h2>Appearance</h2><p class="settings-note">Winter Pine, pure-black AMOLED, and your own color worlds.</p><a class="btn" href="#/themes">Open Theme Studio</a><label class="field"><span>Library and track spacing</span>${sel('density',[['comfortable','Comfortable'],['compact','Compact']])}</label><label class="field"><span>Text size</span>${sel('textSize',[['normal','Default'],['large','Larger']])}</label><label class="field"><span>Motion</span>${sel('motion',[['system','Follow system'],['reduced','Reduced']])}</label></section>
+  <section class="box"><h2>Your profile</h2><label class="field"><span>Display name<small>Shown on your profile and in Jams.</small></span><input maxlength="60" data-setting="displayName" value="${esc(s.displayName)}"></label><a class="btn small" href="#/profile">View profile</a></section>
+  <section class="box"><h2>Appearance</h2>${themeModeSwitch(s)}<p class="settings-note">Light, dark or automatic, with 19 color themes.</p><a class="btn" href="#/themes">Themes</a><label class="field"><span>Library and track spacing</span>${sel('density',[['comfortable','Comfortable'],['compact','Compact']])}</label><label class="field"><span>Text size</span>${sel('textSize',[['normal','Default'],['large','Larger']])}</label><label class="field"><span>Motion</span>${sel('motion',[['system','Follow system'],['reduced','Reduced']])}</label></section>
   <section class="box"><h2>Playback</h2>
     <label class="field"><span>Audio source<small>Full tracks depend on reachable audio servers. Preview mode plays short samples only.</small></span>${sel('source', [['auto', 'Automatic'], ['piped', 'Piped'], ['invidious', 'Invidious'],['audius','Audius public releases'],['preview','Deezer previews (30 sec)']])}</label>
     <label class="field"><span>Streaming quality</span>${sel('quality', [['high', 'High'], ['low', 'Data saver']])}</label>
@@ -326,7 +359,7 @@ async function viewSettings() {
     <div class="row-btns"><button class="btn small" data-act="test-sources">Test audio servers</button><button class="btn small" data-act="clear-matches">Reset song matches</button></div>
     <div id="testOut"></div>
   </section>
-  <section class="box"><h2>Spotify account</h2><p class="settings-note">${spotifyAccount?`${esc(spotifyAccount.account.name)} · Library copy saved ${esc(new Date(spotifyAccount.capturedAt).toLocaleString())}. Refresh from Spotify to get changes.`:'Bring Liked Songs and playlists from your free Spotify account using the browser companion.'}</p><a class="btn primary" href="#/spotify-account">${spotifyAccount?'Manage Spotify library':'Set up account connection'}</a><a class="btn" href="#/spotify">Spotify collections & import</a></section>
+  <section class="box"><h2>Spotify account</h2><p class="settings-note">${spotifyAccount?`${esc(spotifyAccount.account.name)} · Library copy saved ${esc(new Date(spotifyAccount.capturedAt).toLocaleString())}. Refresh from Spotify to get changes.`:'Bring your liked songs, playlists and stats from your free Spotify account.'}</p><a class="btn primary" href="#/spotify-account">${spotifyAccount?'Manage Spotify library':'Set up account connection'}</a><a class="btn" href="#/spotify">Spotify collections & import</a></section>
   <section class="box"><h2>Your data</h2>
     <p class="muted">Your local music library, preferences, saved themes and Spotify library copy are saved in this browser. Export a backup to move them to another device. Audio files and the downloaded AI model are stored separately.</p>
     <div class="row-btns"><button class="btn small" data-act="export">Export backup</button>
@@ -341,11 +374,11 @@ async function viewSettings() {
     <button class="btn small primary" data-act="install" ${installEvt ? '' : 'hidden'} id="installBtn">Install Spot+</button>
     <p class="muted">Android/desktop Chrome: use the install button or the browser menu → Install app. iPhone: Safari → Share → Add to Home Screen.</p>
   </section>
-  <section class="box"><h2>DJ</h2>${toggle('djVoice','DJ voice','Choose your host in DJ preferences.')}<a class="btn small" href="#/dj">Open DJ</a><p class="settings-note">Enable live conversations from the DJ screen. About 600 MB downloads once; no subscription or PC server.</p><button class="btn small" data-act="dj-live-remove">Remove DJ downloads</button></section>
-  <section class="box"><h2>Connections & availability</h2><div class="capability"><span>Music discovery<small>Deezer public catalog</small></span><span>Available</span></div><div class="capability"><span>Audio playback<small>Piped / Invidious, previews, or local files</small></span><span>Source dependent</span></div><div class="capability"><span>Spotify library<small>Phone companion · Manual one-way refresh</small></span><span>${spotifyAccount?'Library copy saved':'Not set up'}</span></div><div class="capability"><span>Spotify Connect, Jam & Blend</span><span class="unavailable">Not supported</span></div><div class="capability"><span>Spotify AI DJ, podcasts & audiobooks</span><span class="unavailable">Not available from these sources</span></div><p class="settings-note">Spot+ is independent of Spotify. The companion copies your music library. Spotify’s private recommendations, licensed audio playback and Premium entitlements are not provided by these sources.</p></section>
+  <section class="box"><h2>DJ</h2>${toggle('djVoice','DJ voice','Choose your host in DJ preferences.')}<a class="btn small" href="#/dj">Open DJ</a><p class="settings-note">Turn on live conversation from the DJ screen (one-time 600 MB download).</p><button class="btn small" data-act="dj-live-remove">Remove DJ downloads</button></section>
+  <section class="box"><h2>Connections & availability</h2><div class="capability"><span>Music discovery<small>Deezer public catalog</small></span><span>Available</span></div><div class="capability"><span>Audio playback<small>Piped / Invidious, previews, or local files</small></span><span>Source dependent</span></div><div class="capability"><span>Spotify library & stats<small>Browser helper · Refresh anytime</small></span><span>${spotifyAccount?'Library copy saved':'Not set up'}</span></div><div class="capability"><span>Jam<small>Listen together in real time</small></span><span>Spot+ Jam</span></div><div class="capability"><span>Spotify Connect & Blend</span><span class="unavailable">Not supported</span></div><div class="capability"><span>DJ</span><span>Spot+ DJ</span></div><div class="capability"><span>Podcasts & audiobooks</span><span class="unavailable">Not available</span></div><p class="settings-note">Spot+ is independent of Spotify. The browser helper copies your library and stats; Spotify’s own audio and Premium features aren’t included.</p></section>
   <section class="box"><h2>Keyboard shortcuts</h2><p class="settings-note">Space: play/pause · Alt + Right/Left: next/previous · Ctrl/⌘ + K: search · Escape: close overlay. Use Tab and arrow keys for controls.</p></section>
   <section class="box"><h2>About Spot+</h2>
-    <p class="muted">Spot+ works like Spotube: song info comes from Deezer's public API, audio is matched on YouTube through public Piped and Invidious servers, and synced lyrics come from LRCLib. Everything runs in your browser.</p>
+    <p class="muted">Song info comes from Deezer, audio is matched on YouTube through public Piped and Invidious servers, and lyrics come from LRCLIB. Everything runs on your device.</p>
   </section>`;
 }
 
@@ -377,6 +410,8 @@ const routes = [
   [/^#\/spotify-account\/playlist\/([a-zA-Z0-9]{22})$/, viewSpotifyAccountList],
   [/^#\/spotify\/(playlist|album|artist|track)\/([a-zA-Z0-9]{22})$/, viewSpotifyCollection],
   [/^#\/themes$/, viewThemes],
+  [/^#\/jam$/, viewJam],
+  [/^#\/jam\/([A-Za-z0-9]{6})$/, joinJamFromLink],
 ];
 let routeTok = 0;
 async function route({ keepScroll = false } = {}) {
@@ -400,7 +435,7 @@ async function route({ keepScroll = false } = {}) {
       if (my !== routeTok) return;
       lists.forEach((_, k) => { if (+k.slice(1) <= startSeq) lists.delete(k); });
       view.innerHTML = html;
-      hydrateStatistics(view);
+      hydrateStatistics(view);syncAvatars();
       syncVoices();
       view.setAttribute('aria-busy','false');
       renderSidebar();
@@ -520,7 +555,11 @@ async function handleAct(act, el) {
     case 'account-install-helper': openInSafari(COMPANION_INSTALL_URL);break;
     case 'account-paste-field': {const text=$('#accountPasteField')?.value||'';closeSheet();await applyPastedLibrary(text);break;}
     case 'account-disconnect': if(await confirmBox('Remove this Spotify connection?', 'This removes the Spotify library copy from this device. Your local Spot+ music and Spotify account are kept.')){pendingAccount=null;store.clearSpotifyAccount();toast('Spotify copy removed from this device');}break;
-    case 'theme-preset': store.setSettings({themePreset:el.dataset.id,themeCustom:null});route({keepScroll:true});break;
+    case 'theme-preset': {const t=themes.presets.find(x=>x.id===el.dataset.id);store.setSettings({themePreset:el.dataset.id,themeCustom:null,...(t?.mode?{themeMode:t.mode}:{})});route({keepScroll:true});break;}
+    case 'go-back': if(history.length>1)history.back();else go('#/home');break;
+    case 'expand-section': {const sec=el.closest('.collapsible');const open=!sec.classList.contains('expanded');sec.classList.toggle('expanded',open);el.textContent=open?'See less':(sec.classList.contains('artist-releases')?'See discography':'See more');break;}
+    case 'artist-more': {const a=activeArtist;if(!a)break;openSheet({head:`<div class="sheet-title">${esc(a.name)}</div>`,items:[{icon:I.radio,label:'Go to artist radio',fn:()=>go('#/radio/'+a.id)},{icon:I.play,label:'Play essentials',fn:()=>go('#/essentials/'+a.id)},{icon:I.share||I.arrow,label:'Share',fn:()=>{const url=location.origin+location.pathname+'#/artist/'+a.id;if(navigator.share)navigator.share({title:a.name,url}).catch(()=>{});else navigator.clipboard?.writeText(url).then(()=>toast('Link copied'));}},{icon:I.arrow,label:'Find on Spotify',fn:()=>window.open('https://open.spotify.com/search/'+encodeURIComponent(a.name)+'/artists','_blank','noopener')}]});break;}
+    case 'theme-mode': store.setSettings({themeMode:el.dataset.mode});route({keepScroll:true});break;
     case 'theme-undo': if(themeUndo){store.setSettings(themeUndo);route({keepScroll:true});}break;
     case 'theme-remix': {const color=themes.presets[Math.floor(Math.random()*themes.presets.length)];store.setSettings({themePreset:color.id,themeCustom:null,cornerRadius:[0,8,16][Math.floor(Math.random()*3)]});route({keepScroll:true});break;}
     case 'theme-save': {const name=await ask({title:'Save your theme',placeholder:'Theme name',ok:'Save'});if(name){const s=store.getSettings();store.saveTheme({id:'theme'+Date.now(),name,settings:themeSettings(s)});route({keepScroll:true});toast('Theme saved');}break;}
@@ -528,7 +567,7 @@ async function handleAct(act, el) {
     case 'theme-export': downloadJson({app:'spotplus-theme',version:1,settings:themeSettings(store.getSettings())},'spotplus-theme.json');break;
     case 'theme-import': $('#themeImport').click();break;
     case 'focus-main': $('#main').focus();break;
-    case 'track-play': {dj.stop();const tracks=visibleTracks(listOf(key).tracks,store.getSettings());const track=listOf(key).tracks[+el.dataset.i];const index=tracks.findIndex(t=>t.id===track?.id);if(index<0)return toast('Explicit content is turned off in Settings.');if(player.current()?.id===track.id)player.toggle();else player.playList(tracks,index,{shuffle:false});break;}
+    case 'track-play': {if(jam.active&&!jam.host){const t=listOf(key).tracks[+el.dataset.i];if(t){jam.add(t);toast(`Added “${t.title}” to the Jam`);}break;}dj.stop();const tracks=visibleTracks(listOf(key).tracks,store.getSettings());const track=listOf(key).tracks[+el.dataset.i];const index=tracks.findIndex(t=>t.id===track?.id);if(index<0)return toast('Explicit content is turned off in Settings.');if(player.current()?.id===track.id)player.toggle();else player.playList(tracks,index,{shuffle:false});break;}
     case 'profile': profileMenu(); break;
     case 'rewind-import': $('#rewindImport').click();break;
     case 'rewind-top': rewindFilters[el.dataset.key]=el.dataset.value;route({keepScroll:true});break;
@@ -628,9 +667,15 @@ async function handleAct(act, el) {
     case 'sheet-close': closeSheet(); break;
     case 'retry': route(); break;
     // player
-    case 'toggle': player.toggle(); break;
-    case 'next': player.next(); break;
-    case 'prev': player.prev(); break;
+    case 'toggle': if(!jamGuestControl('toggle'))player.toggle(); break;
+    case 'next': if(!jamGuestControl('next'))player.next(); break;
+    case 'prev': if(!jamGuestControl('prev'))player.prev(); break;
+    case 'jam-start': {const p=jamProfile();jam.start(p);go('#/jam');break;}
+    case 'jam-join': {const code=($('#jamCode')?.value||'').trim().toUpperCase();if(!validJamCode(code))return toast('Enter the 6-character Jam code.');jam.join(code,jamProfile());go('#/jam');break;}
+    case 'jam-leave': if(await confirmBox(jam.host?'End this Jam?':'Leave this Jam?',jam.host?'Everyone will stop listening along.':'Your music keeps playing on this device.',jam.host?'End Jam':'Leave'))jam.leave();break;
+    case 'jam-share': {const url=jamLink(jam.code);if(navigator.share)navigator.share({title:'Join my Jam on Spot+',text:'Listen along with me: code '+jam.code,url}).catch(()=>{});else navigator.clipboard?.writeText(url).then(()=>toast('Jam link copied'));break;}
+    case 'jam-open': closeSheet();go('#/jam');break;
+    case 'jam-react': jam.react(el.dataset.emoji);break;
     case 'shuffle': player.toggleShuffle(); break;
     case 'repeat': player.cycleRepeat(); break;
     case 'like-current': { const t = player.current(); if (t) toast(store.toggleLike(t) ? 'Added to Liked Songs' : 'Removed from Liked Songs'); break; }
@@ -685,6 +730,7 @@ document.addEventListener('click', (e) => {
     if(tracks[i])handleAct('track-play',{dataset:{key:row.dataset.list,i:String(i)}}).catch(err=>toast(err.message));
   }
 });
+document.addEventListener('change',e=>{if(e.target.id==='jamControl')jam.setGuestControl(e.target.checked);});
 document.addEventListener('input', (e) => {
   if (['q','globalQ'].includes(e.target.id)) {clearTimeout(searchTimer);const q=e.target.value.trim();if($('#q')&&e.target.id!=='q')$('#q').value=q;if(e.target.id!=='globalQ')$('#globalQ').value=q;$('#globalClear').hidden=!q;if($('#searchClear'))$('#searchClear').hidden=!q;if($('#results')){++searchTok;searchTimer=setTimeout(()=>runSearch(q),250);}}
   if(e.target.id==='folderQ'&&$('#folderItems'))$('#folderItems').innerHTML=renderLibraryItems({folderId:$('#folderItems').dataset.folderId,query:e.target.value});
@@ -829,7 +875,7 @@ function syncNP() {
     $('#npTitle').textContent = t.title;
     $('#npArtist').textContent = t.artist;
     $('#npPlays').textContent='';
-    getTrackStats(t).then(data=>{if(player.current()?.id!==t.id)return;const count=matchPlayCount(t,data);$('#npPlays').textContent=count?count.plays.toLocaleString()+' Spotify plays':'Spotify play count unavailable';});
+    getTrackStats(t).then(data=>{if(player.current()?.id!==t.id)return;const count=matchPlayCount(t,data);$('#npPlays').textContent=count?count.plays.toLocaleString()+' plays on Spotify':'';});
   }
   $('#npSrc').textContent = s.offline ? (t.local?'Local audio · On this device':'Downloaded audio · On this device') : s.source?.preview ? '30-second preview · Deezer' : s.source ? `Audio · ${api.host(s.source.instance)}` : s.loading ? 'Finding audio… Tap play to cancel.' : s.error?'Audio unavailable. Retry or change audio source.':'Ready to play';
   syncCanvas();
@@ -837,7 +883,7 @@ function syncNP() {
   loadLyrics();
 }
 let canvasPreference=canvasEnabled({reducedMotion:matchMedia('(prefers-reduced-motion:reduce)').matches||document.body.dataset.motion==='reduced',saveData:navigator.connection?.saveData});
-const canvasPlayer=new CanvasPlayer($('#npCanvas'),{lookup:(track,signal,options)=>findVisualLoop(track,signal,{...options,source:player.state.source}),onState:(state,clip)=>{
+const canvasPlayer=new CanvasPlayer($('#npCanvas'),{media:clipSource,lookup:(track,signal,options)=>findVisualLoop(track,signal,{...options,source:player.state.source}),onState:(state,clip)=>{
   np.classList.toggle('has-canvas',state==='ready');
   np.dataset.canvasState=state;
   np.dataset.visualKind=clip?.kind || '';
@@ -851,9 +897,17 @@ function syncCanvas(retry=false){
   $('#npCoverButton').setAttribute('aria-pressed',String(inCover&&!canvasPreference));
   $('#npCanvasButton').classList.toggle('on',inCover&&canvasPreference);
   $('#npCanvasButton').setAttribute('aria-pressed',String(inCover&&canvasPreference));
-  canvasPlayer.sync(player.current(),{visible:npOpen&&inCover&&!document.hidden,enabled:canvasPreference,playing:player.isPlaying()&&!player.state.loading,networkReady:!player.state.loading&&audioHasHeadroom(player.el),retry});
+  canvasPlayer.sync(player.current(),{visible:npOpen&&inCover&&!document.hidden,enabled:canvasPreference,playing:player.isPlaying()&&!player.state.loading,networkReady:hasLocalClip(player.current())||(!player.state.loading&&audioHasHeadroom(player.el)),retry});
 }
 player.on('state',()=>syncCanvas());
+// Download Canvas clips for this song and the next two while music plays, so opening
+// the player (or skipping ahead) shows the loop immediately.
+let prefetchedFor='';
+player.on('state',()=>{
+  const t=player.current();if(!t||!canvasPreference||t.id===prefetchedFor)return;
+  prefetchedFor=t.id;const s=player.state;
+  setTimeout(()=>prefetchClips([t,s.queue[s.index+1],s.queue[s.index+2]]),player.isPlaying()?1500:0);
+});
 player.on('time',()=>{if(npOpen&&canvasPreference){syncCanvas();if(np.classList.contains('has-canvas'))playerColors.sampleVideo($('#npCanvas'));}});
 document.addEventListener('visibilitychange',()=>syncCanvas());
 function qRow(t, idx, cur) {
@@ -967,7 +1021,7 @@ function applyPreferences(){
   document.documentElement.style.setProperty('--sidebar',`${width}px`);
   $('#libraryResize').setAttribute('aria-valuenow',String(width));
   document.body.classList.toggle('library-collapsed',!!s.libraryCollapsed);
-  $$('.avatar').forEach(el=>el.textContent=(s.displayName.trim()[0]||'S').toUpperCase());
+  syncAvatars();
   $('#networkNotice').hidden=navigator.onLine;
   renderSidebar();
 }
@@ -975,27 +1029,47 @@ function browseHome(){
   const cats=[['Pop','#8d1766'],['Hip-Hop','#b4431f'],['Rock','#c4283c'],['Electronic','#216078'],['Jazz','#875a2a'],['R&B','#7352a8'],['Classical','#56652d'],['Country','#466d7a']];
   return `${store.getSearches().length?`<div class="sec-head"><h2>Recent searches</h2><button class="link" data-act="clear-searches">Clear</button></div><div class="recent-searches">${store.getSearches().map(q=>`<a class="chip" href="#/search/${encodeURIComponent(q)}">${esc(q)}</a>`).join('')}</div>`:''}<section><h2>Browse music</h2><div class="browse-grid"><a class="browse-card" href="#/spotify" style="--tile:var(--accent)">Spotify collections<small>Official playlists & your library</small>${I.library}</a><a class="browse-card" href="#/dj" style="--tile:#16436b">Made for you<small>Spot+ DJ</small>${I.dj}</a>${cats.map(([name,color])=>`<a class="browse-card" href="#/search/${encodeURIComponent(name)}" style="--tile:${color}">${name}<small>Explore songs & artists</small>${I.note}</a>`).join('')}</div></section>`;
 }
-function viewProfile(){const s=store.getSettings(),spotifyProfile=store.getSpotifyAccount()?.account;return `<div class="profile-hero"><div class="avatar">${esc((s.displayName[0]||'S').toUpperCase())}</div><div><div class="kicker">Profile · On this device</div><h1>${esc(s.displayName)}</h1><a class="link" href="#/settings">Edit profile</a></div></div><div class="stat-row"><div><b>${store.getPlaylists().length}</b>Playlists</div><div><b>${store.getLikes().length}</b>Liked songs</div><div><b>${store.getArtists().length}</b>Following</div></div><p class="muted">Your library is saved in this browser. Export a backup in Settings to keep a copy.</p>${spotifyProfile?`<section class="box">${spotifyProfileHtml(spotifyProfile)}<a class="link" href="#/spotify-account">Manage Spotify library</a></section>`:''}${shelf('Following',store.getArtists().map(artistCard))}<h2>Your playlists</h2>${renderLibraryItems()}`;}
+// Profile pictures follow your Spotify account photo when a library is connected;
+// otherwise they show your initial.
+function profileName(){const s=store.getSettings(),custom=s.displayName&&s.displayName!=='Your library'?s.displayName.trim():'';return custom||store.getSpotifyAccount()?.account?.name||'Listener';}
+function profilePhoto(){const url=store.getSpotifyAccount()?.account?.avatar;return url?safeImage(url):'';}
+function syncAvatars(){
+  const photo=profilePhoto(),letter=(profileName().trim()[0]||'S').toUpperCase();
+  $$('.avatar').forEach(el=>{
+    if(photo&&el.dataset.photo!==photo){el.dataset.photo=photo;el.replaceChildren();const im=new Image();im.alt='';im.decoding='async';im.src=photo;im.onerror=()=>{el.dataset.photo='';el.textContent=letter;};el.append(im);el.classList.add('has-photo');}
+    else if(!photo){el.dataset.photo='';el.classList.remove('has-photo');el.textContent=letter;}
+  });
+}
+function viewProfile(){const s=store.getSettings(),spotifyProfile=store.getSpotifyAccount()?.account;return `<div class="profile-hero"><div class="avatar">${esc((profileName()[0]||'S').toUpperCase())}</div><div><div class="kicker">Profile</div><h1>${esc(profileName())}</h1><a class="link" href="#/settings">Edit profile</a></div></div><div class="stat-row"><div><b>${store.getPlaylists().length}</b>Playlists</div><div><b>${store.getLikes().length}</b>Liked songs</div><div><b>${store.getArtists().length}</b>Following</div></div><p class="muted">Your library is saved in this browser. Export a backup in Settings to keep a copy.</p>${spotifyProfile?`<section class="box">${spotifyProfileHtml(spotifyProfile)}<a class="link" href="#/spotify-account">Manage Spotify library</a></section>`:''}${shelf('Following',store.getArtists().map(artistCard))}<h2>Your playlists</h2>${renderLibraryItems()}`;}
 function viewRecent(){const recent=store.getRecent(),k=reg(recent);return `<h1 class="settings-top">Recently played</h1>${recent.length?trackRows(recent,k):emptyState('Your listening starts here','Play something and it will appear here.','Browse music','#/search')}`;}
 function viewLocal(){const tracks=store.getLocalFiles(),k=reg(tracks);return `<h1 class="settings-top">Local files</h1><p class="muted">Audio you choose from your phone or computer, stored in this browser.</p><button class="btn white" data-act="import-local">Add audio files</button>${tracks.length?actions(k)+trackRows(tracks,k):emptyState('Bring your own music','Choose audio files you have permission to play. They stay on this device.')}`;}
 function homeDJ(){return `<div class="home-dj"><a class="dj-orb-small" href="#/dj" aria-label="Open Spot+ DJ"></a><form id="homeDJRequest"><label for="homeDJPrompt" class="sr-only">Tell DJ what to play</label><input id="homeDJPrompt" maxlength="300" placeholder="Tell DJ what to play" enterkeyhint="go"><button class="icon" type="button" data-act="dj-mic" aria-label="Talk to DJ">${I.mic}</button></form></div>`;}
 function viewDJ(){
  const s=store.getSettings(),k=reg(dj.state.tracks),v=dj.voice.state;
- return `<section class="dj-stage" id="djStage" data-phase="${v.phase}"><div class="kicker">Your music. In the moment.</div><h1>Spot+ DJ</h1><p>Set the mood. Find a favorite. Make it yours.</p><div class="dj-orbit" aria-hidden="true"><b>DJ</b></div><div class="dj-wave" aria-hidden="true">${Array.from({length:9},(_,i)=>'<i style="--i:'+i+'"></i>').join('')}</div><div class="dj-live-state" id="djPhase">${v.phase==='idle'?'Ready when you are':v.phase}</div><div class="dj-caption" id="djCaption" role="status">${esc(v.caption)}</div><div class="dj-transcript" id="djTranscript">${esc(v.transcript)}</div><button class="dj-edit" id="djEdit" data-act="dj-edit" ${v.transcript?'':'hidden'}>Edit what I heard</button><button class="icon mic-button" data-act="dj-mic" aria-label="Talk to DJ" aria-pressed="${v.phase==='listening'}">${I.mic}<span data-mic-label>Talk to DJ</span></button><div class="dj-controls"><button class="btn primary" data-act="dj-start">${I.play}Play my mix</button><button class="btn" data-act="dj-change">${I.swap}Switch it up</button></div></section>
- <div class="live-dj-setup" id="liveDJSetup">${liveDJHtml()}</div><div class="dj-request-wrap"><form id="djRequest" class="dj-request"><label class="sr-only" for="djPrompt">Request music</label><input id="djPrompt" maxlength="300" placeholder="Or type a request…" value="${esc(dj.state.request)}" enterkeyhint="send"><button class="btn white" type="submit">Send</button></form><div class="dj-hints">${['More like this','Something for studying','More energy'].map(q=>'<button data-act="dj-suggestion" data-prompt="'+q+'">'+q+'</button>').join('')}</div><label class="dj-conversation"><input type="checkbox" id="djConversation" ${v.conversation?'checked':''}>Keep listening after replies</label><p class="dj-privacy">Tap the mic to talk. Music pauses while you speak. Voice recognition may use your browser’s speech service. Tap the mic again to interrupt a reply. The microphone turns off when you leave the app. For voice input, use Safari on iPhone or Chrome on Android.</p><p id="djStatus" class="settings-note" role="status">${esc(dj.state.message)}</p></div>
- <details class="dj-options"><summary>DJ preferences</summary><fieldset class="host-picker"><legend>Pick your host</legend><p class="settings-note">Tap a voice to hear it.</p><div class="host-choices">${dj.voice.HOSTS.map(h=>'<button class="host-choice '+(dj.voice.host()===h.id?'selected':'')+'" data-act="dj-host" data-host="'+h.id+'" aria-pressed="'+(dj.voice.host()===h.id)+'"><b>'+h.name+'</b><span>'+h.description+'</span><small>Preview voice</small></button>').join('')}</div><small class="voice-credit">AI-generated voices. Samples are previews; live DJ generates new speech.</small><p class="settings-note" id="voiceStatus">${esc(dj.voice.state.error)}</p></fieldset><label class="field"><span>Spoken replies</span><input type="checkbox" role="switch" data-setting="djVoice" ${s.djVoice?'checked':''}></label><label class="field"><span>Talk between songs</span><input type="checkbox" role="switch" data-setting="djCommentary" ${s.djCommentary!==false?'checked':''}></label><button class="btn small" data-act="sleep-timer">Sleep timer</button></details><section class="dj-session"><h2>In your mix</h2><div id="djTracks">${dj.state.tracks.length?trackRows(dj.state.tracks,k):'<p class="muted">Play your mix or ask for something you love.</p>'}</div></section>`;
+ return `<section class="dj-stage" id="djStage" data-phase="${v.phase}"><h1>DJ</h1><p>Your personal DJ picks the music and talks between songs. Ask for anything.</p><div class="dj-orbit" aria-hidden="true"><b>DJ</b></div><div class="dj-wave" aria-hidden="true">${Array.from({length:9},(_,i)=>'<i style="--i:'+i+'"></i>').join('')}</div><div class="dj-live-state" id="djPhase" ${v.phase==='idle'?'hidden':''}>${v.phase==='idle'?'':esc(v.phase)}</div><div class="dj-caption" id="djCaption" role="status">${esc(v.caption)}</div><div class="dj-transcript" id="djTranscript">${esc(v.transcript)}</div><button class="dj-edit" id="djEdit" data-act="dj-edit" ${v.transcript?'':'hidden'}>Edit what I heard</button>
+ <div class="dj-controls"><button class="btn primary" data-act="dj-start">${I.play}Play my mix</button><button class="icon mic-button" data-act="dj-mic" aria-label="Talk to DJ" aria-pressed="${v.phase==='listening'}">${I.mic}<span data-mic-label class="sr-only">Talk to DJ</span></button><button class="btn dj-switch" data-act="dj-change" aria-label="Switch it up">${I.swap}<span>Switch it up</span></button></div></section>
+ <div class="dj-request-wrap"><form id="djRequest" class="dj-request"><label class="sr-only" for="djPrompt">Ask the DJ</label><input id="djPrompt" maxlength="300" placeholder="Ask for a mood, artist or moment…" value="${esc(dj.state.request)}" enterkeyhint="send"><button class="btn white" type="submit">Ask</button></form><div class="dj-hints">${['More like this','Focus music','More energy','Late night','Throwbacks'].map(q=>'<button data-act="dj-suggestion" data-prompt="'+q+'">'+q+'</button>').join('')}</div><p id="djStatus" class="settings-note" role="status">${esc(dj.state.message)}</p></div>
+ <section class="dj-session"><h2>In your mix</h2><div id="djTracks">${dj.state.tracks.length?trackRows(dj.state.tracks,k):'<p class="muted">Tap Play my mix, or ask for something.</p>'}</div></section>
+ <details class="dj-options"><summary>Voice and settings</summary>
+ <div class="live-dj-setup" id="liveDJSetup">${liveDJHtml()}</div>
+ <fieldset class="host-picker"><legend>Your host</legend><p class="settings-note">Tap a voice to hear it.</p><div class="host-choices">${dj.voice.HOSTS.map(h=>'<button class="host-choice '+(dj.voice.host()===h.id?'selected':'')+'" data-act="dj-host" data-host="'+h.id+'" aria-pressed="'+(dj.voice.host()===h.id)+'"><b>'+h.name+'</b><span>'+h.description+'</span><small>Preview</small></button>').join('')}</div><small class="voice-credit">AI-generated voices.</small><p class="settings-note" id="voiceStatus">${esc(dj.voice.state.error)}</p></fieldset>
+ <label class="field"><span>Spoken replies</span><input type="checkbox" role="switch" data-setting="djVoice" ${s.djVoice?'checked':''}></label>
+ <label class="field"><span>Talk between songs</span><input type="checkbox" role="switch" data-setting="djCommentary" ${s.djCommentary!==false?'checked':''}></label>
+ <label class="field"><span>Keep listening after replies<small>Ask follow-ups without tapping the mic again.</small></span><input type="checkbox" role="switch" id="djConversation" ${v.conversation?'checked':''}></label>
+ <button class="btn small" data-act="sleep-timer">Sleep timer</button>
+ <p class="dj-privacy">Music pauses while you talk, and the mic turns off when you leave the app. Voice input works best in Safari on iPhone and Chrome on Android.</p></details>`;
 }
 function liveDJHtml(){
  const voice=dj.liveVoice.state,model=dj.localModel.status,ready=dj.liveReady(),loading=voice.phase==='loading'||model.phase==='loading';
- const message=ready?'Ready to talk. Replies are generated on this device.':loading?(voice.phase==='loading'?voice.message:model.message):voice.phase==='error'?voice.message:model.phase==='error'?model.message:'Live speech and conversation, in your chosen host voice. Free, with a one-time download of about 600 MB. Use Wi-Fi and keep Spot+ open.';
- return '<div><b>'+(ready?'Live DJ is on':'Talk with your DJ')+'</b><p>'+esc(message)+'</p></div>'+(loading?'<progress aria-label="Preparing live DJ" max="100" value="'+(voice.phase==='loading'?Math.round(voice.progress*.67):67+Math.round(model.progress*.33))+'"></progress><button class="btn small" data-act="dj-live-stop">Cancel setup</button>':ready?'<button class="btn small" data-act="dj-live-stop">End live session</button>':'<button class="btn primary" data-act="dj-live-enable">Enable live DJ</button>');
+ const message=ready?'Ready. Replies are generated on this device.':loading?(voice.phase==='loading'?voice.message:model.message):voice.phase==='error'?voice.message:model.phase==='error'?model.message:'Have a real conversation with your DJ. Runs on this device; one-time 600 MB download (use Wi-Fi).';
+ return '<div><b>'+(ready?'Live DJ is on':'Live conversation')+'</b><p>'+esc(message)+'</p></div>'+(loading?'<progress aria-label="Preparing live DJ" max="100" value="'+(voice.phase==='loading'?Math.round(voice.progress*.67):67+Math.round(model.progress*.33))+'"></progress><button class="btn small" data-act="dj-live-stop">Cancel setup</button>':ready?'<button class="btn small" data-act="dj-live-stop">End live session</button>':'<button class="btn primary" data-act="dj-live-enable">Enable live DJ</button>');
 }
 function syncLiveDJ(){if($('#liveDJSetup'))$('#liveDJSetup').innerHTML=liveDJHtml();}
 dj.liveVoice.onChange(syncLiveDJ);dj.localModel.onChange(syncLiveDJ);
 function syncDJVoice(){
  const v=dj.voice.state,phase=v.phase==='idle'&&dj.state.busy?'thinking':v.phase;
  if($('#djStage')){const stage=$('#djStage');stage.dataset.phase=phase;stage.dataset.voice=v.lastVoice;stage.dataset.responseMs=String(v.responseMs);}
- if($('#djPhase'))$('#djPhase').textContent=phase==='idle'?'Ready when you are':phase;
+ if($('#djPhase')){const label={listening:'Listening…',thinking:'Thinking…',speaking:'Speaking'}[phase]||phase;$('#djPhase').textContent=phase==='idle'?'':label;$('#djPhase').hidden=phase==='idle';}
  if($('#djCaption'))$('#djCaption').textContent=v.caption;
  if($('#djTranscript'))$('#djTranscript').textContent=v.transcript;
  if($('#djEdit'))$('#djEdit').hidden=!v.transcript;
@@ -1009,9 +1083,9 @@ function modelStatusHtml(){const s=dj.localModel.status;return `<p class="settin
 function syncVoices(){syncDJVoice();}
 
 
-function createMenu(){openSheet({head:'<div class="sheet-title">Create</div>',items:[{icon:I.plus,label:'Create a playlist',sub:'Collect your favorite tracks',fn:()=>handleAct('new-playlist',{})},{icon:I.folder,label:'Create a folder',sub:'Organize playlists in your library',fn:()=>handleAct('new-folder',{})},{icon:I.library,label:'Spotify account & collections',sub:'Connect your account or explore playlists',fn:()=>go('#/spotify')},{icon:I.import,label:'Import a Deezer playlist',fn:()=>handleAct('import-playlist',{})},{icon:I.note,label:'Add local audio files',sub:'From this phone or computer',fn:()=>$('#localFilesInput').click()},{icon:I.dj,label:'Start a DJ session',fn:()=>go('#/dj')}]});}
+function createMenu(){openSheet({head:'<div class="sheet-title">Create</div>',items:[{icon:I.plus,label:'Create a playlist',sub:'Collect your favorite tracks',fn:()=>handleAct('new-playlist',{})},{icon:I.folder,label:'Create a folder',sub:'Organize playlists in your library',fn:()=>handleAct('new-folder',{})},{icon:I.library,label:'Spotify account & collections',sub:'Connect your account or explore playlists',fn:()=>go('#/spotify')},{icon:I.import,label:'Import a Deezer playlist',fn:()=>handleAct('import-playlist',{})},{icon:I.note,label:'Add local audio files',sub:'From this phone or computer',fn:()=>$('#localFilesInput').click()},{icon:I.dj,label:'Start a DJ session',fn:()=>go('#/dj')},{icon:I.jam,label:'Start a Jam',sub:'Listen together in real time',fn:()=>go('#/jam')}]});}
 function profileMenu(){openSheet({head:`<div class="sheet-title">${esc(store.getSettings().displayName)}</div>`,items:[{icon:I.person,label:'Profile',sub:'Your library on this device',fn:()=>go('#/profile')},{icon:I.history,label:'Your Rewind',sub:'Your listening, all year round',fn:()=>go('#/rewind')},{icon:I.history,label:'Listening history',fn:()=>go('#/recent')},{icon:I.settings,label:'Theme Studio',sub:'Make Spot+ yours',fn:()=>go('#/themes')},{icon:I.library,label:'Spotify account',fn:()=>go('#/spotify-account')},{icon:I.settings,label:'Settings',fn:()=>go('#/settings')},{icon:I.dj,label:'Spot+ DJ',fn:()=>go('#/dj')}]});}
-function deviceMenu(){openSheet({head:'<div class="sheet-title">Connect to a device</div>',body:`<div class="device-card">${I.device}<div><b>This browser</b><small>Current audio output</small></div></div><p class="sheet-note">Use your phone or computer’s audio controls for Bluetooth or AirPlay. Spotify Connect is not available through these music sources.</p>`,items:typeof player.el.setSinkId==='function' && navigator.mediaDevices?.selectAudioOutput?[{icon:I.device,label:'Choose audio output',fn:async()=>{try{const d=await navigator.mediaDevices.selectAudioOutput();await player.el.setSinkId(d.deviceId);toast('Audio output changed');}catch(e){toast(e.name==='NotAllowedError'?'Audio output selection was cancelled.':e.message);}}}]:[]});}
+function deviceMenu(){openSheet({head:'<div class="sheet-title">Connect</div>',body:`<button class="jam-entry" data-act="jam-open">${I.jam}<div><b>${jam.active?'Jam · '+esc(jam.code):'Start a Jam'}</b><small>${jam.active?jam.members.length+' listening':'Listen together with friends, live'}</small></div>${I.arrow}</button><div class="device-card">${I.device}<div><b>This browser</b><small>Current audio output</small></div></div><p class="sheet-note">Use your phone or computer’s audio controls for Bluetooth or AirPlay. Spotify Connect is not available through these music sources.</p>`,items:typeof player.el.setSinkId==='function' && navigator.mediaDevices?.selectAudioOutput?[{icon:I.device,label:'Choose audio output',fn:async()=>{try{const d=await navigator.mediaDevices.selectAudioOutput();await player.el.setSinkId(d.deviceId);toast('Audio output changed');}catch(e){toast(e.name==='NotAllowedError'?'Audio output selection was cancelled.':e.message);}}}]:[]});}
 function sleepMenu(){openSheet({head:'<div class="sheet-title">Sleep timer</div>',items:[...[5,15,30,60].map(minutes=>({icon:I.history,label:`${minutes} minutes`,fn:()=>{clearTimeout(sleepTimer);sleepTimer=setTimeout(()=>{player.el.pause();dj.stop();toast('Sleep timer ended');},minutes*60000);toast(`Playback will pause in ${minutes} minutes`);}})),{icon:I.close,label:'Turn off timer',fn:()=>{clearTimeout(sleepTimer);sleepTimer=null;toast('Sleep timer off');}}]});}
 function trapFocus(e,root){if(e.key!=='Tab')return;const focusable=$$('button:not(:disabled),a[href],input:not(:disabled),select,textarea,[tabindex="0"]',root).filter(el=>el.getClientRects().length);if(!focusable.length)return;const first=focusable[0],last=focusable.at(-1);if(e.shiftKey&&(document.activeElement===first||!root.contains(document.activeElement))){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}
 document.addEventListener('keydown',e=>{if(!sheet.hidden)trapFocus(e,sheet);else if(npOpen&&matchMedia(MOBILE_QUERY).matches)trapFocus(e,np);if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();go('#/search');}if(!e.target.closest('input,textarea,select,button')&&e.altKey){if(e.key==='ArrowRight'){e.preventDefault();player.next();}if(e.key==='ArrowLeft'){e.preventDefault();player.prev();}}});
@@ -1072,7 +1146,15 @@ function beginSpotifyConnection(){
     accountStatus(win?'Spotify opened. Sign in — your library comes back here by itself.':'Link copied. Paste it into Safari’s address bar.');
     return;
   }
-  openSheet({head:'<div class="sheet-title">Connect your Spotify library</div>',body:`<p class="sheet-note">${phone?'Use '+browser+' with the Spot+ helper installed. Pasting the browser link avoids the Spotify app and blank-screen handoff.':'Install the Spot+ helper once, then sign in on Spotify’s website.'}</p><p class="sheet-note">${accountDevice==='iphone'?'When your library is ready, tap <b>Copy for Spot+</b> on Spotify, come back here and tap <b>Paste from Spotify</b>.':'When your library is ready, choose <b>Send to Spot+</b>.'}</p>`,items:phone?[copy,login]:[login,copy]});
+  // Android and computer: one tap, same as iPhone. Spotify opens in a new tab with a
+  // link back to this one, so the helper sends the library here automatically.
+  navigator.clipboard?.writeText(urls.browser).catch(()=>{});
+  if(phone)awaitingPaste=true;
+  const win=window.open(urls.browser,'spotplus-spotify');pendingAccount.window=win;
+  if(!win){copy.fn();return;}
+  accountStatus(phone?'Spotify opened. Sign in, and your library comes back here. If the Spotify app opened instead, paste the copied link into Firefox.':'Spotify opened in a new tab. Sign in, and your library comes back here by itself.');
+  setTimeout(()=>{if(pendingAccount?.nonce===nonce&&!pendingAccount.helperReady)accountStatus('Still waiting for the Spot+ helper on Spotify. Check that it’s installed and enabled, then reload Spotify.');},20000);
+  void login;
 }
 let awaitingPaste=false;
 function isStandalone(){return navigator.standalone===true||matchMedia('(display-mode: standalone)').matches;}
@@ -1175,12 +1257,75 @@ async function viewSpotify(){
 async function viewSpotifyCollection(type,id){const known=spotify.collections.find(p=>p.id===id)||store.getSpotifyLinks().find(p=>p.id===id);let p;try{p=await spotify.metadata({type,id,...known});}catch{p={type,id,title:known?.title||'Spotify '+type,cover:known?.cover||''};}return header({cover:p.cover,kicker:'Spotify · '+type,title:p.title,sub:'Official Spotify player · Content and playback are provided by Spotify.'})+(type==='artist'?'<p class="spotify-counter" data-counter="artist" data-spotify-artist-id="'+id+'">Loading Spotify listeners…</p>':'')+`<div class="actions"><button class="btn primary" data-act="spotify-open-player" data-type="${type}" data-id="${id}">${I.play}Open Spotify player</button><button class="btn" data-act="spotify-save" data-type="${type}" data-id="${id}">${I.plus}Save link</button><a class="btn" href="${spotify.urlFor({type,id})}" target="_blank" rel="noopener">Open in Spotify ${I.arrow}</a></div><div id="spotifyPlayer"></div><p class="settings-note">Spotify’s player has its own queue. To bring your own playlist tracks into the Spot+ player, import your Spotify data from <a href="#/spotify">Spotify collections</a>.</p>`;}
 function themeSettings(s){const p=themes.palette(s);return {themePreset:s.themePreset||'pine',themeCustom:{accent:p.accent,surface:p.surface,raised:p.raised},amoled:s.amoled!==false,cornerRadius:p.radius,coverStyle:s.coverStyle||'square',density:s.density,textSize:s.textSize,motion:s.motion};}
 function downloadJson(data,name){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000);}
+function themeModeSwitch(s){
+  const mode=themes.MODES.includes(s.themeMode)?s.themeMode:(themes.presets.find(t=>t.id===s.themePreset)?.mode||'dark');
+  return `<div class="mode-switch" role="group" aria-label="Appearance">${[['light','Light'],['dark','Dark'],['system','Auto']].map(([value,label])=>`<button data-act="theme-mode" data-mode="${value}" aria-pressed="${mode===value}">${label}</button>`).join('')}</div>`;
+}
+function themePresetGroups(s,p){
+  const groups=[['Signature',t=>!t.material],['Material',t=>t.material&&!t.mode],['Light',t=>t.mode==='light']];
+  return groups.map(([title,test])=>`<section><h2>${title}</h2><div class="theme-presets">${themes.presets.filter(test).map(t=>{const x=themes.palette({...s,themePreset:t.id,themeCustom:null,themeMode:t.mode||s.themeMode});const on=!s.themeCustom&&t.id===p.id;return `<button class="theme-preset${on?' selected':''}" data-act="theme-preset" data-id="${t.id}" aria-pressed="${on}"><div class="theme-swatch" style="--swatch-surface:${x.surface};--swatch-raised:${x.raised};--swatch-accent:${x.accent}"><span></span><i></i><b></b></div><strong>${t.name}</strong><small>${t.note}</small></button>`;}).join('')}</div></section>`).join('');
+}
 function viewThemes(){
   const s=store.getSettings(),p=themes.palette(s);if(!themeUndo)themeUndo={...themeSettings(s),density:s.density,textSize:s.textSize,motion:s.motion};
-  return `<div class="studio-heading"><div><div class="kicker">Spot+ / Personalize</div><h1>Theme Studio</h1><p class="muted">Mix a space that feels like yours. Every change is live.</p></div><div class="row-btns"><button class="btn" data-act="theme-undo">Undo this session</button><button class="btn primary" data-act="theme-save">Save theme</button></div></div><div class="studio-grid"><section class="studio-preview"><div class="studio-preview-top"><b id="themeLiveName">${s.themeCustom?'Your mix':p.name}</b><span>LIVE</span></div><div class="mini-workspace" aria-hidden="true"><div class="mini-sidebar"><span class="mini-dot"></span><i></i><i></i><i></i></div><div class="mini-main"><span class="mini-chip">Your library</span><h3>Made for your music</h3><div class="mini-art-row">${img(player.current()?.cover||'icons/icon-512.png')}${img(store.getLikes()[0]?.cover||'icons/icon-512.png')}</div><div class="mini-track"><span></span><b>Spot+</b><i>${I.play}</i></div></div></div><div class="studio-preview-bottom"><span id="themeContrast">${themes.contrast(p.accentText,p.raised).toFixed(1)}:1 accent text contrast</span><span>Auto contrast</span></div></section><section class="studio-controls"><h2>Make it yours</h2><label class="field"><span>Pure-black AMOLED<small>True black main surfaces.</small></span><input type="checkbox" role="switch" data-setting="amoled" ${s.amoled!==false?'checked':''}></label><div class="color-controls">${[['accent','Accent',p.accent],['surface','Surface tint',p.surface],['raised','Control tint',p.raised]].map(([key,label,value])=>`<label><span>${label}</span><input type="color" data-theme-color="${key}" value="${value}" aria-label="${label} color"><small data-color-value="${key}">${value.toUpperCase()}</small></label>`).join('')}</div><label class="field"><span>Corner shape<small>Square to softly rounded.</small></span><input type="range" min="0" max="24" step="2" value="${p.radius}" data-setting="cornerRadius" aria-label="Corner roundness"></label><label class="field"><span>Album artwork</span><select data-setting="coverStyle"><option value="square" ${s.coverStyle!=='disc'?'selected':''}>Original square</option><option value="disc" ${s.coverStyle==='disc'?'selected':''}>Record circles</option></select></label><button class="btn" data-act="theme-remix">${I.shuffle}Remix a theme</button></section></div><section><h2>Color worlds</h2><div class="theme-presets">${themes.presets.map(t=>`<button class="theme-preset${!s.themeCustom&&t.id===p.id?' selected':''}" data-act="theme-preset" data-id="${t.id}" aria-pressed="${!s.themeCustom&&t.id===p.id}"><div class="theme-swatch" style="--swatch-surface:${t.surface};--swatch-raised:${t.raised};--swatch-accent:${t.accent}"><span></span><i></i><b></b></div><strong>${t.name}</strong><small>${t.note}</small></button>`).join('')}</div></section><section class="box"><h2>Feel & readability</h2><div class="studio-comfort"><label class="field"><span>Spacing</span><select data-setting="density"><option value="comfortable" ${s.density==='comfortable'?'selected':''}>Comfortable</option><option value="compact" ${s.density==='compact'?'selected':''}>Compact</option></select></label><label class="field"><span>Text</span><select data-setting="textSize"><option value="normal" ${s.textSize==='normal'?'selected':''}>Default</option><option value="large" ${s.textSize==='large'?'selected':''}>Larger</option></select></label><label class="field"><span>Motion</span><select data-setting="motion"><option value="system" ${s.motion==='system'?'selected':''}>Follow system</option><option value="reduced" ${s.motion==='reduced'?'selected':''}>Reduced</option></select></label></div></section><section class="box"><div class="sec-head"><h2>Your theme collection</h2><div class="row-btns"><button class="btn small" data-act="theme-import">Import theme</button><button class="btn small" data-act="theme-export">Export current</button></div></div>${store.getThemes().length?`<div class="saved-themes">${store.getThemes().map(t=>`<button class="btn" data-act="theme-load" data-id="${esc(t.id)}">${esc(t.name)}</button>`).join('')}</div>`:'<p class="muted">Save a mix to keep it here. Theme files contain appearance settings only.</p>'}</section>`;
+  return `<div class="studio-heading"><div><div class="kicker">Personalize</div><h1>Themes</h1><p class="muted">Pick a look or mix your own. Changes apply instantly.</p></div><div class="row-btns"><button class="btn" data-act="theme-undo">Undo this session</button><button class="btn primary" data-act="theme-save">Save theme</button></div></div><div class="studio-grid"><section class="studio-preview"><div class="studio-preview-top"><b id="themeLiveName">${s.themeCustom?'Your mix':p.name}</b><span>LIVE</span></div><div class="mini-workspace" aria-hidden="true"><div class="mini-sidebar"><span class="mini-dot"></span><i></i><i></i><i></i></div><div class="mini-main"><span class="mini-chip">Your library</span><h3>Made for your music</h3><div class="mini-art-row">${img(player.current()?.cover||'icons/icon-512.png')}${img(store.getLikes()[0]?.cover||'icons/icon-512.png')}</div><div class="mini-track"><span></span><b>Spot+</b><i>${I.play}</i></div></div></div><div class="studio-preview-bottom"><span id="themeContrast">${themes.contrast(p.accentText,p.raised).toFixed(1)}:1 accent text contrast</span><span>Auto contrast</span></div></section><section class="studio-controls"><h2>Make it yours</h2>${themeModeSwitch(s)}<label class="field"${p.mode==='light'?' hidden':''}><span>Pure black<small>True black backgrounds for OLED screens.</small></span><input type="checkbox" role="switch" data-setting="amoled" ${s.amoled!==false?'checked':''}></label><div class="color-controls">${[['accent','Accent',p.accent],['surface','Surface tint',p.surface],['raised','Control tint',p.raised]].map(([key,label,value])=>`<label><span>${label}</span><input type="color" data-theme-color="${key}" value="${value}" aria-label="${label} color"><small data-color-value="${key}">${value.toUpperCase()}</small></label>`).join('')}</div><label class="field"><span>Corner shape<small>Square to softly rounded.</small></span><input type="range" min="0" max="24" step="2" value="${p.radius}" data-setting="cornerRadius" aria-label="Corner roundness"></label><label class="field"><span>Album artwork</span><select data-setting="coverStyle"><option value="square" ${s.coverStyle!=='disc'?'selected':''}>Original square</option><option value="disc" ${s.coverStyle==='disc'?'selected':''}>Record circles</option></select></label><button class="btn" data-act="theme-remix">${I.shuffle}Remix a theme</button></section></div>${themePresetGroups(s,p)}<section class="box"><h2>Feel & readability</h2><div class="studio-comfort"><label class="field"><span>Spacing</span><select data-setting="density"><option value="comfortable" ${s.density==='comfortable'?'selected':''}>Comfortable</option><option value="compact" ${s.density==='compact'?'selected':''}>Compact</option></select></label><label class="field"><span>Text</span><select data-setting="textSize"><option value="normal" ${s.textSize==='normal'?'selected':''}>Default</option><option value="large" ${s.textSize==='large'?'selected':''}>Larger</option></select></label><label class="field"><span>Motion</span><select data-setting="motion"><option value="system" ${s.motion==='system'?'selected':''}>Follow system</option><option value="reduced" ${s.motion==='reduced'?'selected':''}>Reduced</option></select></label></div></section><section class="box"><div class="sec-head"><h2>Your theme collection</h2><div class="row-btns"><button class="btn small" data-act="theme-import">Import theme</button><button class="btn small" data-act="theme-export">Export current</button></div></div>${store.getThemes().length?`<div class="saved-themes">${store.getThemes().map(t=>`<button class="btn" data-act="theme-load" data-id="${esc(t.id)}">${esc(t.name)}</button>`).join('')}</div>`:'<p class="muted">Save a mix to keep it here. Theme files contain appearance settings only.</p>'}</section>`;
 }
 document.addEventListener('input',e=>{const input=e.target;if(input.dataset.themeColor){const s=store.getSettings(),p=themes.palette(s);store.setSettings({themeCustom:{accent:p.accent,surface:p.surface,raised:p.raised,[input.dataset.themeColor]:input.value}});const readout=$(`[data-color-value="${input.dataset.themeColor}"]`);if(readout)readout.textContent=input.value.toUpperCase();$$('.theme-preset').forEach(b=>{b.classList.remove('selected');b.setAttribute('aria-pressed','false');});}if(input.dataset.setting==='cornerRadius')store.setSettings({cornerRadius:Number(input.value)});});
 document.addEventListener('submit',e=>{if(e.target.id==='spotifyLinkForm'){e.preventDefault();const parsed=spotify.parseSpotifyLink($('#spotifyLink').value);if(!parsed)return toast('Paste a full open.spotify.com playlist, artist, album or track link.');go(`#/spotify/${parsed.type}/${parsed.id}`);}});
+
+/* ---------------- Jam ---------------- */
+const jam=new Jam(player,{onToast:msg=>toast(msg),onChange:()=>{document.body.dataset.jam=jam.active?(jam.host?'host':'guest'):'';syncJamChip();if(location.hash==='#/jam')route({keepScroll:true});}});
+function jamProfile(){return {name:profileName().slice(0,40),avatar:profilePhoto()};}
+function jamGuestControl(action){
+  if(!jam.active||jam.host)return false;
+  if(!jam.guestControl){toast('Only the host can control playback in this Jam.');return true;}
+  jam.control(action);return true;
+}
+function jamQR(code){try{const q=qrcode(0,'M');q.addData(jamLink(code));q.make();return q.createSvgTag({cellSize:5,margin:2,scalable:true});}catch{return '';}}
+function syncJamChip(){
+  let chip=$('#jamChip');
+  if(!jam.active){chip?.remove();return;}
+  if(!chip){chip=document.createElement('a');chip.id='jamChip';chip.className='jam-chip';chip.href='#/jam';document.body.append(chip);}
+  chip.innerHTML=`${I.jam}<span>${jam.status==='connecting'?'Connecting…':'Jam · '+jam.members.length}</span>`;
+}
+function joinJamFromLink(code){
+  code=code.toUpperCase();
+  if(jam.code!==code)try{jam.join(code,jamProfile());}catch(e){toast(e.message);}
+  history.replaceState(null,'','#/jam');
+  return viewJam();
+}
+function viewJam(){
+  if(!jam.active)return `<div class="jam-page"><section class="jam-hero"><div class="jam-orbs" aria-hidden="true"><span></span><span></span><span></span></div><p class="kicker">Spot+ Jam</p><h1>Listen together</h1><p>Start a Jam and everyone hears the same music at the same time, on their own phone. Friends can add songs to the queue.</p><button class="btn primary big" data-act="jam-start">${I.jam}<span>Start a Jam</span></button></section>
+  <section class="box jam-join"><h2>Join a Jam</h2><p class="settings-note">Enter the code from the host’s screen, or scan their QR code with your camera.</p><div class="jam-join-row"><input id="jamCode" maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABC123" aria-label="Jam code" inputmode="text"><button class="btn primary" data-act="jam-join">Join</button></div></section></div>`;
+  const people=jam.members.map(m=>`<li>${m.avatar?`<img src="${esc(safeImage(m.avatar))}" alt="">`:`<span class="jam-initial">${esc((m.name[0]||'?').toUpperCase())}</span>`}<b>${esc(m.name)}</b>${m.host?'<small>Host</small>':''}</li>`).join('');
+  const now=player.current();
+  return `<div class="jam-page"><section class="jam-hero live"><p class="kicker">${jam.status==='connecting'?'Connecting…':'Live now'}</p><h1>${jam.host?'Your Jam':'You’re in a Jam'}</h1>
+  ${jam.host?`<div class="jam-qr">${jamQR(jam.code)}</div><div class="jam-code" aria-label="Jam code ${esc(jam.code.split('').join(' '))}">${esc(jam.code)}</div><button class="btn primary" data-act="jam-share">${I.share}<span>Invite friends</span></button>`:`<p>${now?`Listening to <b>${esc(now.title)}</b> · ${esc(now.artist)}`:'Waiting for the host to play something…'}</p><p class="settings-note">Tap any song to add it to the shared queue.</p>`}
+  <div class="jam-reacts">${['🔥','❤️','🙌','😂','🎶'].map(e=>`<button data-act="jam-react" data-emoji="${e}" aria-label="Send ${e}">${e}</button>`).join('')}</div></section>
+  <section class="box"><h2>${jam.members.length} listening</h2><ul class="jam-people">${people}</ul>
+  ${jam.host?`<label class="field"><span>Listeners can control playback<small>Play, pause and skip for everyone.</small></span><input type="checkbox" role="switch" id="jamControl" ${jam.guestControl?'checked':''}></label>`:''}
+  <button class="btn" data-act="jam-leave">${jam.host?'End Jam':'Leave Jam'}</button></section></div>`;
+}
+
+/* Artist pages: the name slides into a solid top bar once the photo scrolls away. */
+$('#main').addEventListener('scroll',()=>{
+  const hero=$('.artist-hero');if(!hero)return;
+  const page=hero.closest('.artist-page'),progress=Math.min(1,Math.max(0,($('#main').scrollTop-hero.offsetHeight+140)/80));
+  page.style.setProperty('--sticky',progress.toFixed(2));
+  page.style.setProperty('--hero-shift',Math.min(hero.offsetHeight,$('#main').scrollTop*.35)+'px');
+},{passive:true});
+
+/* ---------------- Instant navigation ----------------
+   Start loading an artist, album or playlist the moment a finger touches the link
+   (or a mouse hovers it), so the page is usually ready by the time it opens. */
+const warmedPages=new Set();
+function warmPage(target){
+  const link=target?.closest?.('a[href^="#/artist/"],a[href^="#/album/"],a[href^="#/playlist/"]');
+  const [,type,id]=link?.getAttribute('href').match(/^#\/(artist|album|playlist)\/(\d+)$/)||[];
+  if(!type||warmedPages.has(type+id))return;
+  warmedPages.add(type+id);api[type](id).catch(()=>warmedPages.delete(type+id));
+}
+document.addEventListener('pointerdown',e=>warmPage(e.target),{passive:true,capture:true});
+document.addEventListener('pointerover',e=>{if(e.pointerType==='mouse')warmPage(e.target);},{passive:true});
 
 /* ---------------- Wire up ---------------- */
 $$('[data-icon]').forEach((el) => setIcon(el, el.dataset.icon));
@@ -1195,6 +1340,7 @@ store.onChange((key) => {
   if(key==='folders'&&(h==='#/library'||h.startsWith('#/folder/')))route({keepScroll:true});
   if (key === 'downloads' && (h === '#/downloads' || h === '#/library')) route({ keepScroll: true });
   if(['likes','playlists','folders','albums','artists','downloads','pins','localFiles','spotifyLinks','spotifyAccount'].includes(key))renderSidebar();
+  if(key==='spotifyAccount')syncAvatars();
   if(key==='spotifyAccount'&&(h.startsWith('#/spotify-account')||h==='#/library'||h==='#/settings'||h==='#/profile'))route({keepScroll:true});
   if(key==='localFiles'&&h==='#/local')route({keepScroll:true});
 });
@@ -1211,11 +1357,15 @@ syncTime();
 route();
 api.instances().catch(() => {});
 
-function dismissWelcome(){try{localStorage.setItem('spotplus.welcome','1');}catch{}$('#welcome').close();}
-$('#welcomeConnect').addEventListener('click',dismissWelcome);
-$('#welcomeLater').addEventListener('click',dismissWelcome);
-$('#welcome').addEventListener('cancel',dismissWelcome);
-try{if(!store.getSpotifyAccount()&&!localStorage.getItem('spotplus.welcome')&&!location.hash.includes('spotify-account'))setTimeout(()=>$('#welcome').showModal(),950);}catch{}
+function dismissWelcome(){try{localStorage.setItem('spotplus.welcome','1');}catch{ /* Private mode. */ }}
+// First launch (and first launch from the Home Screen): the tutorial slider.
+{
+  const standalone=isStandalone(),device=connectionDevice(navigator.userAgent,navigator.platform,navigator.maxTouchPoints);
+  const deepLink=/spotify-account|#\/jam\//.test(location.hash);
+  if(!deepLink&&shouldOnboard({standalone}))setTimeout(()=>showOnboarding({icons:I,standalone,platform:device,currentMode:store.getSettings().themeMode||'dark',
+    canInstall:()=>!!installEvt,install:async()=>{if(!installEvt)return;installEvt.prompt();await installEvt.userChoice.catch(()=>{});installEvt=null;},
+    onTheme:patch=>store.setSettings(patch),onConnect:()=>go('#/spotify-account'),onRestore:()=>$('#welcomeBackup').click()}),400);
+}
 window.dispatchEvent(new Event('spotplus-ready'));
 let intentTimer;
 document.addEventListener('pointerover',event=>{const target=event.target.closest('[data-act="track-play"]');if(!target||store.getSettings().preloadNext===false)return;clearTimeout(intentTimer);intentTimer=setTimeout(()=>api.prewarm(listOf(target.dataset.key).tracks[+target.dataset.i]),140);});

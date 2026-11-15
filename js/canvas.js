@@ -70,8 +70,8 @@ export async function findVisualLoop(track, signal, {skipCanvas=false,skip=[],so
 
 // One video, one cancellable lookup. Hidden players never keep downloading loops.
 export class CanvasPlayer {
-  constructor(video, {lookup = findVisualLoop, onState = () => {}} = {}) {
-    this.video = video; this.lookup = lookup; this.onState = onState;
+  constructor(video, {lookup = findVisualLoop, onState = () => {}, media = url => Promise.resolve(url)} = {}) {
+    this.video = video; this.lookup = lookup; this.onState = onState; this.media = media;
     this.generation = 0; this.key = ''; this.url = null; this.state = 'idle'; this.playing = false;
     video.muted = true; video.defaultMuted = true; video.loop = true; video.playsInline = true;
     video.addEventListener('error', () => { if (this.key && video.getAttribute('src')) this.recover(); });
@@ -160,11 +160,20 @@ export class CanvasPlayer {
       const canvas = canvasURL(typeof value === 'string' ? value : value?.kind === 'canvas' ? value.url : null);
       this.clip = canvas ? {kind:'canvas',url:canvas} : musicVideoLoop(value);
       if (!this.clip) { this.report('missing'); return; }
-      this.url = this.clip.url;
-      if(this.clip.kind==='canvas')this.video.crossOrigin='anonymous';else this.video.removeAttribute('crossorigin');
-      if (!this.playing) this.report('waiting');
-      // Reveal only after a real frame plays, so failures leave the cover intact.
-      this.resume();
+      if (this.clip.kind !== 'canvas') {
+        this.url = this.clip.url; this.video.removeAttribute('crossorigin');
+        if (!this.playing) this.report('waiting');
+        this.resume(); return;
+      }
+      // Canvas clips play from a local copy when we have one (instant start).
+      return Promise.resolve(this.media(this.clip.url)).catch(() => this.clip.url).then(src => {
+        if (generation !== this.generation) return;
+        this.url = src;
+        if (String(src).startsWith('blob:')) this.video.removeAttribute('crossorigin'); else this.video.crossOrigin = 'anonymous';
+        if (!this.playing) this.report('waiting');
+        // Reveal only after a real frame plays, so failures leave the cover intact.
+        this.resume();
+      });
     }).catch(() => { if (generation === this.generation) { this.controller=null; this.report('error'); } });
   }
 }

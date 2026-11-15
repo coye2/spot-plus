@@ -5,5 +5,8 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "upload_source_maps": true,
-  "observability": {"enabled": true, "head_sampling_rate": 0.01}
+  "observability": {"enabled": true, "head_sampling_rate": 0.01},
+  // Spot+ Jam rooms (free plan: SQLite-backed Durable Objects).
+  "durable_objects": {"bindings": [{"name": "JAM", "class_name": "JamRoom"}]},
+  "migrations": [{"tag": "jam-v1", "new_sqlite_classes": ["JamRoom"]}]
 }

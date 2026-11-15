@@ -15,12 +15,34 @@ const memo = new Map();
 const MEMO_TTL = 10 * 60 * 1000;
 let seq = 0;
 
-function jsonp(path, params = {}) {
-  const qs = new URLSearchParams(params);
-  const key = path + '?' + qs;
-  const hit = memo.get(key);
-  if (hit && Date.now() - hit.t < MEMO_TTL) return hit.p;
-  const p = new Promise((resolve, reject) => {
+// Catalog responses are kept on the device (IndexedDB) for a day: pages open
+// instantly from the saved copy, then refresh quietly in the background.
+const DISK_TTL = 24 * 60 * 60 * 1000;
+let diskPromise = null;
+function disk() {
+  if (!globalThis.indexedDB) return Promise.resolve(null);
+  return diskPromise ??= new Promise(resolve => {
+    const r = indexedDB.open('spotplus-catalog', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('responses');
+    r.onsuccess = () => resolve(r.result); r.onerror = () => resolve(null); r.onblocked = () => resolve(null);
+  });
+}
+async function diskGet(key) {
+  const db = await disk(); if (!db) return null;
+  return new Promise(resolve => { try { const q = db.transaction('responses').objectStore('responses').get(key); q.onsuccess = () => resolve(q.result || null); q.onerror = () => resolve(null); } catch { resolve(null); } });
+}
+let writes = 0;
+async function diskPut(key, value) {
+  const db = await disk(); if (!db) return;
+  try {
+    const tx = db.transaction('responses', 'readwrite'), store = tx.objectStore('responses');
+    store.put({t: Date.now(), value}, key);
+    // Every so often, drop entries older than a day so the cache stays small.
+    if (++writes % 40 === 0) { const c = store.openCursor(); c.onsuccess = () => { const cur = c.result; if (!cur) return; if (Date.now() - cur.value.t > DISK_TTL) cur.delete(); cur.continue(); }; }
+  } catch { /* Storage full or unavailable: memory cache still works. */ }
+}
+function jsonpNetwork(path, qs) {
+  return new Promise((resolve, reject) => {
     const cb = `__dz_${Date.now().toString(36)}_${++seq}`;
     qs.set('output', 'jsonp');
     qs.set('callback', cb);
@@ -31,6 +53,25 @@ function jsonp(path, params = {}) {
     s.onerror = () => { done(); reject(new Error('Could not reach Deezer')); };
     s.src = `${DEEZER}${path}?${qs}`;
     document.head.appendChild(s);
+  });
+}
+function jsonp(path, params = {}) {
+  const qs = new URLSearchParams(params);
+  const key = path + '?' + qs;
+  const hit = memo.get(key);
+  if (hit && Date.now() - hit.t < MEMO_TTL) return hit.p;
+  const fresh = () => {
+    const p = jsonpNetwork(path, new URLSearchParams(params));
+    p.then(value => diskPut(key, value), () => {});
+    return p;
+  };
+  const p = diskGet(key).then(saved => {
+    if (saved && Date.now() - saved.t < DISK_TTL) {
+      // Serve the saved copy now; refresh it in the background when it's a bit old.
+      if (Date.now() - saved.t > MEMO_TTL) fresh().then(value => memo.set(key, {t: Date.now(), p: Promise.resolve(value)})).catch(() => {});
+      return saved.value;
+    }
+    return fresh();
   });
   memo.set(key, { t: Date.now(), p });
   p.catch(() => memo.delete(key));
@@ -464,4 +505,71 @@ export async function lyrics(t) {
   }
   lyricCache.set(t.id, res);
   return res;
+}
+
+/* ---------------- Search by lyrics ----------------
+   Like Spotify's lyric search: type a line you remember, get the song.
+   Candidates come from Spot+'s Cloudflare worker (Genius lyric search) or, as a
+   fallback, YouTube lyric videos. Every candidate is then checked against its real
+   lyrics (LRCLIB), and the matching line is returned as the snippet. */
+export const LYRICS_SEARCH_ENDPOINT = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/lyrics-search';
+const words = value => String(value || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^\p{L}\p{N}' ]+/gu, ' ').split(/\s+/).filter(Boolean);
+export function looksLikeLyrics(q) { return words(q).length >= 4; }
+/** "Artist - Song (Official Lyric Video)" -> "Artist Song" for a catalog search. */
+export function cleanLyricVideoTitle(title) {
+  return String(title || '')
+    .replace(/[([【][^)\]】]*(lyric|letra|official|audio|video|visuali[sz]er|hd|4k|remaster|explicit)[^)\]】]*[)\]】]/gi, ' ')
+    .replace(/\b(lyrics?|lyric video|official (music )?video|with lyrics|letra)\b/gi, ' ')
+    .replace(/["“”|]/g, ' ').replace(/\s+[-–—]\s+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+/** Best-matching lyric line for the query, or null when the song doesn't contain it. */
+export function matchingLine(lyricsText, q) {
+  const want = words(q);
+  if (!want.length || !lyricsText) return null;
+  const lines = String(lyricsText).split('\n').map(line => line.replace(/^\[[^\]]*\]\s*/, '').trim()).filter(Boolean);
+  let best = null, bestScore = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const window = words(lines[i] + ' ' + (lines[i + 1] || '')), set = new Set(window);
+    const score = want.filter(w => set.has(w)).length / want.length;
+    if (score > bestScore) { bestScore = score; best = lines[i]; }
+  }
+  return bestScore >= 0.6 ? best : null;
+}
+const lyricSearchMemo = new Map();
+async function lyricCandidates(q, signal) {
+  try {
+    const d = await fetchJSON(`${LYRICS_SEARCH_ENDPOINT}?q=${encodeURIComponent(q)}`, 4500, signal);
+    const hits = (Array.isArray(d?.results) ? d.results : []).filter(r => r?.title && r?.artist).slice(0, 8);
+    if (hits.length) return hits.map(r => ({query: `${r.artist} ${r.title}`, snippet: typeof r.snippet === 'string' ? r.snippet.slice(0, 200) : ''}));
+  } catch (error) { if (signal?.aborted) throw error; }
+  const inst = await instances(), set = getSettings();
+  const bases = orderedInstances('invidious', inst, set).slice(0, 3);
+  const found = await Promise.any(bases.map(async base => {
+    const list = await fetchJSON(`${base}/api/v1/search?q=${encodeURIComponent(q + ' lyrics')}&type=video&fields=title,author`, 6000, signal);
+    if (!Array.isArray(list) || !list.length) throw new Error('no results');
+    return list;
+  })).catch(() => []);
+  return found.slice(0, 8).map(v => ({query: cleanLyricVideoTitle(v.title), snippet: ''})).filter(c => c.query.length > 2);
+}
+export async function lyricsSearch(q, {signal} = {}) {
+  q = String(q || '').trim().slice(0, 200);
+  if (!looksLikeLyrics(q)) return [];
+  const key = q.toLowerCase();
+  if (lyricSearchMemo.has(key)) return lyricSearchMemo.get(key);
+  const job = (async () => {
+    const candidates = await lyricCandidates(q, signal);
+    const seen = new Set();
+    const checked = await Promise.all(candidates.map(async c => {
+      const track = data(await jsonp('/search/track', {q: c.query, limit: 1}).catch(() => null)).map(t => normTrack(t))[0];
+      if (!track) return null;
+      const text = await lyrics(track).catch(() => null);
+      const line = matchingLine(text?.plain || (text?.synced || []).map(l => l.text).join('\n'), q);
+      return line || c.snippet ? {...track, lyricSnippet: line || c.snippet, lyricVerified: !!line} : null;
+    }));
+    return checked.filter(t => t && !seen.has(t.id) && seen.add(t.id))
+      .sort((a, b) => Number(b.lyricVerified) - Number(a.lyricVerified)).slice(0, 5);
+  })();
+  lyricSearchMemo.set(key, job);
+  job.catch(() => lyricSearchMemo.delete(key));
+  return job;
 }

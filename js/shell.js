@@ -2,13 +2,9 @@
 const root = document.documentElement;
 const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 root.classList.toggle('ios-app', ios && (navigator.standalone || matchMedia('(display-mode: standalone)').matches));
-function viewport() {
-  if (!window.visualViewport || window.visualViewport.scale !== 1) return;
-  root.style.setProperty('--app-height', `${window.visualViewport.height}px`);
-}
-viewport();
-window.visualViewport?.addEventListener('resize', viewport);
-window.addEventListener('orientationchange', viewport);
+// The app fills the screen with plain CSS (body is fixed to the viewport). Sizing it
+// from visualViewport left a black strip under the tab bar on iPhone whenever that
+// reading came back short (keyboard, Home Screen launch), so it is no longer used.
 for (const type of ['gesturestart', 'gesturechange']) document.addEventListener(type, event => event.preventDefault(), { passive: false });
 document.addEventListener('touchmove', event => { if (event.touches.length > 1) event.preventDefault(); }, { passive: false });
 

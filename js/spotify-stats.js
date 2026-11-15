@@ -32,10 +32,9 @@ export function hydrateStatistics(root){
     const track={id:node.dataset.trackId,spotifyId:node.dataset.spotifyId,artistId:node.dataset.artistId,title:node.dataset.title,duration:Number(node.dataset.duration)};
     const data=await (node.dataset.counter==='artist'?getSpotifyStats({...track,spotifyArtistId:node.dataset.spotifyArtistId}):getTrackStats(track));if(!node.isConnected)return;
     if(node.dataset.counter==='artist'){
-      node.replaceChildren();
-      if(data.available&&data.monthlyListeners!==null){const link=document.createElement('a');link.href=data.source;link.target='_blank';link.rel='noopener';link.textContent=data.monthlyListeners.toLocaleString()+' monthly listeners on Spotify';node.append(link);node.title='Spotify public count · Checked '+new Date(data.checkedAt).toLocaleString();}
-      else node.textContent='Spotify monthly listeners unavailable';
-    }else{const count=matchPlayCount(track,data);node.textContent=count?count.plays.toLocaleString()+' Spotify plays':'';node.title=count?'Spotify public count · Checked '+new Date(data.checkedAt).toLocaleString():'';}
+      // Spotify style: "12,345,678 monthly listeners". If unavailable, keep the fallback text already shown.
+      if(data.available&&data.monthlyListeners!==null){node.textContent=data.monthlyListeners.toLocaleString()+' monthly listeners';node.title='Spotify public count · Checked '+new Date(data.checkedAt).toLocaleString();}
+    }else{const count=matchPlayCount(track,data);node.textContent=count?count.plays.toLocaleString()+(node.closest('.artist-popular')?'':' plays'):'';node.title=count?'Spotify public count · Checked '+new Date(data.checkedAt).toLocaleString():'';}
   };
   observer=new IntersectionObserver(entries=>{for(const e of entries)if(e.isIntersecting){observer.unobserve(e.target);load(e.target);}}, {rootMargin:'60px'});
   root.querySelectorAll('[data-counter]').forEach(node=>observer.observe(node));

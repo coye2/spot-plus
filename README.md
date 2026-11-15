@@ -115,3 +115,25 @@ Individual desktop-browser observations: Blinding Lights started in **554 ms** l
 Research: [native media preload](https://web.dev/articles/fast-playback-with-preload), [WebKit media policies](https://webkit.org/blog/6784/new-video-policies-for-ios/), [Audius API](https://docs.audius.co/api/), [Spotify exports](https://support.spotify.com/article/understanding-your-data/), [Media Session metadata](https://developer.mozilla.org/en-US/docs/Web/API/MediaMetadata).
 
 The bridge source is in `canvas-bridge/`. It accepts bounded public music identifiers, permits only the fixed metadata service, validates the returned Spotify CDN URL, bounds upstream responses to 64 KB and uses an 8.5-second deadline. It forwards no request cookies or authorization headers and is not an open URL proxy. Deploy with Wrangler from that directory; no upstream secrets are required. The frontend remains on GitHub Pages. Cloudflare and the upstream service have their own availability and usage limits. No PC needs to stay on after deployment.
+
+## November 15: release polish
+
+- **Jam:** listen together in real time. Start a Jam from Create or Connect, share the code, link or QR code; listeners follow the host on their own phones, add songs and (if allowed) play, pause and skip. Rooms run on the Cloudflare bridge as a SQLite-backed Durable Object (`canvas-bridge/jam.js`, free plan).
+- **Search by lyrics:** type a line you remember. Candidates come from the bridge (`/lyrics-search`, Genius) or YouTube lyric videos, then each is verified against its real lyrics (LRCLIB) and shown with the matching line.
+- **Canvas, Spotify-style:** loops fill the whole player in portrait on phones. Clips for the current and next two songs are downloaded ahead and kept on the device (`js/canvas-cache.js`), so they start instantly; music-video loops use up to 1080p on fast connections.
+- **Themes:** Light, Dark and Auto modes; 19 presets including Material-style tonal palettes and light themes. Status bar and browser chrome follow the theme.
+- **Artist pages** match Spotify mobile (full-bleed photo, monthly listeners, Popular, Popular releases, Fans also like, About). Profile pictures follow your Spotify photo.
+- **Speed:** catalog pages are cached on the device and refreshed in the background; artists/albums start loading on touch; the production build minifies every module, merges all CSS into one file and preloads the startup modules.
+- **First-launch tutorial** (also shown on the first launch from the Home Screen), simpler DJ screen, two-step setup on iPhone, Android and computer, and a full copy pass.
+- Fixed the black strip under the tab bar on iPhone (the layout no longer sizes itself from `visualViewport`).
+
+### Deploy the bridge (needed for Jam and lyrics search)
+
+From `canvas-bridge/` with Node installed:
+
+```
+npx wrangler login
+npx wrangler deploy
+```
+
+`wrangler.jsonc` declares the `JAM` Durable Object and its migration. Check `https://<your-worker>.workers.dev/health` shows `"jam":true`.

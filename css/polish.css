@@ -1,0 +1,227 @@
+/* Spot+ polish layer: theme modes, always-dark media surfaces, and release finish.
+   Loaded last so it can settle the older layered styles without rewriting them. */
+
+/* Media surfaces (artwork, video, colored tiles) keep light text in every mode,
+   like Spotify's player. Variables are re-scoped so nested components follow. */
+.np,.browse-card,.rewind-story,.splash,.artist-hero,.jam-hero,.canvas-full,.ph-cover,.dj-orb-small,.dj-stage{
+  --text:#fff;--muted:color-mix(in srgb,#fff 72%,transparent);--contrast:#fff;--on-contrast:#000;
+  --hover:color-mix(in srgb,#fff 10%,transparent);--line:color-mix(in srgb,#fff 18%,transparent);
+  color:var(--text);
+}
+
+/* Light mode: soften shadows and keep form controls native-looking. */
+[data-mode=light] body{color:var(--text)}
+[data-mode=light] .card:hover,[data-mode=light] .library-item:hover{background:var(--hover)}
+[data-mode=light] img{color-scheme:light}
+[data-mode=light] .sheet-bg{background:color-mix(in srgb,#000 32%,transparent)}
+[data-mode=light] input[type=range]{accent-color:var(--accent)}
+[data-mode=light] .skeleton,[data-mode=light] .shimmer{background-color:var(--bg3)}
+
+/* The page behind the app always matches the theme, so no black strips can show
+   around the edges or under the tab bar on phones. */
+html,body{background:var(--canvas)}
+@media (max-width:767px),(max-width:950px) and (max-height:500px) and (orientation:landscape){
+  html,body,.app,.has-panel .app,.nav,main,body.has-bar main{background:var(--canvas)}
+  .nav{border-top:1px solid color-mix(in srgb,var(--line) 60%,transparent)}
+  .nav a,.nav button{color:var(--muted)}
+  .nav a.on{color:var(--text)}
+}
+
+/* Rewind shortcut follows the theme instead of a fixed green card. */
+.rewind-link{border-color:color-mix(in srgb,var(--accent) 45%,var(--line));background:linear-gradient(105deg,color-mix(in srgb,var(--accent) 28%,var(--bg2)),var(--bg2));color:var(--text)}
+.rewind-link small{color:var(--muted)}
+
+/* Appearance switch (Light / Dark / Auto). */
+.mode-switch{display:inline-flex;gap:4px;padding:4px;margin:4px 0 16px;border-radius:999px;background:var(--bg3);border:1px solid var(--line)}
+.mode-switch button{min-height:36px;min-width:72px;padding:6px 16px;border:0;border-radius:999px;background:transparent;color:var(--muted);font:inherit;font-weight:600;cursor:pointer;transition:background var(--motion,180ms),color var(--motion,180ms)}
+.mode-switch button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
+.theme-presets+.theme-presets{margin-top:0}
+.studio-grid~section h2{margin-top:28px}
+
+/* Canvas, Spotify-style: on phones the loop fills the whole player edge to edge in
+   portrait, the cover steps aside, and a soft gradient keeps controls readable. */
+.np-canvas{transition:opacity .45s cubic-bezier(.2,.7,.2,1)}
+.np-canvas video{transform:translateZ(0);backface-visibility:hidden}
+@media (max-width:767px),(max-width:950px) and (max-height:500px) and (orientation:portrait){
+  .np.has-canvas[data-mode=art]{background:#000}
+  .np.has-canvas[data-mode=art] .np-bg{opacity:0!important}
+  .np.has-canvas[data-mode=art] .np-canvas video{inset:0!important;top:0!important;width:100%!important;height:100%!important;object-fit:cover!important;object-position:center!important}
+  .np.has-canvas[data-mode=art] .np-canvas-shade{background:linear-gradient(180deg,rgba(0,0,0,.55) 0%,rgba(0,0,0,0) 17%,rgba(0,0,0,0) 48%,rgba(0,0,0,.5) 68%,rgba(0,0,0,.88) 100%)}
+  .np.has-canvas[data-mode=art][data-visual-kind=canvas] .np-canvas-status{display:none}
+  .np.has-canvas[data-mode=art] .np-foot{padding-top:24px}
+}
+
+/* Artist pages, Spotify mobile style. */
+.artist-page{--sticky:0;--hero-shift:0px;position:relative}
+.artist-sticky{position:sticky;top:0;z-index:6;height:56px;margin:0 -16px -110px;display:flex;align-items:center;gap:12px;padding:0 16px;pointer-events:none}
+.artist-sticky::before{content:'';position:absolute;inset:0;background:var(--bg3);opacity:var(--sticky);box-shadow:0 6px 18px rgba(0,0,0,calc(var(--sticky)*.25))}
+.artist-sticky>*{position:relative}
+.artist-sticky b{opacity:var(--sticky);font-size:17px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
+.artist-back{pointer-events:auto;width:36px;height:36px;border-radius:50%;background:color-mix(in srgb,#000 calc(45% - var(--sticky)*45%),transparent)!important;color:#fff}
+.artist-page[style*="--sticky: 1"] .artist-back,.artist-page[style*="--sticky:1"] .artist-back{color:var(--text)}
+.artist-hero{position:relative;z-index:2;margin:0 -16px;height:min(58vh,440px);overflow:hidden;background:var(--bg3)}
+.artist-hero img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center 22%;transform:translate3d(0,var(--hero-shift),0) scale(1.03);will-change:transform}
+.artist-hero-fade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.35) 0%,transparent 26%,transparent 52%,rgba(0,0,0,.45) 82%,rgba(0,0,0,.6) 100%)}
+.artist-hero h1{position:absolute;left:16px;right:16px;bottom:14px;margin:0;font-size:clamp(42px,12.5vw,80px);line-height:.95;letter-spacing:-.045em;font-weight:900;color:#fff;text-shadow:0 2px 24px rgba(0,0,0,.4);overflow-wrap:anywhere}
+.artist-listeners{margin:14px 0 6px;color:var(--muted);font-size:14px}
+.artist-actions{display:flex;align-items:center;gap:14px;margin:6px 0 22px}
+.artist-actions .spacer{flex:1}
+.artist-actions .icon{color:var(--muted)}
+.follow-btn{min-height:32px;padding:4px 16px;border:1px solid var(--muted)!important;background:transparent!important;color:var(--text)!important;border-radius:999px;font-weight:700;font-size:13px}
+.follow-btn[aria-pressed=true]{border-color:var(--text)!important}
+.play-fab{width:56px;height:56px;flex:none;border-radius:50%;border:0;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.28);transition:transform .15s}
+.play-fab:hover{transform:scale(1.05)}.play-fab svg{width:24px;height:24px}
+.artist-page section{margin:0 0 30px}
+.artist-page h2{font-size:22px;letter-spacing:-.02em;margin:0 0 12px}
+.artist-popular .tsub{display:none}
+.artist-popular .tnum{display:block!important;width:18px;flex:none;text-align:center;color:var(--muted);font-size:15px}
+.artist-popular .trow.playing .tnum{color:var(--accent-text)}
+.collapsible:not(.expanded) .trow:nth-child(n+6),.collapsible:not(.expanded) .more-row{display:none}
+.see-more{margin:10px 0 0;padding:8px 0;border:0;background:none;color:var(--muted);font:inherit;font-weight:700;font-size:14px;cursor:pointer}
+.see-more:hover{color:var(--text)}
+.release-row{display:flex;gap:14px;align-items:center;padding:7px 0;color:var(--text);text-decoration:none;border-radius:6px}
+.release-row:hover{background:var(--hover)}
+.release-cover{width:76px;height:76px;flex:none;border-radius:4px;object-fit:cover;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+.release-row>div{min-width:0}
+.release-row b{display:block;font-size:16px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.release-row small{display:block;margin-top:4px;color:var(--muted);font-size:13px}
+.release-row .latest{color:var(--text);font-weight:600}
+.about-card{display:flex;align-items:flex-end;min-height:300px;border-radius:12px;padding:20px;color:#fff;text-decoration:none;background:linear-gradient(180deg,rgba(0,0,0,.05) 25%,rgba(0,0,0,.85)),var(--about) center 25%/cover;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.about-card b{display:block;font-size:16px;font-weight:800;margin-bottom:8px;color:#fff}
+.about-card span{font-size:14px;line-height:1.5;opacity:.88}
+@media(min-width:768px){
+  .artist-sticky{margin:0 -24px -56px;padding:0 24px}
+  .artist-hero{margin:0 -24px;height:380px;border-radius:var(--radius) var(--radius) 0 0}
+  .artist-hero h1{left:24px;bottom:22px;font-size:clamp(48px,7vw,96px)}
+  .about-card{max-width:720px;min-height:340px}
+}
+
+/* Profile pictures (synced from your Spotify account). */
+.avatar.has-photo{padding:0;overflow:hidden;background:var(--bg3)}
+.avatar.has-photo img{width:100%;height:100%;object-fit:cover;border-radius:inherit;display:block}
+
+/* Lyrics search results. */
+.lyrics-matches{margin:8px 0 24px}
+.lyric-match{display:flex;gap:12px;align-items:flex-start;width:100%;padding:10px;margin:0 0 8px;border:0;border-radius:var(--radius);background:var(--bg3);color:var(--text);text-align:left;font:inherit;cursor:pointer}
+.lyric-match:hover{background:var(--hover)}
+.lyric-match .tcover{width:56px;height:56px;flex:none;border-radius:4px;object-fit:cover}
+.lyric-match>div{min-width:0;flex:1}
+.lyric-match b{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lyric-match small{display:block;color:var(--muted);font-size:13px;margin:2px 0 6px}
+.lyric-match q{display:block;font-size:14px;line-height:1.45;color:var(--muted);quotes:'“' '”'}
+.lyric-match mark{background:none;color:var(--text);font-weight:700}
+.lyric-loading{display:flex;gap:6px;padding:10px 2px}
+.lyric-loading span{width:8px;height:8px;border-radius:50%;background:var(--muted);animation:lyricDot 1s infinite ease-in-out}
+.lyric-loading span:nth-child(2){animation-delay:.15s}.lyric-loading span:nth-child(3){animation-delay:.3s}
+@keyframes lyricDot{0%,80%,100%{opacity:.25;transform:scale(.8)}40%{opacity:1;transform:scale(1)}}
+
+/* Jam. */
+.jam-page{max-width:720px;margin:0 auto;padding-top:8px}
+.jam-hero{position:relative;overflow:hidden;text-align:center;padding:40px 22px 28px;margin:8px 0 18px;border-radius:calc(var(--radius) + 10px);background:radial-gradient(120% 90% at 50% 0%,color-mix(in srgb,var(--accent) 85%,#000) 0%,#120f1d 72%);color:#fff}
+.jam-hero h1{font-size:clamp(32px,9vw,48px);letter-spacing:-.03em;margin:6px 0 10px;line-height:1.05}
+.jam-hero p{max-width:440px;margin:0 auto 18px;line-height:1.55;color:color-mix(in srgb,#fff 82%,transparent)}
+.jam-hero .kicker{color:color-mix(in srgb,#fff 70%,transparent);letter-spacing:.14em;text-transform:uppercase;font-size:11px;font-weight:700}
+.jam-hero .btn.primary{background:#fff;color:#000}
+.jam-hero .btn.big{min-height:52px;padding:0 28px;font-size:16px}
+.jam-orbs{position:relative;height:96px;margin:0 auto 14px;width:160px}
+.jam-orbs span{position:absolute;top:18px;width:62px;height:62px;border-radius:50%;background:color-mix(in srgb,#fff 18%,transparent);border:2px solid color-mix(in srgb,#fff 55%,transparent);animation:jamFloat 3.2s ease-in-out infinite}
+.jam-orbs span:nth-child(1){left:0;animation-delay:-.4s}.jam-orbs span:nth-child(2){left:49px;top:4px;background:color-mix(in srgb,#fff 32%,transparent);animation-delay:-1.2s}.jam-orbs span:nth-child(3){left:98px;animation-delay:-2s}
+@keyframes jamFloat{50%{transform:translateY(-8px)}}
+.jam-qr{width:200px;height:200px;margin:8px auto 14px;padding:10px;background:#fff;border-radius:16px;box-shadow:0 12px 32px rgba(0,0,0,.35)}
+.jam-qr svg{width:100%;height:100%;display:block}
+.jam-code{font:800 34px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.28em;margin:0 0 18px;padding-left:.28em}
+.jam-reacts{display:flex;justify-content:center;gap:8px;margin-top:18px}
+.jam-reacts button{width:44px;height:44px;border-radius:50%;border:0;font-size:20px;background:color-mix(in srgb,#fff 14%,transparent);cursor:pointer;transition:transform .15s}
+.jam-reacts button:active{transform:scale(.88)}
+.jam-join-row{display:flex;gap:10px;margin-top:12px}
+.jam-join-row input{flex:1;min-width:0;font:700 22px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2em;text-transform:uppercase;text-align:center;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--bg2);color:var(--text)}
+.jam-people{list-style:none;margin:8px 0 16px;padding:0;display:grid;gap:10px}
+.jam-people li{display:flex;align-items:center;gap:12px}
+.jam-people img,.jam-initial{width:40px;height:40px;border-radius:50%;object-fit:cover;flex:none}
+.jam-initial{display:grid;place-items:center;background:var(--accent);color:var(--accent-ink);font-weight:800}
+.jam-people b{flex:1;font-weight:600}
+.jam-people small{color:var(--accent-text);font-weight:700;font-size:12px}
+.jam-entry{display:flex;align-items:center;gap:14px;width:100%;padding:14px;margin:0 0 12px;border:0;border-radius:var(--radius);background:linear-gradient(110deg,color-mix(in srgb,var(--accent) 55%,var(--bg3)),var(--bg3));color:var(--text);text-align:left;font:inherit;cursor:pointer}
+.jam-entry>div{flex:1}.jam-entry b{display:block;font-size:16px}.jam-entry small{color:var(--muted)}
+.jam-entry svg{width:24px;height:24px;flex:none}
+.jam-chip{position:fixed;z-index:25;left:50%;transform:translateX(-50%);top:calc(var(--safe-top) + 12px);display:flex;align-items:center;gap:6px;padding:6px 12px 6px 9px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font-weight:700;font-size:12px;text-decoration:none;box-shadow:0 6px 18px rgba(0,0,0,.3);animation:jamPulse 2.4s ease-in-out infinite}
+.jam-chip svg{width:16px;height:16px}
+@keyframes jamPulse{50%{box-shadow:0 6px 24px color-mix(in srgb,var(--accent) 70%,transparent)}}
+@media(min-width:768px){.jam-chip{top:auto;left:auto;transform:none;bottom:calc(var(--bar-h) + 16px);right:20px}}
+body.has-panel .jam-chip{display:none}
+@media(prefers-reduced-motion:reduce){.jam-orbs span,.jam-chip{animation:none}}
+
+/* First-launch tutorial. */
+.onboard{position:fixed;inset:0;z-index:200;display:flex;flex-direction:column;background:radial-gradient(130% 80% at 50% 0%,color-mix(in srgb,var(--accent) 55%,var(--canvas)) 0%,var(--canvas) 62%);color:var(--text);opacity:0;transition:opacity .28s ease,transform .28s ease;padding:var(--safe-top) 0 var(--safe-bottom)}
+.onboard.open{opacity:1}.onboard.leaving{opacity:0;transform:scale(1.03)}
+.ob-skip{position:absolute;z-index:2;top:calc(var(--safe-top) + 12px);right:16px;padding:8px 14px;border:0;border-radius:999px;background:color-mix(in srgb,var(--text) 10%,transparent);color:var(--text);font:inherit;font-weight:700;font-size:13px;cursor:pointer}
+.ob-track{flex:1;display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;scrollbar-width:none;overscroll-behavior:contain;outline:none}
+.ob-track::-webkit-scrollbar{display:none}
+.ob-slide{flex:0 0 100%;scroll-snap-align:center;scroll-snap-stop:always;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:56px 28px 12px;min-width:0}
+.ob-slide h2{font-size:clamp(30px,8.5vw,44px);line-height:1.05;letter-spacing:-.035em;margin:28px 0 12px;font-weight:900}
+.ob-slide p{max-width:360px;margin:0 auto;font-size:16px;line-height:1.55;color:var(--muted)}
+.ob-slide p b{color:var(--text)}
+.ob-art{height:min(42vh,320px);width:100%;display:grid;place-items:center;align-content:center;gap:28px;transform:translateY(16px) scale(.94);opacity:.4;transition:transform .6s cubic-bezier(.2,.8,.2,1),opacity .6s}
+.ob-slide.active .ob-art{transform:none;opacity:1}
+.ob-foot{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 24px 20px}
+.ob-dots{display:flex;gap:7px}
+.ob-dots button{width:8px;height:8px;padding:0;border:0;border-radius:4px;background:color-mix(in srgb,var(--text) 28%,transparent);transition:width .3s,background .3s;cursor:pointer}
+.ob-dots button[aria-current=true]{width:24px;background:var(--text)}
+.ob-next{min-width:104px;min-height:48px;border-radius:999px}
+.ob-final{display:flex;flex-direction:column;gap:10px;width:min(100%,340px);margin-top:28px}
+.ob-final .btn.big{min-height:52px;font-size:16px;border-radius:999px;justify-content:center}
+.ob-restore{margin-top:6px;color:var(--muted);font-size:14px;background:none;border:0;cursor:pointer}
+.ob-install-btn{margin-top:22px;min-height:48px;border-radius:999px}
+/* Illustrations (pure CSS, theme-aware). */
+.ob-logo img{width:150px;height:150px;border-radius:34px;box-shadow:0 24px 60px color-mix(in srgb,var(--accent) 55%,transparent);animation:obFloat 5s ease-in-out infinite}
+.ob-logo.small img{width:110px;height:110px;border-radius:26px}
+@keyframes obFloat{50%{transform:translateY(-10px) rotate(-2deg)}}
+.ob-stack{position:relative;width:220px;height:220px}
+.ob-stack span{position:absolute;inset:0;border-radius:18px;background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 90%,#fff),color-mix(in srgb,var(--accent) 40%,#000));transform:rotate(calc((var(--i) - 1) * 9deg)) translateY(calc(var(--i) * -6px));box-shadow:0 18px 40px rgba(0,0,0,.35);opacity:calc(.55 + var(--i) * .22)}
+.ob-stack b{position:absolute;inset:0;display:grid;place-items:center;color:#fff}.ob-stack b svg{width:84px;height:84px;filter:drop-shadow(0 6px 16px rgba(0,0,0,.35))}
+.ob-phone{position:relative;width:170px;height:300px;border-radius:30px;border:6px solid color-mix(in srgb,var(--text) 85%,transparent);overflow:hidden;background:#000;box-shadow:0 24px 60px rgba(0,0,0,.4)}
+.ob-loop{position:absolute;inset:-40%;background:conic-gradient(from 0deg,#ff6b6b,#ffd93d,#6bcbff,#b06bff,#ff6b6b);filter:blur(28px);animation:obSpin 6s linear infinite}
+@keyframes obSpin{to{transform:rotate(360deg)}}
+.ob-bars{position:absolute;left:14px;right:14px;bottom:18px;display:grid;gap:6px}
+.ob-bars i{display:block;height:7px;border-radius:4px;background:rgba(255,255,255,.85)}.ob-bars i:nth-child(1){width:70%;height:10px}.ob-bars i:nth-child(2){width:45%;opacity:.7}.ob-bars i:nth-child(3){margin-top:8px;height:3px;opacity:.5}
+.ob-jam{position:relative;width:240px;height:200px}
+.ob-jam span{position:absolute;width:86px;height:86px;border-radius:50%;display:grid;place-items:center;font-weight:900;font-size:30px;color:#fff;border:4px solid var(--canvas);box-shadow:0 12px 30px rgba(0,0,0,.35);animation:obFloat 4.2s ease-in-out infinite}
+.ob-jam span:nth-child(1){left:10px;top:62px;background:#e5534b}.ob-jam span:nth-child(2){left:77px;top:18px;background:var(--accent);animation-delay:-1.4s;z-index:1}.ob-jam span:nth-child(3){left:144px;top:62px;background:#2f81f7;animation-delay:-2.6s}
+.ob-jam em{position:absolute;left:50%;bottom:0;transform:translateX(-50%);display:flex;padding:9px 14px;border-radius:999px;background:var(--text);color:var(--canvas)}.ob-jam em svg{width:22px;height:22px}
+.ob-lyric{width:min(300px,86vw);padding:22px;border-radius:20px;background:var(--bg3);text-align:left;box-shadow:0 20px 50px rgba(0,0,0,.3)}
+.ob-lyric p{font-size:22px!important;line-height:1.3!important;color:var(--text)!important;font-weight:800;margin:0 0 16px!important}
+.ob-lyric div{display:flex;align-items:center;gap:12px}.ob-lyric b{width:46px;height:46px;border-radius:6px;background:linear-gradient(135deg,#f5c16c,#d9468f)}.ob-lyric span{font-weight:700}
+.ob-modes{display:inline-flex;gap:4px;padding:5px;border-radius:999px;background:var(--bg3);margin-bottom:26px}
+.ob-modes button{min-width:84px;min-height:42px;border:0;border-radius:999px;background:transparent;color:var(--muted);font:inherit;font-weight:700;cursor:pointer}
+.ob-modes button[aria-pressed=true]{background:var(--accent);color:var(--accent-ink)}
+.ob-swatches{display:flex;gap:14px;justify-content:center}
+.ob-swatches button{width:46px;height:46px;border-radius:50%;border:3px solid transparent;background:var(--c);cursor:pointer;box-shadow:0 8px 18px rgba(0,0,0,.3);transition:transform .15s}
+.ob-swatches button[aria-pressed=true]{border-color:var(--text);transform:scale(1.12)}
+.ob-home{display:grid;justify-items:center;gap:10px;padding:26px 34px;border-radius:28px;background:color-mix(in srgb,var(--text) 8%,transparent)}
+.ob-home img{width:96px;height:96px;border-radius:22px;box-shadow:0 14px 34px rgba(0,0,0,.35)}.ob-home span{font-weight:700}
+.ob-share{display:inline-block;padding:0 4px;border-radius:4px;background:color-mix(in srgb,var(--text) 12%,transparent)}
+@media(min-width:768px){.onboard{align-items:center;justify-content:center;background:color-mix(in srgb,#000 60%,transparent);padding:0}.onboard>.ob-track,.onboard>.ob-foot,.onboard>.ob-skip{width:min(480px,92vw)}.onboard::before{content:'';position:absolute;width:min(480px,92vw);height:min(760px,92vh);border-radius:28px;background:radial-gradient(130% 80% at 50% 0%,color-mix(in srgb,var(--accent) 55%,var(--canvas)) 0%,var(--canvas) 62%);box-shadow:0 30px 80px rgba(0,0,0,.5)}.ob-track{flex:none;height:min(660px,80vh);position:relative}.ob-foot{position:relative}.ob-skip{position:relative;top:auto;right:auto;align-self:flex-end;margin-bottom:-40px;margin-right:12px}}
+@media(prefers-reduced-motion:reduce){.ob-logo img,.ob-loop,.ob-jam span{animation:none}.ob-art{transition:none;transform:none;opacity:1}}
+
+/* DJ, simplified. */
+.dj-stage>h1{margin:4px 0 6px;font-size:clamp(34px,10vw,52px);letter-spacing:-.04em}
+.dj-stage>p{max-width:360px;margin:0 auto;color:color-mix(in srgb,var(--text) 78%,transparent)}
+.dj-stage .dj-controls{display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:nowrap;margin-top:18px}
+.dj-stage .mic-button{width:64px;height:64px;min-width:64px;border-radius:50%;padding:0;display:grid;place-items:center;background:#fff;color:#000;box-shadow:0 10px 28px rgba(0,0,0,.35)}
+.dj-stage .mic-button svg{width:28px;height:28px}
+.dj-stage .mic-button[aria-pressed=true]{background:#e5534b;color:#fff;animation:jamPulse 1.6s infinite}
+.dj-stage .dj-controls .btn{min-height:44px;border-radius:999px;white-space:nowrap}
+.dj-caption:empty,.dj-transcript:empty{display:none}
+.dj-hints{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.dj-hints::-webkit-scrollbar{display:none}.dj-hints button{flex:none}
+.dj-options{margin-top:24px;border-top:1px solid var(--line);padding-top:14px}
+.dj-options>summary{cursor:pointer;font-weight:700;font-size:16px;padding:6px 0}
+.dj-options[open]>summary{margin-bottom:14px}
+.dj-options .live-dj-setup{margin:0 0 18px}
+.dj-privacy{font-size:12px;line-height:1.5;color:var(--muted);text-align:left;margin-top:14px}
+@media(max-width:420px){.dj-stage .dj-controls{gap:10px}.dj-stage .dj-controls .btn{padding:0 14px;font-size:14px}.dj-stage .dj-controls .btn svg{width:18px;height:18px}.dj-stage .mic-button{width:58px;height:58px;min-width:58px}}
+
+/* Phones: no page footer (like Spotify); settings live behind your profile picture. */
+@media(max-width:767px){.content-footer{display:none}}
+@media(max-width:420px){.dj-stage .dj-switch{width:48px;min-width:48px;padding:0!important;justify-content:center;border-radius:50%}.dj-stage .dj-switch span{display:none}}
+[data-mode=light] .rewind-empty{background:radial-gradient(120% 90% at 50% 0%,color-mix(in srgb,var(--accent) 22%,var(--bg2)),var(--bg2) 72%);border:1px solid var(--line);color:var(--text)}
+[data-mode=light] .rewind-empty p{color:var(--muted)}
