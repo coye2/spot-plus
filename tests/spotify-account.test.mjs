@@ -18,7 +18,7 @@ test('account reader follows pagination and rejects truncation, repeated pages a
 test('connector handles a full free-account-shaped library, preserves duplicates, and whitelists exported data',async()=>{
   const query=async(name,variables)=>{
     if(name==='profileAttributes')return {data:{me:{profile:{username:'free-user',name:'Free user',accessToken:'must-not-export'}}}};
-    if(name==='fetchLibraryTracks')return {data:{me:{library:{items:[{track:{data:rawTrack}},{track:{data:{uri:'spotify:episode:'+id}}}],totalCount:2}}}};
+    if(name==='fetchLibraryTracks')return {data:{me:{library:{tracks:{items:[{track:{data:rawTrack}},{track:{data:{uri:'spotify:episode:'+id}}}],totalCount:2}}}}};
     if(name==='libraryV3')return {data:{me:{libraryV3:{items:variables.filters[0]==='Playlists'?[{item:{data:{uri:'spotify:playlist:'+id,name:'Private'}}}]:[],totalCount:variables.filters[0]==='Playlists'?1:0}}}};
     return {data:{playlistV2:{content:{items:[{itemV2:{data:rawTrack},uid:'one'},{itemV2:{data:rawTrack},uid:'two'}],totalCount:2}}}};
   };
@@ -29,7 +29,7 @@ test('a profile switch or unreadable collection aborts the whole library transfe
   let calls=0;
   const query=async(name)=>name==='profileAttributes'?{data:{me:{profile:{username:++calls===1?'a':'b'}}}}:{data:{me:{library:{items:[],totalCount:0},libraryV3:{items:[],totalCount:0}}}};
   await assert.rejects(readSpotifyAccount(query),/account changed/);
-  await assert.rejects(readSpotifyAccount(async name=>name==='profileAttributes'?{data:{me:{profile:{username:'a'}}}}:{errors:[{}]}),/changed its library response/);
+  await assert.rejects(readSpotifyAccount(async name=>name==='profileAttributes'?{data:{me:{profile:{username:'a'}}}}:{errors:[{}]}),/Could not read Liked Songs/);
 });
 test('snapshot validation strips unknown account fields and unsafe image URLs, rejects incomplete snapshots',()=>{
   const raw=snapshot();raw.account.token='secret';raw.cookies=['secret'];raw.likes[0]={...song,cover:'https://attacker.example/pixel',preview:'javascript:alert(1)'};
