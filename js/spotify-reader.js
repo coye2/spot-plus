@@ -1,6 +1,6 @@
 // Read-only Spotify web-client adapter. No cookie access, login or audio extraction.
 // Request names/hashes describe Spotify's interface; see ACCOUNT-CONNECTION.md.
-export const COMPANION_VERSION = '1.3.3';
+export const COMPANION_VERSION = '1.3.4';
 export const SPOTIFY_QUERY_URL = 'https://api-partner.spotify.com/pathfinder/v2/query';
 export const READ_QUERIES = Object.freeze({
   profileAttributes:'53bcb064f6cd18c23f752bc324a791194d20df612d8e1239c735144ab0399ced',
@@ -33,7 +33,7 @@ function trackRecord(raw) {
 export function readSpotifyTrack(raw) {
   const {data:t,uri}=trackRecord(raw);
   const id=spotifyId(uri,'track');
-  if(!id || !t.name || !Array.isArray(t.artists?.items))return null;
+  if(!id || !t?.name || !Array.isArray(t.artists?.items))return null;
   const cover=spotifyCover(t.albumOfTrack?.coverArt?.sources?.[0]?.url);
   return {id:'spotify:'+id,spotifyId:id,provider:'spotify-import',title:cleanText(t.name),artist:cleanText(t.artists.items.map(a=>a.profile?.name||a.name||'').filter(Boolean).join(', ')),album:cleanText(t.albumOfTrack?.name),cover,coverXl:cover,duration:Math.max(0,Math.min(86400,Number(t.duration?.totalMilliseconds||t.trackDuration?.totalMilliseconds||0)/1000)),explicit:t.contentRating?.label==='EXPLICIT',externalUrl:'https://open.spotify.com/track/'+id};
 }
@@ -41,7 +41,26 @@ export function readSpotifyEntity(raw, type) {
   const t=raw?.item?.data || raw;
   const id=spotifyId(t?.uri ?? raw?.item?._uri ?? raw?.item?.uri,type);
   if(!id)return null;
+  // Spotify can retain a URI in Your Library after the entity becomes unavailable.
+  // Keep its identity so a previous local playlist copy can be preserved on refresh.
+  if(type==='playlist' && t.__typename==='NotFound')return {id,type,title:'Unavailable playlist',cover:'',owner:'',status:'unavailable'};
   return {id,type,title:cleanText(t.name||t.profile?.name)||'Spotify '+type,cover:spotifyCover(t.coverArt?.sources?.[0]?.url||t.images?.items?.[0]?.sources?.[0]?.url||t.visuals?.avatarImage?.sources?.[0]?.url),owner:cleanText(t.ownerV2?.data?.name)};
+}
+
+function responseError(label,value) {
+  // Only a bounded GraphQL type name is shown, never the raw response or credentials.
+  const type=typeof value?.__typename==='string' && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(value.__typename)?' ('+value.__typename+')':'';
+  return new Error('Could not read '+label+' from Spotify’s response'+type+'. Your saved library is kept.');
+}
+function playlistPage(result,playlist) {
+  const value=result?.data?.playlistV2;
+  if(value?.__typename==='NotFound' || value?.currentUserCapabilities?.canView===false){
+    const error=new Error('Spotify could not return this playlist.');error.code='unavailable';throw error;
+  }
+  const label='playlist “'+playlist.title+'”';
+  if(!value?.content)throw responseError(label,value);
+  if(value.uri!=null && value.uri!=='spotify:playlist:'+playlist.id)throw new Error('Spotify returned a different playlist. Your saved library is kept.');
+  return value.content;
 }
 
 function readTracks(items,label) {
@@ -60,7 +79,7 @@ export async function readAllPages(getPage, {limit=50,max=10000,signal,label='li
   for(let offset=0;offset<=max;){
     signal?.throwIfAborted();
     const page=await getPage(offset,limit);
-    if(!page || !Array.isArray(page.items) || !Number.isInteger(page.totalCount) || page.totalCount<0)throw new Error('Could not read '+label+' from Spotify’s response. Your saved library is kept.');
+    if(!page || !Array.isArray(page.items) || !Number.isInteger(page.totalCount) || page.totalCount<0)throw responseError(label,page);
     if(page.totalCount>max)throw new Error('This collection is too large for a phone sync. Use the Spotify data export instead.');
     if(expected!==null && page.totalCount!==expected)throw new Error('The Spotify library changed during sync. Please try again.');
     expected=page.totalCount;
@@ -97,8 +116,9 @@ export async function readSpotifyAccount(query,{signal,onProgress=()=>{}}={}) {
   let count=library.likes.length;
   for(const [index,p] of library.playlists.entries()){
     signal?.throwIfAborted();onProgress(`Reading playlist ${index+1} of ${library.playlists.length}: ${p.title}`);
+    if(p.status==='unavailable'){p.tracks=[];continue;}
     try {
-      const items=await readAllPages(async(offset,limit)=>(await query('fetchPlaylist',{uri:'spotify:playlist:'+p.id,offset,limit,enableWatchFeedEntrypoint:false})).data?.playlistV2?.content,{...options,label:'playlist “'+p.title+'”'});
+      const items=await readAllPages(async(offset,limit)=>playlistPage(await query('fetchPlaylist',{uri:'spotify:playlist:'+p.id,offset,limit,enableWatchFeedEntrypoint:false}),p),{...options,label:'playlist “'+p.title+'”'});
       p.tracks=readTracks(items,'playlist “'+p.title+'”');p.status='ready';library.skipped+=items.length-p.tracks.length;
       count+=p.tracks.length;if(count>20000)throw new Error('Your library exceeds this phone connector’s 20,000-track limit. Use the data export instead.');
     } catch(e) {

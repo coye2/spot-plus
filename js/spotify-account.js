@@ -26,9 +26,16 @@ export function mergeAccountSnapshot(previous,incoming){
   const next=validateAccountSnapshot(incoming);
   if(previous?.account?.id===next.account.id){
     if(next.capturedAt<previous.capturedAt)throw new Error('This file is older than your saved Spotify library. Choose a newer sync.');
-    for(const p of next.playlists)if(p.status==='unavailable')p.tracks=previous.playlists.find(old=>old.id===p.id)?.tracks||[];
+    for(const p of next.playlists)if(p.status==='unavailable'){
+      const old=previous.playlists.find(item=>item.id===p.id);
+      if(!old)continue;
+      p.tracks=old.tracks;
+      if(['Unavailable playlist','Spotify playlist'].includes(p.title))p.title=old.title;
+      p.cover=p.cover||old.cover;p.owner=p.owner||old.owner;
+    }
   }
-  return next;
+  // Retained tracks also count toward the limits and must remain safe for backup/export.
+  return validateAccountSnapshot(next);
 }
 export function isAccountMessage(event,pending,type='spotplus-library'){
   return !!pending && !!pending.window && Date.now()>=pending.started && Date.now()-pending.started<30*60*1000 && event.origin==='https://open.spotify.com' && event.source===pending.window && event.data?.type===type && event.data.nonce===pending.nonce;

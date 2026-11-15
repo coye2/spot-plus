@@ -1066,7 +1066,8 @@ async function reviewSpotifyAccount(raw){
   try{
     const snapshot=validateAccountSnapshot(raw),previous=store.getSpotifyAccount();
     const changed=previous&&previous.account.id!==snapshot.account.id;
-    const message=`${snapshot.account.name}: ${plural(snapshot.likes.length,'liked song')}, ${plural(snapshot.playlists.length,'playlist')}, ${plural(snapshot.albums.length,'album')} and ${plural(snapshot.artists.length,'artist')}. ${changed?'This replaces the other Spotify account’s copy on this device. ':''}Refreshes replace the Spotify copy, including removed songs. Your local Spot+ playlists and likes are kept. No changes are sent to Spotify.`;
+    const unavailable=snapshot.playlists.filter(p=>p.status==='unavailable').length;
+    const message=`${snapshot.account.name}: ${plural(snapshot.likes.length,'liked song')}, ${plural(snapshot.playlists.length,'playlist')}, ${plural(snapshot.albums.length,'album')} and ${plural(snapshot.artists.length,'artist')}. ${changed?'This replaces the other Spotify account’s copy on this device. ':''}${unavailable?plural(unavailable,'unavailable playlist')+'. Any saved copies of those playlists will be kept. ':''}Refreshes replace the Spotify copy, including removed songs. Your local Spot+ playlists and likes are kept. No changes are sent to Spotify.`;
     if(!await confirmBox('Apply this Spotify library?',message,'Apply library'))return false;
     store.setSpotifyAccount(snapshot);toast('Spotify library saved on this device');go('#/spotify-account');return true;
   }catch(e){toast(e.message);return false;}finally{accountReviewBusy=false;}
@@ -1095,7 +1096,7 @@ function viewSpotifyAccount(){
   ${account?`<section class="box"><div class="kicker">Library saved on this device</div>${spotifyProfileHtml(account.account)}<p class="muted">Last read from Spotify: ${esc(new Date(account.capturedAt).toLocaleString())}</p><div class="account-stats">${[['Liked songs',account.likes.length],['Playlists',account.playlists.length],['Albums',account.albums.length],['Artists',account.artists.length]].map(([label,n])=>`<div class="account-stat"><b>${n}</b><span>${label}</span></div>`).join('')}</div><div class="account-actions"><a class="btn primary" href="#/spotify-account/likes">${I.heartFill}Spotify Liked Songs</a><button class="btn" data-act="account-connect">Refresh from Spotify</button><button class="btn" data-act="account-disconnect">Remove connection</button></div><p class="settings-note">This is the last completed library copy. Refresh while Spotify is open to get changes. Edits in Spot+ stay in Spot+.</p>${account.skipped?`<p class="settings-note">${account.skipped} unsupported or unavailable items were skipped. The companion currently reads music tracks.</p>`:''}</section>`:''}
 
  <div id="accountSetup">${setupHtml(accountDevice)}</div>
-  ${account?.playlists.length?`<section><h2>Your Spotify playlists</h2><div class="account-cards">${account.playlists.map(p=>`<a class="card" href="#/spotify-account/playlist/${p.id}">${img(p.cover)}<div class="ctitle">${esc(p.title)}</div><div class="csub">${p.tracks.length} songs${p.status==='unavailable'?' · Update unavailable':''}</div></a>`).join('')}</div></section>`:''}
+  ${account?.playlists.length?`<section><h2>Your Spotify playlists</h2><div class="account-cards">${account.playlists.map(p=>`<a class="card" href="#/spotify-account/playlist/${p.id}">${img(p.cover)}<div class="ctitle">${esc(p.title)}</div><div class="csub">${p.status==='unavailable'&&!p.tracks.length?'Tracks unavailable':p.tracks.length+' songs'}${p.status==='unavailable'&&p.tracks.length?' · Saved copy':''}</div></a>`).join('')}</div></section>`:''}
 
  `;
 }

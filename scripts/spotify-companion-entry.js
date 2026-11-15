@@ -107,7 +107,8 @@ function runSpotifyCompanion(){
       try{
         library=await readSpotifyAccount(query,{signal:controller.signal,onProgress:status});
         if(JSON.stringify(library).length>12*1024*1024)throw new Error('Your library exceeds the 12 MB phone transfer limit. Use Spotify’s data export.');
-        status('Ready: '+library.likes.length+' liked songs, '+library.playlists.length+' playlists. Review and send your library to Spot+.');
+        const unavailable=library.playlists.filter(p=>p.status==='unavailable').length;
+        status('Ready: '+library.likes.length+' liked songs, '+library.playlists.length+' playlists.'+(unavailable?' '+unavailable+' unavailable; any saved copies will be kept.':'')+' Review and send your library to Spot+.');
         root.getElementById('send').hidden=false;root.getElementById('save').hidden=false;notify('done');
         sendLibrary();
       }catch(error){library=null;allowAuthRetry=/sign in|session expired/i.test(error.message||'');status(error.message||'Sync could not complete. Your previous library is kept.');notify('error');}
