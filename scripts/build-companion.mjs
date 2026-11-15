@@ -26,9 +26,22 @@ const header=`// ==UserScript==
 // panel never appeared on iPhone. Spotify's script-src does allow blob:, so the loader
 // tries inline first, then a blob: script, then runs in place as a last resort.
 const pageCode=`(()=>{if(document.documentElement.dataset.spotplusCompanion)return;document.documentElement.dataset.spotplusCompanion='1';\n${sync}\n${reader}\n${entry}\nrunSpotifyCompanion();\n})();`;
+// The installed script is a small launcher, so people install it once and never again:
+// it runs the newest helper core published with Spot+ (cached on Spotify's site for an
+// instant start) and fetches any update in the background for the next visit. The
+// version bundled here is only a fallback for the very first run or when offline.
+const CORE_URL='https://coye2.github.io/spot-plus/js/spotplus-helper-core.js';
 const loader=`(()=>{
 if(window.top!==window.self)return;
-const code=${JSON.stringify(pageCode)};
+const CORE=${JSON.stringify(CORE_URL)},MARK='/*spotplus-helper-core*/',BUNDLED=${JSON.stringify('/*spotplus-helper-core*/'+pageCode)};
+const valid=code=>typeof code==='string'&&code.startsWith(MARK)&&code.length<600000;
+let cached=null;try{cached=localStorage.getItem('spotplus.helperCore');}catch{ /* Storage disabled. */ }
+const code=valid(cached)?cached:BUNDLED;
+// Refresh the cached core for next time (at most every 6 hours).
+try{
+  const last=Number(localStorage.getItem('spotplus.helperCoreAt'))||0;
+  if(Date.now()-last>6*3600*1000||!valid(cached))fetch(CORE+'?t='+Math.floor(Date.now()/3600000),{cache:'no-cache',credentials:'omit'}).then(r=>r.ok?r.text():null).then(next=>{if(valid(next)){localStorage.setItem('spotplus.helperCore',next);localStorage.setItem('spotplus.helperCoreAt',String(Date.now()));}}).catch(()=>{});
+}catch{ /* Offline or storage disabled: the cached or bundled core still runs. */ }
 // Some managers start before <html> exists; wait for it (only a moment).
 if(!document.documentElement){new MutationObserver((_,o)=>{if(document.documentElement){o.disconnect();start();}}).observe(document,{childList:true});return;}
 start();
@@ -51,4 +64,6 @@ try{
 const output=header+loader;
 await writeFile(new URL('../js/spotplus-spotify.user.js',import.meta.url),output);
 await writeFile(new URL('../js/spotplus-spotify.meta.js',import.meta.url),header);
+// The always-current core the launcher loads.
+await writeFile(new URL('../js/spotplus-helper-core.js',import.meta.url),'/*spotplus-helper-core*/'+pageCode);
 console.log('Built the self-contained Spotify browser companion.');

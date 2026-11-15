@@ -12,7 +12,7 @@ await mkdir('dist', {recursive: true});
 for (const path of ['index.html', 'audio', 'css', 'js', 'icons', 'fonts', 'sw.js', 'manifest.webmanifest']) await cp(path, `dist/${path}`, {recursive: true});
 
 // 1. Minify modules. Userscripts keep their headers untouched; vendor files are already minified.
-const skip = name => /\.user\.js$|\.meta\.js$/.test(name);
+const skip = name => /\.user\.js$|\.meta\.js$|helper-core\.js$/.test(name);
 let saved = 0;
 for (const name of await readdir('js')) {
   if (!name.endsWith('.js') || skip(name)) continue;

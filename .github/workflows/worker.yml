@@ -1,0 +1,31 @@
+name: Deploy the Spot+ bridge (Cloudflare worker)
+# Deploys canvas-bridge/ whenever it changes, so nobody runs wrangler by hand.
+# One-time setup: add repository secrets CLOUDFLARE_API_TOKEN (template
+# "Edit Cloudflare Workers") and CLOUDFLARE_ACCOUNT_ID. Without them this job skips.
+on:
+  push:
+    branches: [main]
+    paths: ['canvas-bridge/**', '.github/workflows/worker.yml']
+  workflow_dispatch:
+concurrency:
+  group: cloudflare-worker
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      HAS_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Skip when Cloudflare isn't connected yet
+        if: env.HAS_TOKEN != 'true'
+        run: echo "Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets to enable automatic deploys."
+      - uses: cloudflare/wrangler-action@v3
+        if: env.HAS_TOKEN == 'true'
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: canvas-bridge
+      - name: Check the deployed bridge
+        if: env.HAS_TOKEN == 'true'
+        run: sleep 5 && curl -fsS https://spot-plus-canvas.pwr97pnmkn.workers.dev/health
