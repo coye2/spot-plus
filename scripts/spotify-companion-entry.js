@@ -56,7 +56,7 @@ function runSpotifyCompanion(){
     if(!/^Bearer\s+\S+$/.test(headers.authorization||''))throw new Error('Sign in to Spotify and open Your Library first. Then tap Read library. If needed, reload this Spotify tab after enabling the companion.');
     headers['content-type']='application/json';
     const body={operationName:name,variables:{...known?.variables,...variables},extensions:{persistedQuery:{version:1,sha256Hash:known?.hash||READ_QUERIES[name]}}};
-    const timeout=new AbortController(),id=setTimeout(()=>timeout.abort(),30000);
+    const timeout=new AbortController(),id=setTimeout(()=>timeout.abort(),name==='getTrack'?5000:30000);
     const abort=()=>timeout.abort();controller.signal.addEventListener('abort',abort,{once:true});
     try{
       const response=await originalFetch(SPOTIFY_QUERY_URL,{method:'POST',headers,body:JSON.stringify(body),credentials:'omit',cache:'no-store',redirect:'error',signal:timeout.signal});
@@ -66,11 +66,19 @@ function runSpotifyCompanion(){
       if(!response.ok)throw new Error('Spotify is temporarily unavailable ('+response.status+'). Your previous library is kept.');
       const result=await response.json();
       if(result.errors?.length){
+        if(name==='getTrack'){const error=new Error('Spotify could not supply the missing song details.');error.code='metadata-unavailable';throw error;}
         if(name==='fetchPlaylist'&&result.errors.every(e=>['NOT_FOUND','PERMISSION_DENIED'].includes(e.extensions?.code))){const error=new Error('Playlist unavailable');error.code='unavailable';throw error;}
         throw new Error('Spotify’s web interface changed or this collection is unavailable. Open Liked Songs and a playlist on Spotify, then try again. Your saved library is kept.');
       }
       return result;
-    }catch(error){if(error.name==='AbortError')throw new Error(controller.signal.aborted?'Sync cancelled. Your saved library is kept.':'Spotify took too long to respond. Try again.');throw error;}
+    }catch(error){
+      if(error.name==='AbortError'){
+        const failure=new Error(controller.signal.aborted?'Sync cancelled. Your saved library is kept.':'Spotify took too long to respond. Try again.');
+        if(name==='getTrack'&&!controller.signal.aborted)failure.code='metadata-unavailable';
+        throw failure;
+      }
+      throw error;
+    }
     finally{clearTimeout(id);controller.signal.removeEventListener('abort',abort);}
   }
   function maybeAutoRead(){
@@ -108,7 +116,8 @@ function runSpotifyCompanion(){
         library=await readSpotifyAccount(query,{signal:controller.signal,onProgress:status});
         if(JSON.stringify(library).length>12*1024*1024)throw new Error('Your library exceeds the 12 MB phone transfer limit. Use Spotify’s data export.');
         const unavailable=library.playlists.filter(p=>p.status==='unavailable').length;
-        status('Ready: '+library.likes.length+' liked songs, '+library.playlists.length+' playlists.'+(unavailable?' '+unavailable+' unavailable; any saved copies will be kept.':'')+' Review and send your library to Spot+.');
+        const unreadable=library.likesUnreadable+library.playlists.reduce((n,p)=>n+(p.unreadable||0),0);
+        status('Ready for review: '+library.likes.length+' liked songs, '+library.playlists.length+' playlists.'+(unavailable?' '+unavailable+' unavailable; any saved copies will be kept.':'')+(unreadable?' Song entries with incomplete details: '+unreadable+'. Existing copies of affected collections will be kept; new collections contain the readable songs.':'')+' Review and send your library to Spot+.');
         root.getElementById('send').hidden=false;root.getElementById('save').hidden=false;notify('done');
         sendLibrary();
       }catch(error){library=null;allowAuthRetry=/sign in|session expired/i.test(error.message||'');status(error.message||'Sync could not complete. Your previous library is kept.');notify('error');}

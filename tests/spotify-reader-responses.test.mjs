@@ -25,6 +25,7 @@ function queryWith(overrides={}) {
     if(name==='fetchLibraryTracks')return likesResponse(page());
     if(name==='libraryV3')return libraryResponse(page());
     if(name==='fetchPlaylist')return {data:{playlistV2:{content:page()}}};
+    if(name==='getTrack')return {data:{trackUnion:{__typename:'NotFound'}}};
     throw new Error('Unexpected query '+name);
   };
 }
@@ -77,8 +78,9 @@ test('malformed nested pages never fall back to an empty legacy library or finis
   await assert.rejects(readSpotifyAccount(queryWith({fetchLibraryTracks:({offset})=>likesResponse(offset?page([],2,offset):page([liked()],2))})),/incomplete/);
 });
 
-test('broken song metadata aborts a transfer while unsupported media are counted',async()=>{
-  await assert.rejects(readSpotifyAccount(queryWith({fetchLibraryTracks:()=>likesResponse(page([{track:{_uri:uri('track'),data:{__typename:'Track',name:'Missing artists'}}}]))})),/Could not read a song in Liked Songs/);
+test('unreadable song metadata marks the collection incomplete while unsupported media are counted separately',async()=>{
+  const incomplete=await readSpotifyAccount(queryWith({fetchLibraryTracks:()=>likesResponse(page([{track:{_uri:uri('track'),data:{__typename:'Track',name:'Missing artists'}}}]))}));
+  assert.equal(incomplete.likesUnreadable,1);assert.deepEqual(incomplete.likes,[]);assert.equal(incomplete.skipped,0);
   const result=await readSpotifyAccount(queryWith({fetchLibraryTracks:()=>likesResponse(page([
     liked(),{track:{_uri:uri('episode'),data:{__typename:'Episode'}}},
     {track:{_uri:uri('track',second),data:{__typename:'NotFound'}}}
