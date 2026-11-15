@@ -1,5 +1,5 @@
 // Bundled with spotify-reader.js by build-companion.mjs. Runs only on open.spotify.com.
-/* global READ_QUERIES, SPOTIFY_QUERY_URL, COMPANION_VERSION, readSpotifyAccount, canAutoRead, encodeLibraryText, readSpotifyStats */
+/* global READ_QUERIES, SPOTIFY_QUERY_URL, COMPANION_VERSION, readSpotifyAccount, canAutoRead, encodeLibraryText, readSpotifyStats, readSpotifyProfile, SpotPlusSync */
 function runSpotifyCompanion(){
   if(location.origin!=='https://open.spotify.com'||document.getElementById('spotplus-companion'))return;
   const permittedOrigins=['https://coye2.github.io','https://spot-plus-coyeb.coyeboymitchell2000.chatgpt.site'];
@@ -17,6 +17,15 @@ function runSpotifyCompanion(){
     const saved=JSON.parse(sessionStorage.getItem('spotplus.bridge')||'null');
     if(saved&&Date.now()-saved.started<30*60*1000&&/^[a-f0-9]{32}$/.test(saved.nonce)){bridge=saved;if(permittedOrigins.includes(saved.origin))targetOrigin=saved.origin;}
   }catch{ /* Safari can disable storage in a restricted session. File handoff still works. */ }
+  // Auto-sync: Spot+ hands over a link key once, in the URL #fragment (never sent to
+  // Spotify's servers). From then on, any visit to Spotify's website quietly publishes
+  // your top music and recent plays (encrypted) for Spot+ to pick up, every 30 minutes.
+  let syncKey=null,syncing=false;
+  try{
+    const linked=location.hash.match(/spotplus_sync=([a-f0-9]{64})/);
+    if(linked){localStorage.setItem('spotplus.syncKey',linked[1]);history.replaceState(history.state,'',location.pathname+location.search);}
+    syncKey=localStorage.getItem('spotplus.syncKey');
+  }catch{ /* Storage disabled: auto-sync stays off. */ }
   const allowedHeaders=['authorization','client-token','spotify-app-version','app-platform'];
   function rememberBody(body){
     try {
@@ -86,17 +95,40 @@ function runSpotifyCompanion(){
   // using the web player's own authorization. Nothing is written to the account.
   async function webGet(path){
     if(!/^\/v1\/me\/(top\/(tracks|artists)\?time_range=(short|medium|long)_term&limit=50|player\/recently-played\?limit=50)$/.test(path))throw new Error('Only reading listening stats is supported.');
-    controller.signal.throwIfAborted();
+    controller?.signal.throwIfAborted();
     if(!/^Bearer\s+\S+$/.test(credentials.authorization||''))throw new Error('Spotify session not ready.');
     const timeout=new AbortController(),id=setTimeout(()=>timeout.abort(),15000),abort=()=>timeout.abort();
-    controller.signal.addEventListener('abort',abort,{once:true});
+    controller?.signal.addEventListener('abort',abort,{once:true});
     try{
       const response=await originalFetch('https://api.spotify.com'+path,{headers:{authorization:credentials.authorization,accept:'application/json'},credentials:'omit',cache:'no-store',redirect:'error',signal:timeout.signal});
       if(!response.ok){const error=new Error('Spotify stats unavailable ('+response.status+').');error.status=response.status;throw error;}
       return await response.json();
-    }finally{clearTimeout(id);controller.signal.removeEventListener('abort',abort);}
+    }finally{clearTimeout(id);controller?.signal.removeEventListener('abort',abort);}
   }
+  function syncNote(text){const p=host?.shadowRoot?.getElementById('sync');if(p)p.textContent=text;}
+  async function publishStats(stats,account){
+    if(!syncKey||!stats)return;
+    const n=await SpotPlusSync.publishSnapshot(syncKey,{v:1,account,stats,at:Date.now()});
+    if(!n)throw new Error('no relay reachable');
+    try{localStorage.setItem('spotplus.syncAt',String(Date.now()));}catch{ /* Ignore. */ }
+    syncNote('Auto-sync on · Spot+ updated just now');
+  }
+  async function autoSync(){
+    if(!syncKey||syncing||controller||!/^Bearer\s+\S+$/.test(credentials.authorization||''))return;
+    let last=0;try{last=Number(localStorage.getItem('spotplus.syncAt'))||0;}catch{ /* Ignore. */ }
+    if(Date.now()-last<30*60*1000)return;
+    syncing=true;controller=new AbortController();
+    try{
+      syncNote('Auto-sync · updating Spot+…');
+      const stats=await readSpotifyStats(webGet);
+      let account=null;try{account=readSpotifyProfile((await query('profileAttributes',{})).data?.me?.profile);}catch{ /* Stats still sync. */ }
+      await publishStats(stats,account);
+    }catch(error){syncNote('Auto-sync will retry later ('+String(error.message||error).slice(0,60)+')');}
+    finally{syncing=false;controller=null;}
+  }
+  setInterval(autoSync,5*60*1000);
   function maybeAutoRead(){
+    if(syncKey)setTimeout(autoSync,4000);
     if(!canAutoRead({bridge,hostReady:!!host,authorization:credentials.authorization,attempted:autoCancelled||(autoAttempted&&!(allowAuthRetry&&attemptedAuth!==credentials.authorization))}))return;
     autoAttempted=true;attemptedAuth=credentials.authorization;allowAuthRetry=false;status('Connected to Spotify. Reading your library…');autoTimer=setTimeout(()=>host?.shadowRoot?.getElementById('read')?.click(),600);
   }
@@ -118,7 +150,7 @@ function runSpotifyCompanion(){
     if(!document.body)return;
     host=document.createElement('div');host.id='spotplus-companion';host.style.cssText='position:fixed;right:12px;bottom:88px;z-index:2147483647;max-width:calc(100vw - 24px)';
     const root=host.attachShadow({mode:'open'});
-    root.innerHTML='<style>:host{color-scheme:dark}*{box-sizing:border-box}section{font:14px/1.45 system-ui,sans-serif;color:#fff;background:#090e0b;border:1px solid #315d49;border-radius:16px;padding:16px;width:330px;max-width:100%;box-shadow:0 8px 36px #000a}h2{font-size:18px;margin:0 0 8px}p{color:#c2c9c4;margin:8px 0}button,a{font:inherit;min-height:44px;border:1px solid #315d49;background:#15231b;color:#fff;border-radius:22px;padding:9px 14px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;margin:4px 4px 0 0}button:first-of-type{background:#1b5e46}button:disabled{opacity:.5;cursor:wait}small{display:block;color:#abb6ae;margin-top:12px}#close{float:right;border:0;padding:4px;min-height:28px;margin:0;background:transparent}#cancel[hidden],#copy[hidden],#send[hidden],#save[hidden]{display:none}#copy{background:#1db954;color:#000;font-weight:700;width:100%;justify-content:center;min-height:52px}#read[hidden]{display:none}#save{border:0;background:transparent;color:#abb6ae;text-decoration:underline}</style><section aria-label="Spot+ Spotify companion"><button id="close" aria-label="Minimize companion">−</button><h2>Spot+ companion · Beta</h2><div id="body"><p>Read your signed-in Spotify library. No Premium or developer account needed.</p><p id="status" role="status" aria-live="polite">Sign in and open Your Library, then tap Read library.</p><button id="read">Read library</button><button id="cancel" hidden>Cancel</button><button id="copy" hidden>Copy for Spot+</button><button id="send" hidden>Send to Spot+</button><button id="save" hidden>Save library file</button><small>Reads Liked Songs, playlists, saved albums and followed artists. Only your profile and music details leave this page. Spotify cookies and session tokens stay here.</small></div></section>';
+    root.innerHTML='<style>:host{color-scheme:dark}*{box-sizing:border-box}section{font:14px/1.45 system-ui,sans-serif;color:#fff;background:#090e0b;border:1px solid #315d49;border-radius:16px;padding:16px;width:330px;max-width:100%;box-shadow:0 8px 36px #000a}h2{font-size:18px;margin:0 0 8px}p{color:#c2c9c4;margin:8px 0}button,a{font:inherit;min-height:44px;border:1px solid #315d49;background:#15231b;color:#fff;border-radius:22px;padding:9px 14px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;margin:4px 4px 0 0}button:first-of-type{background:#1b5e46}button:disabled{opacity:.5;cursor:wait}small{display:block;color:#abb6ae;margin-top:12px}#close{float:right;border:0;padding:4px;min-height:28px;margin:0;background:transparent}#cancel[hidden],#sync:empty{display:none}.sync-note{font-size:11px;opacity:.72;margin:6px 0 0}#copy[hidden],#send[hidden],#save[hidden]{display:none}#copy{background:#1db954;color:#000;font-weight:700;width:100%;justify-content:center;min-height:52px}#read[hidden]{display:none}#save{border:0;background:transparent;color:#abb6ae;text-decoration:underline}</style><section aria-label="Spot+ Spotify companion"><button id="close" aria-label="Minimize companion">−</button><h2>Spot+ companion · Beta</h2><div id="body"><p>Read your signed-in Spotify library. No Premium or developer account needed.</p><p id="status" role="status" aria-live="polite">Sign in and open Your Library, then tap Read library.</p><p id="sync" class="sync-note"></p><button id="read">Read library</button><button id="cancel" hidden>Cancel</button><button id="copy" hidden>Copy for Spot+</button><button id="send" hidden>Send to Spot+</button><button id="save" hidden>Save library file</button><small>Reads Liked Songs, playlists, saved albums and followed artists. Only your profile and music details leave this page. Spotify cookies and session tokens stay here.</small></div></section>';
     document.body.append(host);
     const version=document.createElement('small');version.textContent='Helper '+COMPANION_VERSION;root.querySelector('h2').append(version);
     root.getElementById('close').onclick=()=>{const body=root.getElementById('body');body.hidden=!body.hidden;root.getElementById('close').textContent=body.hidden?'+':'−';};
@@ -130,7 +162,7 @@ function runSpotifyCompanion(){
       try{
         library=await readSpotifyAccount(query,{signal:controller.signal,onProgress:status});
         // Listening stats ride along automatically. Optional: the library still sends if they fail.
-        try{library.stats=await readSpotifyStats(webGet,{onProgress:status});}
+        try{library.stats=await readSpotifyStats(webGet,{onProgress:status});publishStats(library.stats,library.account).catch(()=>{});}
         catch(error){if(controller.signal.aborted)throw error;library.stats=null;library.statsError=String(error.message||'Stats unavailable').slice(0,200);}
         if(JSON.stringify(library).length>12*1024*1024)throw new Error('Your library exceeds the 12 MB phone transfer limit. Use Spotify’s data export.');
         const unavailable=library.playlists.filter(p=>p.status==='unavailable').length;
@@ -206,7 +238,10 @@ function runSpotifyCompanion(){
     window.addEventListener('message',event=>{
       if(!bridge||Date.now()-bridge.started>=1800000||event.origin!==targetOrigin||event.data?.nonce!==bridge.nonce)return;
       if(event.data.type==='spotplus-receiver-ready'&&event.source===receiver&&library)receiver.postMessage({type:'spotplus-library',nonce:bridge.nonce,library},targetOrigin);
-      if(event.data.type==='spotplus-library-applied'&&(event.source===window.opener||event.source===receiver))status('Your library is now saved in Spot+. You can close this Spotify tab.');
+      if(event.data.type==='spotplus-library-applied'&&(event.source===window.opener||event.source===receiver)){
+        status('Your library is now saved in Spot+. You can close this Spotify tab.');
+        if(/^[a-f0-9]{64}$/.test(event.data.syncKey||'')){syncKey=event.data.syncKey;try{localStorage.setItem('spotplus.syncKey',syncKey);}catch{ /* Ignore. */ }publishStats(library?.stats,library?.account).catch(()=>{});}
+      }
     });
   }
   if(document.body)mount();else document.addEventListener('DOMContentLoaded',mount,{once:true});

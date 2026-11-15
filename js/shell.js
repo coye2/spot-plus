@@ -5,6 +5,18 @@ root.classList.toggle('ios-app', ios && (navigator.standalone || matchMedia('(di
 // The app fills the screen with plain CSS (body is fixed to the viewport). Sizing it
 // from visualViewport left a black strip under the tab bar on iPhone whenever that
 // reading came back short (keyboard, Home Screen launch), so it is no longer used.
+// iOS 26 bug: Home Screen apps can get a viewport shorter than the screen, leaving a
+// gap under the tab bar. Detect it (ignoring the keyboard) so CSS can drop the extra
+// bottom inset that would double it.
+function fitIOS() {
+  if (!root.classList.contains('ios-app') || /input|textarea|select/i.test(document.activeElement?.tagName || '')) return;
+  const portrait = window.innerHeight >= window.innerWidth;
+  const screenHeight = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+  root.classList.toggle('ios-short-viewport', screenHeight - window.innerHeight >= 20);
+}
+fitIOS();
+window.addEventListener('resize', fitIOS);
+window.addEventListener('orientationchange', () => setTimeout(fitIOS, 350));
 for (const type of ['gesturestart', 'gesturechange']) document.addEventListener(type, event => event.preventDefault(), { passive: false });
 document.addEventListener('touchmove', event => { if (event.touches.length > 1) event.preventDefault(); }, { passive: false });
 

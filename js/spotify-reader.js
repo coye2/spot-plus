@@ -1,6 +1,6 @@
 // Read-only Spotify web-client adapter. No cookie access, login or audio extraction.
 // Request names/hashes describe Spotify's interface; see ACCOUNT-CONNECTION.md.
-export const COMPANION_VERSION = '1.5.0';
+export const COMPANION_VERSION = '1.6.0';
 export const SPOTIFY_QUERY_URL = 'https://api-partner.spotify.com/pathfinder/v2/query';
 export const READ_QUERIES = Object.freeze({
   profileAttributes:'53bcb064f6cd18c23f752bc324a791194d20df612d8e1239c735144ab0399ced',

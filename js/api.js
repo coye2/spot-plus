@@ -573,3 +573,13 @@ export async function lyricsSearch(q, {signal} = {}) {
   job.catch(() => lyricSearchMemo.delete(key));
   return job;
 }
+
+/* Rewind artwork: artist photos and song covers/previews by name (cached on device). */
+export async function artistPicture(name) {
+  const a = data(await jsonp('/search/artist', {q: name, limit: 1}).catch(() => null))[0];
+  return a ? a.picture_xl || a.picture_big || a.picture_medium || '' : '';
+}
+export async function trackArtwork(artist, title) {
+  const t = data(await jsonp('/search/track', {q: `${artist} ${title}`, limit: 1}).catch(() => null))[0];
+  return t ? {cover: t.album?.cover_medium || '', coverXl: t.album?.cover_xl || t.album?.cover_big || '', preview: t.preview || ''} : null;
+}

@@ -42,10 +42,12 @@ export function helperInstallHtml(selected){
   '<details class="connection-help"><summary>Installed, but no Spot+ panel on Spotify?</summary><p>'+(iphone?'Enable Userscripts in Safari’s extension settings and allow it on open.spotify.com.':'Check that the Spot+ script is enabled in Tampermonkey. In Chrome or Edge, enable Allow User Scripts in Tampermonkey’s extension Details if shown. Allow the extension on open.spotify.com.')+' Reload Spotify’s website. The helper cannot run inside the Spotify app.</p>'+(!iphone?'<a class="link" href="https://www.tampermonkey.net/faq.php?locale=en&q=Q209" target="_blank" rel="noopener">Tampermonkey permission guide</a>':'')+'</details>'+
   '<p class="connection-note">Helper '+COMPANION_VERSION+' · Your browser confirms installation. Spot+ cannot detect it from this page.</p>';
 }
-export function spotifyConnectionURLs(origin,nonce) {
+export function spotifyConnectionURLs(origin,nonce,syncKey='') {
  if(!/^https?:\/\//.test(origin)||!/^[a-f0-9]{32}$/.test(nonce))throw new Error('Invalid connection request');
  const browser=new URL('https://open.spotify.com/collection');
  browser.searchParams.set('spotplus_origin',new URL(origin).origin);browser.searchParams.set('spotplus_bridge',nonce);
+ // The auto-sync link key rides in the #fragment, which browsers never send to Spotify.
+ if(/^[a-f0-9]{64}$/.test(syncKey))browser.hash='spotplus_sync='+syncKey;
  const login=new URL('https://accounts.spotify.com/login');login.searchParams.set('continue',browser.href);
  return {browser:browser.href,login:login.href};
 }

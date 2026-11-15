@@ -2,9 +2,10 @@ import {CanvasPlayer,canvasEnabled,setCanvasEnabled,findVisualLoop} from './canv
 import {audioHasHeadroom} from './playback-policy.js';
 import {PlayerColors,syncChrome} from './player-colors.js';
 import {getTrackStats,matchPlayCount,hydrateStatistics} from './spotify-stats.js';
-import {rewindView,importRewind,filters as rewindFilters} from './rewind.js';
+import {rewindView,importRewind,filters as rewindFilters,hydrateRewind,warmRewind,openRewindStory} from './rewind.js';
 import {ListeningMeter,saveHistory,readHistory,clearHistory} from './listening-history.js';
 import {recentPlaysAsHistory} from './stats-api.js';
+import {fetchSnapshot,newSyncKey,validSyncKey} from './relay-sync.js';
 // app.js — Spot+ UI: router, views, player bar, now-playing screen.
 import * as api from './api.js';
 import * as store from './store.js';
@@ -184,7 +185,7 @@ async function viewHome() {
   const rk = reg(recent);
   const shortcuts = `<div class="quick-grid"><a class="quick-item" href="#/spotify"><div class="ph-cover grad2">${I.library}</div><b>Spotify collections</b></a><a class="quick-item" href="#/liked"><div class="ph-cover grad">${I.heartFill}</div><b>Liked Songs</b></a><a class="quick-item" href="#/dj"><div class="ph-cover dj-tile">${I.dj}</div><b>Spot+ DJ</b></a>${store.getPlaylists().slice(0,4).map(p=>`<a class="quick-item" href="#/my/${p.id}">${p.tracks[0]?.cover?img(p.tracks[0].cover):`<div class="ph-cover">${I.note}</div>`}<b>${esc(p.name)}</b></a>`).join('')}${recent.slice(0,Math.max(0,5-Math.min(4,store.getPlaylists().length))).map((t,i)=>`<button class="quick-item" data-act="track-play" data-key="${rk}" data-i="${i}">${img(t.cover)}<b>${esc(t.title)}</b></button>`).join('')}</div>`;
   const toolbar = `<div class="view-toolbar"><button class="avatar home-profile" data-act="profile" aria-label="Profile and settings">${esc((store.getSettings().displayName[0]||'S').toUpperCase())}</button><button class="chip on" data-act="home-filter" data-filter="all" aria-pressed="true">All</button><button class="chip" data-act="home-filter" data-filter="music" aria-pressed="false">Music</button><a class="chip" href="#/dj">DJ</a><span class="spacer"></span><span class="source-note">Music discovery · Deezer</span></div>`;
-  const requestBar = homeDJ()+'<a class="rewind-link" href="#/rewind"><div><b>Your Rewind</b><small>Your listening story, all year round</small></div><span>↗</span></a>';
+  const requestBar = homeDJ()+'<a class="rewind-link" href="#/rewind"><div><b>Your Rewind</b><small>Your top music, updated automatically</small></div><span>↗</span></a>';
   if(document.body.dataset.page==='home')view.innerHTML=toolbar+shortcuts+requestBar+shelf('Jump back in',recent.slice(0,12).map((t,i)=>trackCard(t,rk,i)))+loadingHtml;
   let d;
   try { d = await api.home(); } catch (e) {
@@ -259,7 +260,7 @@ async function viewArtist(id) {
   const k = reg(d.top), a=d.artist, following=store.hasArtist(id);
   const releases=d.albums.slice(0,8).map((x,i)=>`<a class="release-row${i>=4?' more-row':''}" href="#/album/${x.id}">${img(x.cover,'release-cover')}<div><b>${esc(x.title)}</b><small>${i===0?'<span class="latest">Latest release</span> · ':''}${esc([x.year,x.type?x.type[0].toUpperCase()+x.type.slice(1):''].filter(Boolean).join(' · '))}</small></div></a>`).join('');
   return `<div class="artist-page">
-  <div class="artist-sticky"><button class="icon artist-back" data-act="go-back" aria-label="Back">${I.back}</button><b aria-hidden="true">${esc(a.name)}</b></div>
+  <div class="artist-sticky"><span class="artist-sticky-bg" aria-hidden="true"></span><button class="artist-back" data-act="go-back" aria-label="Back">${I.back}</button><b class="artist-sticky-title" aria-hidden="true">${esc(a.name)}</b></div>
   <header class="artist-hero"><img src="${esc(safeImage(a.pictureXl||a.picture))}" alt="" fetchpriority="high" decoding="async"><div class="artist-hero-fade"></div><h1>${esc(a.name)}</h1></header>
   <p class="artist-listeners spotify-counter" data-counter="artist" data-artist-id="${esc(a.id)}">${fmtNum(a.fans)} fans</p>
   <div class="artist-actions">
@@ -435,7 +436,7 @@ async function route({ keepScroll = false } = {}) {
       if (my !== routeTok) return;
       lists.forEach((_, k) => { if (+k.slice(1) <= startSeq) lists.delete(k); });
       view.innerHTML = html;
-      hydrateStatistics(view);syncAvatars();
+      hydrateStatistics(view);syncAvatars();if(location.hash==='#/rewind')hydrateRewind(view);
       syncVoices();
       view.setAttribute('aria-busy','false');
       renderSidebar();
@@ -570,7 +571,8 @@ async function handleAct(act, el) {
     case 'track-play': {if(jam.active&&!jam.host){const t=listOf(key).tracks[+el.dataset.i];if(t){jam.add(t);toast(`Added “${t.title}” to the Jam`);}break;}dj.stop();const tracks=visibleTracks(listOf(key).tracks,store.getSettings());const track=listOf(key).tracks[+el.dataset.i];const index=tracks.findIndex(t=>t.id===track?.id);if(index<0)return toast('Explicit content is turned off in Settings.');if(player.current()?.id===track.id)player.toggle();else player.playList(tracks,index,{shuffle:false});break;}
     case 'profile': profileMenu(); break;
     case 'rewind-import': $('#rewindImport').click();break;
-    case 'rewind-top': rewindFilters[el.dataset.key]=el.dataset.value;route({keepScroll:true});break;
+    case 'rewind-range': rewindFilters.range=el.dataset.value;route({keepScroll:true});break;
+    case 'rewind-story': openRewindStory({icons:I,canPlayPreview:()=>!player.isPlaying()&&!jam.active});break;
     case 'rewind-export': {
       const records=await readHistory(),url=URL.createObjectURL(new Blob([JSON.stringify({app:'spotplus-rewind',version:1,records})],{type:'application/json'}));
       const a=document.createElement('a');a.href=url;a.download='SpotPlus-Rewind.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);break;
@@ -740,7 +742,7 @@ document.addEventListener('change', async (e) => {
   if(t.dataset.rewindFilter){rewindFilters[t.dataset.rewindFilter]=t.value;route({keepScroll:true});return;}
   if(t.id==='rewindImport'&&t.files.length){
     t.disabled=true;const status=$('#rewindImportStatus');
-    try{const n=await importRewind([...t.files],message=>{status.textContent=message;});rewindFilters.source='auto';rewindFilters.year='all';rewindFilters.month='all';await route({keepScroll:true});toast(`Added ${n.toLocaleString()} listens. Duplicates skipped.`);}catch(error){status.textContent=error.message;t.disabled=false;t.value='';}return;
+    try{const n=await importRewind([...t.files],message=>{status.textContent=message;});await route({keepScroll:true});toast(`Added ${n.toLocaleString()} listens. Duplicates skipped.`);}catch(error){status.textContent=error.message;t.disabled=false;t.value='';}return;
   }
   if (t.dataset.setting) { try { store.setSettings({ [t.dataset.setting]: t.type==='checkbox'?t.checked:t.value.trim() }); applyPreferences(); toast('Saved'); } catch(err) { toast(err.message); } }
   if (['importFile','welcomeBackup'].includes(t.id) && t.files[0]) {
@@ -1032,7 +1034,7 @@ function browseHome(){
 // Profile pictures follow your Spotify account photo when a library is connected;
 // otherwise they show your initial.
 function profileName(){const s=store.getSettings(),custom=s.displayName&&s.displayName!=='Your library'?s.displayName.trim():'';return custom||store.getSpotifyAccount()?.account?.name||'Listener';}
-function profilePhoto(){const url=store.getSpotifyAccount()?.account?.avatar;return url?safeImage(url):'';}
+function profilePhoto(){const url=store.getSpotifyAccount()?.account?.avatar||store.getSpotifyStats().account?.avatar;return url?safeImage(url):'';}
 function syncAvatars(){
   const photo=profilePhoto(),letter=(profileName().trim()[0]||'S').toUpperCase();
   $$('.avatar').forEach(el=>{
@@ -1123,7 +1125,7 @@ let pendingAccount=null,accountReviewBusy=false;
 function accountStatus(message){const status=$('#accountConnectionStatus');if(status)status.textContent=message;}
 function beginSpotifyConnection(){
   const nonce=[...crypto.getRandomValues(new Uint8Array(16))].map(b=>b.toString(16).padStart(2,'0')).join('');
-  const urls=spotifyConnectionURLs(location.origin,nonce),phone=accountDevice!=='computer',browser=accountDevice==='iphone'?'Safari':accountDevice==='android'?'Firefox':'your browser';
+  const urls=spotifyConnectionURLs(location.origin,nonce,syncKey()),phone=accountDevice!=='computer',browser=accountDevice==='iphone'?'Safari':accountDevice==='android'?'Firefox':'your browser';
   pendingAccount={nonce,window:null,started:Date.now()};
   const copy={icon:I.copy,label:'Copy Spotify browser link',sub:`Paste into ${browser}’s address bar to stay on the website.`,fn:async()=>{
     try{await navigator.clipboard.writeText(urls.browser);accountStatus(accountDevice==='iphone'?'Link copied. Paste it in Safari, sign in, tap Copy for Spot+, then come back and tap Paste from Spotify.':`Link copied. Paste it in ${browser}, sign in, then use the Spot+ helper’s Send to Spot+ button.`);toast('Browser link copied');}
@@ -1221,7 +1223,7 @@ window.addEventListener('message',async event=>{
   if(!isAccountMessage(event,pendingAccount))return;
   const request=pendingAccount;
   if(await reviewSpotifyAccount(event.data.library)){
-    event.source.postMessage({type:'spotplus-library-applied',nonce:request.nonce},'https://open.spotify.com');
+    event.source.postMessage({type:'spotplus-library-applied',nonce:request.nonce,syncKey:syncKey()},'https://open.spotify.com');
     if(pendingAccount===request)pendingAccount=null;
   }
 });
@@ -1272,6 +1274,31 @@ function viewThemes(){
 document.addEventListener('input',e=>{const input=e.target;if(input.dataset.themeColor){const s=store.getSettings(),p=themes.palette(s);store.setSettings({themeCustom:{accent:p.accent,surface:p.surface,raised:p.raised,[input.dataset.themeColor]:input.value}});const readout=$(`[data-color-value="${input.dataset.themeColor}"]`);if(readout)readout.textContent=input.value.toUpperCase();$$('.theme-preset').forEach(b=>{b.classList.remove('selected');b.setAttribute('aria-pressed','false');});}if(input.dataset.setting==='cornerRadius')store.setSettings({cornerRadius:Number(input.value)});});
 document.addEventListener('submit',e=>{if(e.target.id==='spotifyLinkForm'){e.preventDefault();const parsed=spotify.parseSpotifyLink($('#spotifyLink').value);if(!parsed)return toast('Paste a full open.spotify.com playlist, artist, album or track link.');go(`#/spotify/${parsed.type}/${parsed.id}`);}});
 
+/* ---------------- Automatic Spotify stats ----------------
+   The helper publishes encrypted snapshots whenever a Spotify web tab is open; Spot+
+   picks up the newest on launch and when you come back to the app. */
+function syncKey(){
+  try{let key=localStorage.getItem('spotplus.syncKey');if(!validSyncKey(key)){key=newSyncKey();localStorage.setItem('spotplus.syncKey',key);}return key;}catch{return '';}
+}
+let lastPull=0;
+async function pullSpotifyStats({force=false}={}){
+  let key='';try{key=localStorage.getItem('spotplus.syncKey');}catch{ /* Ignore. */ }
+  if(!validSyncKey(key)||(!force&&Date.now()-lastPull<5*60*1000)||!navigator.onLine)return false;
+  lastPull=Date.now();
+  const snapshot=await fetchSnapshot(key).catch(()=>null);
+  if(!snapshot?.stats)return false;
+  const changed=await store.setSyncedStats(snapshot);
+  if(changed){
+    saveHistory(recentPlaysAsHistory({stats:store.getSpotifyStats().stats})).catch(()=>{});
+    if(location.hash==='#/rewind')route({keepScroll:true});
+  }
+  return changed;
+}
+setTimeout(()=>pullSpotifyStats(),1200);
+// Load listening history in the background so Rewind opens instantly.
+(window.requestIdleCallback||setTimeout)(()=>warmRewind(),{timeout:3000});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)pullSpotifyStats();});
+
 /* ---------------- Jam ---------------- */
 const jam=new Jam(player,{onToast:msg=>toast(msg),onChange:()=>{document.body.dataset.jam=jam.active?(jam.host?'host':'guest'):'';syncJamChip();if(location.hash==='#/jam')route({keepScroll:true});}});
 function jamProfile(){return {name:profileName().slice(0,40),avatar:profilePhoto()};}
@@ -1294,7 +1321,7 @@ function joinJamFromLink(code){
   return viewJam();
 }
 function viewJam(){
-  if(!jam.active)return `<div class="jam-page"><section class="jam-hero"><div class="jam-orbs" aria-hidden="true"><span></span><span></span><span></span></div><p class="kicker">Spot+ Jam</p><h1>Listen together</h1><p>Start a Jam and everyone hears the same music at the same time, on their own phone. Friends can add songs to the queue.</p><button class="btn primary big" data-act="jam-start">${I.jam}<span>Start a Jam</span></button></section>
+  if(!jam.active)return `<div class="jam-page"><section class="jam-hero"><div class="jam-orbs" aria-hidden="true"><span></span><span></span><span></span></div><p class="kicker">Spot+ Jam</p><h1>Listen together</h1><p>Start a Jam and everyone hears the same music at the same time, on their own phone. Friends can add songs to the queue.</p><p class="jam-private">No accounts and no servers. Phones connect directly through an encrypted network.</p><button class="btn primary big" data-act="jam-start">${I.jam}<span>Start a Jam</span></button></section>
   <section class="box jam-join"><h2>Join a Jam</h2><p class="settings-note">Enter the code from the host’s screen, or scan their QR code with your camera.</p><div class="jam-join-row"><input id="jamCode" maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABC123" aria-label="Jam code" inputmode="text"><button class="btn primary" data-act="jam-join">Join</button></div></section></div>`;
   const people=jam.members.map(m=>`<li>${m.avatar?`<img src="${esc(safeImage(m.avatar))}" alt="">`:`<span class="jam-initial">${esc((m.name[0]||'?').toUpperCase())}</span>`}<b>${esc(m.name)}</b>${m.host?'<small>Host</small>':''}</li>`).join('');
   const now=player.current();
@@ -1307,11 +1334,22 @@ function viewJam(){
 }
 
 /* Artist pages: the name slides into a solid top bar once the photo scrolls away. */
+// Plain opacity values (no CSS math), so every browser draws it the same.
+let scrollFrame=0;
 $('#main').addEventListener('scroll',()=>{
-  const hero=$('.artist-hero');if(!hero)return;
-  const page=hero.closest('.artist-page'),progress=Math.min(1,Math.max(0,($('#main').scrollTop-hero.offsetHeight+140)/80));
-  page.style.setProperty('--sticky',progress.toFixed(2));
-  page.style.setProperty('--hero-shift',Math.min(hero.offsetHeight,$('#main').scrollTop*.35)+'px');
+  if(scrollFrame)return;
+  scrollFrame=requestAnimationFrame(()=>{
+    scrollFrame=0;
+    const main=$('#main'),top=main.scrollTop;
+    main.classList.toggle('scrolled',top>4);
+    const hero=$('.artist-hero');if(!hero)return;
+    const progress=Math.min(1,Math.max(0,(top-hero.offsetHeight+150)/90));
+    const bg=$('.artist-sticky-bg'),title=$('.artist-sticky-title');
+    if(bg)bg.style.opacity=String(progress);
+    if(title)title.style.opacity=String(progress);
+    $('.artist-sticky')?.classList.toggle('solid',progress>.5);
+    hero.querySelector('img')?.style.setProperty('transform',`translate3d(0,${Math.min(hero.offsetHeight,top*.35)}px,0) scale(1.03)`);
+  });
 },{passive:true});
 
 /* ---------------- Instant navigation ----------------
@@ -1340,7 +1378,7 @@ store.onChange((key) => {
   if(key==='folders'&&(h==='#/library'||h.startsWith('#/folder/')))route({keepScroll:true});
   if (key === 'downloads' && (h === '#/downloads' || h === '#/library')) route({ keepScroll: true });
   if(['likes','playlists','folders','albums','artists','downloads','pins','localFiles','spotifyLinks','spotifyAccount'].includes(key))renderSidebar();
-  if(key==='spotifyAccount')syncAvatars();
+  if(key==='spotifyAccount'||key==='spotifyStats')syncAvatars();
   if(key==='spotifyAccount'&&(h.startsWith('#/spotify-account')||h==='#/library'||h==='#/settings'||h==='#/profile'))route({keepScroll:true});
   if(key==='localFiles'&&h==='#/local')route({keepScroll:true});
 });

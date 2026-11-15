@@ -1,5 +1,8 @@
 import {readFile,writeFile} from 'node:fs/promises';
 import {COMPANION_VERSION} from '../js/spotify-reader.js';
+import {build} from 'esbuild';
+// Auto-sync (encrypted relay snapshots) is bundled in as a local SpotPlusSync object.
+const sync=(await build({entryPoints:[new URL('../js/relay-sync.js',import.meta.url).pathname],bundle:true,format:'iife',globalName:'SpotPlusSync',minify:true,write:false,legalComments:'none',target:'es2020'})).outputFiles[0].text;
 const reader=(await readFile(new URL('../js/spotify-reader.js',import.meta.url),'utf8')).replace(/^export /gm,'');
 const entry=await readFile(new URL('./spotify-companion-entry.js',import.meta.url),'utf8');
 const header=`// ==UserScript==
@@ -22,10 +25,14 @@ const header=`// ==UserScript==
 // <script> elements, which Spotify's CSP blocks (no 'unsafe-inline', no nonce), so the
 // panel never appeared on iPhone. Spotify's script-src does allow blob:, so the loader
 // tries inline first, then a blob: script, then runs in place as a last resort.
-const pageCode=`(()=>{if(document.documentElement.dataset.spotplusCompanion)return;document.documentElement.dataset.spotplusCompanion='1';\n${reader}\n${entry}\nrunSpotifyCompanion();\n})();`;
+const pageCode=`(()=>{if(document.documentElement.dataset.spotplusCompanion)return;document.documentElement.dataset.spotplusCompanion='1';\n${sync}\n${reader}\n${entry}\nrunSpotifyCompanion();\n})();`;
 const loader=`(()=>{
 if(window.top!==window.self)return;
 const code=${JSON.stringify(pageCode)};
+// Some managers start before <html> exists; wait for it (only a moment).
+if(!document.documentElement){new MutationObserver((_,o)=>{if(document.documentElement){o.disconnect();start();}}).observe(document,{childList:true});return;}
+start();
+function start(){
 const root=document.documentElement;
 const loaded=()=>!!root.dataset.spotplusCompanion;
 const inPlace=()=>{if(!loaded())(0,eval)(code);};
@@ -38,6 +45,7 @@ try{
   s.onerror=()=>{URL.revokeObjectURL(url);s.remove();inPlace();};
   root.append(s);
 }catch{inPlace();}
+}
 })();
 `;
 const output=header+loader;

@@ -118,7 +118,7 @@ The bridge source is in `canvas-bridge/`. It accepts bounded public music identi
 
 ## November 15: release polish
 
-- **Jam:** listen together in real time. Start a Jam from Create or Connect, share the code, link or QR code; listeners follow the host on their own phones, add songs and (if allowed) play, pause and skip. Rooms run on the Cloudflare bridge as a SQLite-backed Durable Object (`canvas-bridge/jam.js`, free plan).
+- **Jam:** listen together in real time. Start a Jam from Create or Connect, share the code, link or QR code; listeners follow the host on their own phones, add songs and (if allowed) play, pause and skip. **No server and no accounts:** devices meet on several public Nostr relays at once using throwaway keys and ephemeral (never stored) events, and every message is end-to-end encrypted with AES-GCM using a key derived from the Jam code (`js/jam-mesh.js`). The host's device runs the room.
 - **Search by lyrics:** type a line you remember. Candidates come from the bridge (`/lyrics-search`, Genius) or YouTube lyric videos, then each is verified against its real lyrics (LRCLIB) and shown with the matching line.
 - **Canvas, Spotify-style:** loops fill the whole player in portrait on phones. Clips for the current and next two songs are downloaded ahead and kept on the device (`js/canvas-cache.js`), so they start instantly; music-video loops use up to 1080p on fast connections.
 - **Themes:** Light, Dark and Auto modes; 19 presets including Material-style tonal palettes and light themes. Status bar and browser chrome follow the theme.
@@ -127,7 +127,7 @@ The bridge source is in `canvas-bridge/`. It accepts bounded public music identi
 - **First-launch tutorial** (also shown on the first launch from the Home Screen), simpler DJ screen, two-step setup on iPhone, Android and computer, and a full copy pass.
 - Fixed the black strip under the tab bar on iPhone (the layout no longer sizes itself from `visualViewport`).
 
-### Deploy the bridge (needed for Jam and lyrics search)
+### Deploy the bridge (optional: faster lyrics search)
 
 From `canvas-bridge/` with Node installed:
 
@@ -136,4 +136,11 @@ npx wrangler login
 npx wrangler deploy
 ```
 
-`wrangler.jsonc` declares the `JAM` Durable Object and its migration. Check `https://<your-worker>.workers.dev/health` shows `"jam":true`.
+Check `https://<your-worker>.workers.dev/health` shows `"lyrics":true`. Without it, lyrics search uses YouTube lyric videos instead.
+
+## November 15 (later): automatic Rewind and serverless Jam
+
+- **Rewind is fully automatic.** Spot+ creates a private link key and passes it to the Spotify helper once (in the connection link's `#fragment`, which never reaches Spotify). From then on, whenever Spotify's website is open in a browser with the helper (any device), it publishes an encrypted, compressed snapshot of your top tracks/artists (4 weeks, 6 months, all time) and last 50 plays every 30 minutes to several public Nostr relays as a NIP-78 replaceable event (`js/relay-sync.js`). Spot+ fetches the newest on launch and when you return to the app (about 1 second), merges it with your Spot+ listening, and adds the recent plays to your history, so Rewind keeps growing with no files. Relays store only ciphertext.
+- **Rewind is instant:** listening history stays in memory, is preloaded at idle, and artwork fills in after the page appears.
+- **Play your Rewind:** a full-screen story (minutes, top genre, top artist, top songs, listening personality, streak) with the #1 song's preview playing softly, ending in a shareable 1080×1920 image.
+- **Jam needs no server and no account.** It now runs over the same public relay network with throwaway keys and ephemeral events; messages are end-to-end encrypted (AES-GCM, key derived from the Jam code), and the host's device runs the room (`js/jam-mesh.js`). Verified live: join in under 2 s, track changes reach listeners in about 0.3 s.

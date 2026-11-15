@@ -1,7 +1,9 @@
 // Spot+ Jam: listen together in real time. The host's queue and playback are the
 // source of truth; listeners follow along on their own device and can add songs or
-// (if the host allows) play, pause and skip. Rooms live on the Spot+ Cloudflare worker.
-export const JAM_ENDPOINT = 'wss://spot-plus-canvas.pwr97pnmkn.workers.dev/jam/';
+// (if the host allows) play, pause and skip. No server and no accounts: devices meet
+// through an end-to-end encrypted mesh over public relays (see jam-mesh.js).
+import {MeshSocket} from './jam-mesh.js';
+export const JAM_ENDPOINT = 'mesh:';
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const validJamCode = code => /^[A-HJ-NP-Z2-9]{6}$/.test(String(code || '').toUpperCase());
 export function newJamCode(random = n => crypto.getRandomValues(new Uint8Array(n))) {
@@ -38,7 +40,7 @@ export class Jam {
     const params = new URLSearchParams({name: this.profile.name.slice(0, 40)});
     if (this.profile.avatar) params.set('avatar', this.profile.avatar);
     if (this.host) params.set('host', '1');
-    const ws = new (this.WebSocketImpl || globalThis.WebSocket)(this.endpoint + this.code + '?' + params);
+    const ws = new (this.WebSocketImpl || MeshSocket)(this.endpoint + this.code + '?' + params);
     this.ws = ws;
     ws.onopen = () => { this.retries = 0; this.status = 'live'; this.onChange(); if (this.host) this.hostSync(true); this.keepAlive(); };
     ws.onmessage = event => { try { this.receive(JSON.parse(event.data)); } catch { /* Ignore malformed messages. */ } };

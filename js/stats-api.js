@@ -36,7 +36,7 @@ export function recentPlaysAsHistory(account) {
   if (!Array.isArray(recent)) return [];
   return recent.filter(t => t.spotifyId && Number.isFinite(t.playedAt)).map(t => ({
     id: 'recent:' + t.spotifyId + ':' + t.playedAt, source: 'spotify', endedAt: t.playedAt,
-    ms: Math.max(30000, (t.duration || 180) * 1000), artist: t.artist, title: t.title, spotifyId: t.spotifyId, estimated: true,
+    ms: Math.max(30000, (t.duration || 180) * 1000), artist: t.artist, title: t.title, spotifyId: t.spotifyId, cover: t.cover || '', estimated: true,
   }));
 }
 
@@ -72,7 +72,8 @@ function rankTracks(records) {
   const map = new Map();
   for (const r of records) {
     const key = r.spotifyId || JSON.stringify([r.artist.toLowerCase(), r.title.toLowerCase()]);
-    const t = map.get(key) || {key, title: r.title, artist: r.artist, spotifyId: r.spotifyId || '', plays: 0, ms: 0, lastPlayed: 0};
+    const t = map.get(key) || {key, title: r.title, artist: r.artist, spotifyId: r.spotifyId || '', cover: r.cover || '', plays: 0, ms: 0, lastPlayed: 0};
+    if (!t.cover && r.cover) t.cover = r.cover;
     t.ms += r.ms; if (r.ms >= PLAY_MS) t.plays++; if (r.endedAt > t.lastPlayed) t.lastPlayed = r.endedAt;
     if (!t.spotifyId && r.spotifyId) t.spotifyId = r.spotifyId;
     map.set(key, t);
@@ -113,7 +114,7 @@ export const topArtists = (records, options) => top(rankArtists, records, option
 export function recentlyPlayed(records, {source = 'all', limit = 50} = {}) {
   return bySource(records, source).filter(r => r.ms >= PLAY_MS)
     .sort((a, b) => b.endedAt - a.endedAt).slice(0, limit)
-    .map(({artist, title, spotifyId, endedAt, ms, source: from}) => ({artist, title, spotifyId, endedAt, ms, source: from}));
+    .map(({artist, title, spotifyId, cover, endedAt, ms, source: from}) => ({artist, title, spotifyId, cover: cover || '', endedAt, ms, source: from}));
 }
 
 /** Minutes by hour of day (0–23) and weekday (0 = Sunday), in the device's time zone. */

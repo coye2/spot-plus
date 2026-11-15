@@ -1,7 +1,5 @@
 // A narrow public-metadata adapter, never an arbitrary URL or credential proxy.
 import {spotifyStats} from './spotify-stats.js';
-import {jamRoute} from './jam.js';
-export {JamRoom} from './jam.js';
 const SOURCE = 'https://canvas.auramusic.site/api/canvas';
 const CORS = {'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, OPTIONS','Content-Type':'application/json; charset=utf-8','X-Content-Type-Options':'nosniff'};
 // Lyrics search: Genius's public lyric search, reduced to title, artist and the matching line.
@@ -66,11 +64,10 @@ export async function boundedJSON(response, limit = 65536) {
 const json = (data,status=200,maxAge=0) => new Response(JSON.stringify(data), {status,headers:{...CORS,'Cache-Control':maxAge ? 'public, max-age='+maxAge : 'no-store'}});
 export async function handle(request, {fetcher=fetch,cache,waitUntil=()=>{},env} = {}) {
   if (request.method === 'OPTIONS') return new Response(null,{status:204,headers:CORS});
-  if (new URL(request.url).pathname.startsWith('/jam/')) return jamRoute(request, env);
   if (request.method !== 'GET') return json({error:'Use GET'},405);
   const url = new URL(request.url);
   if (url.pathname === '/spotify-stats') return spotifyStats(request,{fetcher,cache,waitUntil});
-  if (url.pathname === '/health') return json({service:'Spot+ Canvas bridge',status:'ok',jam:!!env?.JAM,lyrics:true});
+  if (url.pathname === '/health') return json({service:'Spot+ Canvas bridge',status:'ok',lyrics:true});
   if (url.pathname === '/lyrics-search') return lyricsSearch(url,{fetcher,cache,waitUntil});
   if (url.pathname !== '/canvas') return json({error:'Not found'},404);
   const query = queryFor(url.searchParams);

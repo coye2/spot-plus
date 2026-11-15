@@ -35,7 +35,7 @@ export class ListeningMeter {
   reset(){this.session=null;this.last=null;this.saved=0;}
   tick(track,{time,playing,sessionKey=track?.id,now=performance.now(),wall=Date.now()}){
     const key=track&&sessionKey;
-    if(!key||this.session?.trackId!==key){this.flush();this.session=key?{id:'local-'+crypto.randomUUID(),trackId:key,source:'spotplus',artist:track.artist,title:track.title,spotifyId:track.spotifyId||'',ms:0,endedAt:wall}:null;this.last=null;this.saved=0;}
+    if(!key||this.session?.trackId!==key){this.flush();this.session=key?{id:'local-'+crypto.randomUUID(),trackId:key,source:'spotplus',artist:track.artist,title:track.title,spotifyId:track.spotifyId||'',cover:track.cover||'',ms:0,endedAt:wall}:null;this.last=null;this.saved=0;}
     if(!this.session)return;
     if(this.last?.playing){const elapsed=now-this.last.now,progress=(time-this.last.time)*1000;if(elapsed>0&&elapsed<60000&&progress>0&&progress<=elapsed*1.5+500)this.session.ms+=Math.min(progress,elapsed);}
     this.session.endedAt=wall;this.last={time,now,playing};
@@ -51,6 +51,26 @@ function database(){return dbPromise??=(new Promise((resolve,reject)=>{
   request.onupgradeneeded=()=>request.result.createObjectStore('listens',{keyPath:'id'});
   request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);
 })).catch(error=>{dbPromise=null;throw error;});}
-export async function saveHistory(records){const db=await database();return new Promise((resolve,reject)=>{const tx=db.transaction('listens','readwrite');for(const r of records)tx.objectStore('listens').put(r);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);});}
-export async function readHistory(){const db=await database();return new Promise((resolve,reject)=>{const r=db.transaction('listens').objectStore('listens').getAll();r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});}
-export async function clearHistory(source){const db=await database();return new Promise((resolve,reject)=>{const tx=db.transaction('listens','readwrite'),store=tx.objectStore('listens'),request=store.openCursor();request.onsuccess=()=>{const c=request.result;if(!c)return;if(source==='all'||c.value.source===source)c.delete();c.continue();};tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});}
+// Rewind reads history constantly, so keep it in memory: the first read loads the
+// database once; later reads are instant and writes update the copy in place.
+let memory=null,version=0;
+export const historyVersion=()=>version;
+export async function saveHistory(records){
+  if(!records?.length)return;
+  const db=await database();
+  await new Promise((resolve,reject)=>{const tx=db.transaction('listens','readwrite');for(const r of records)tx.objectStore('listens').put(r);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);});
+  if(memory){const byId=new Map(memory.map(r=>[r.id,r]));for(const r of records)byId.set(r.id,r);memory=[...byId.values()];}
+  version++;
+}
+export async function readHistory(){
+  if(memory)return memory;
+  const db=await database();
+  memory=await new Promise((resolve,reject)=>{const r=db.transaction('listens').objectStore('listens').getAll();r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
+  return memory;
+}
+export function cachedHistory(){return memory;}
+export async function clearHistory(source){
+  const db=await database();
+  await new Promise((resolve,reject)=>{const tx=db.transaction('listens','readwrite'),store=tx.objectStore('listens'),request=store.openCursor();request.onsuccess=()=>{const c=request.result;if(!c)return;if(source==='all'||c.value.source===source)c.delete();c.continue();};tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});
+  memory=memory&&source!=='all'?memory.filter(r=>r.source!==source):null;version++;
+}

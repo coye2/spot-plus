@@ -1,5 +1,5 @@
 // store.js — everything Spot+ keeps in the user's own browser (localStorage).
-import {mergeAccountSnapshot,validateAccountSnapshot} from './spotify-account.js';
+import {mergeAccountSnapshot,validateAccountSnapshot,validateStats} from './spotify-account.js';
 import {normalizeFolders,mergeFolders} from './folders.js';
 const P = 'spotplus.';
 const listeners = new Set();
@@ -162,7 +162,7 @@ export function saveSpotifyLink(item){write('spotifyLinks',[item,...getSpotifyLi
    Older copies in localStorage are moved over by ready(). Without IndexedDB (tests,
    restricted modes) the original localStorage path is used. */
 const STORAGE_FULL='Your browser storage is full or unavailable. Export a backup or free some space and try again.';
-let useIdb=typeof indexedDB!=='undefined',accountCache=null,accountWrite=Promise.resolve(),dbPromise=null;
+let syncedCache=null,useIdb=typeof indexedDB!=='undefined',accountCache=null,accountWrite=Promise.resolve(),dbPromise=null;
 function idb(){
   return dbPromise||=new Promise((resolve,reject)=>{const r=indexedDB.open('spotplus',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);r.onblocked=()=>reject(new Error('blocked'));});
 }
@@ -176,6 +176,7 @@ export async function ready(){
     accountCache=saved||legacy||null;
     if(!saved&&legacy)await idbRun('readwrite',kv=>kv.put(legacy,'spotifyAccount'));
     if(legacy)localStorage.removeItem(P+'spotifyAccount');
+    syncedCache=await idbRun('readonly',kv=>kv.get('syncedStats'))||null;
   }catch{useIdb=false;accountCache=null;}
 }
 export const getSpotifyAccount=()=>useIdb?accountCache:read('spotifyAccount',null);
@@ -186,6 +187,23 @@ export function setSpotifyAccount(snapshot){
   accountWrite=idbRun('readwrite',kv=>kv.put(next,'spotifyAccount')).then(()=>{navigator.storage?.persist?.().catch(()=>{});},()=>{if(accountCache===next)accountCache=previous;emit('spotifyAccount');throw new Error(STORAGE_FULL);});
   accountWrite.catch(()=>{});
   emit('spotifyAccount');return next;
+}
+/** The newest Spotify stats from either the library copy or automatic sync. */
+export function getSpotifyStats(){
+  const account=getSpotifyAccount(),synced=useIdb?syncedCache:read('syncedStats',null);
+  const fromAccount=account?.stats?{stats:account.stats,statsPrevious:account.statsPrevious||null,account:account.account,statsError:account.statsError||''}:null;
+  if(synced?.stats&&(!fromAccount||synced.stats.capturedAt>fromAccount.stats.capturedAt))return synced;
+  return fromAccount||{stats:null,statsPrevious:null,account:account?.account||null,statsError:account?.statsError||''};
+}
+const cleanProfile=a=>a&&typeof a==='object'?{id:String(a.id||'').slice(0,120),name:String(a.name||'').slice(0,120),avatar:/^https:\/\/[^\s]+$/.test(a.avatar||'')?String(a.avatar).slice(0,500):''}:null;
+/** Save an automatically synced snapshot when it's newer than what we have. */
+export async function setSyncedStats(snapshot){
+  const stats=validateStats(snapshot?.stats);if(!stats)return false;
+  const current=getSpotifyStats();
+  if(current.stats&&current.stats.capturedAt>=stats.capturedAt)return false;
+  const next={stats,statsPrevious:current.stats||null,account:cleanProfile(snapshot.account)||current.account||null,statsError:''};
+  if(useIdb){syncedCache=next;await idbRun('readwrite',kv=>kv.put(next,'syncedStats')).catch(()=>{});}else write('syncedStats',next);
+  emit('spotifyStats');return true;
 }
 /** Resolves once the last account change is on disk; rejects if it could not be saved. */
 export const flushSpotifyAccount=()=>accountWrite;
