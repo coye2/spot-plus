@@ -16,6 +16,7 @@ import {bindPlayerDismiss} from './player-gestures.js';
 import {connectionDevice,setupHtml,spotifyConnectionURLs,helperInstallHtml,copyHelperInstallLink,spotifyProfileHtml} from './account-setup.js';
 let accountDevice=connectionDevice(navigator.userAgent,navigator.platform,navigator.maxTouchPoints);
 import {validateAccountSnapshot,isAccountMessage,ACCOUNT_FILE_LIMIT,accountReadNotice} from './spotify-account.js';
+import {decodeLibraryText,isLibraryText} from './spotify-reader.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -513,6 +514,8 @@ async function handleAct(act, el) {
     case 'account-helper': go('#/spotify-account/helper');break;
     case 'account-helper-copy': await copyHelperInstallLink({clipboard:navigator.clipboard,field:$('#helperInstallLink'),status:$('#helperCopyStatus')});break;
     case 'account-file': $('#spotifyAccountImport').click();break;
+    case 'account-paste': await pasteSpotifyAccount();break;
+    case 'account-paste-field': {const text=$('#accountPasteField')?.value||'';closeSheet();await applyPastedLibrary(text);break;}
     case 'account-disconnect': if(await confirmBox('Remove this Spotify connection?', 'This removes the Spotify library copy from this device. Your local Spot+ music and Spotify account are kept.')){pendingAccount=null;store.clearSpotifyAccount();toast('Spotify copy removed from this device');}break;
     case 'theme-preset': store.setSettings({themePreset:el.dataset.id,themeCustom:null});route({keepScroll:true});break;
     case 'theme-undo': if(themeUndo){store.setSettings(themeUndo);route({keepScroll:true});}break;
@@ -1045,7 +1048,7 @@ function beginSpotifyConnection(){
   const urls=spotifyConnectionURLs(location.origin,nonce),phone=accountDevice!=='computer',browser=accountDevice==='iphone'?'Safari':accountDevice==='android'?'Firefox':'your browser';
   pendingAccount={nonce,window:null,started:Date.now()};
   const copy={icon:I.copy,label:'Copy Spotify browser link',sub:`Paste into ${browser}’s address bar to stay on the website.`,fn:async()=>{
-    try{await navigator.clipboard.writeText(urls.browser);accountStatus(`Link copied. Paste it in ${browser}, sign in, then use the Spot+ helper’s Send to Spot+ button.`);toast('Browser link copied');}
+    try{await navigator.clipboard.writeText(urls.browser);accountStatus(accountDevice==='iphone'?'Link copied. Paste it in Safari, sign in, tap Copy for Spot+, then come back and tap Paste from Spotify.':`Link copied. Paste it in ${browser}, sign in, then use the Spot+ helper’s Send to Spot+ button.`);toast('Browser link copied');}
     catch{openSheet({head:'<div class="sheet-title">Copy this browser link</div>',body:`<p class="sheet-note">Select and copy this link into ${browser}’s address bar.</p><input class="connection-link" aria-label="Spotify browser link" readonly value="${esc(urls.browser)}">`});}
   }};
   const login={icon:I.person,label:'Open Spotify sign-in',sub:'Sign in on accounts.spotify.com. Keep the helper enabled.',fn:()=>{
@@ -1054,7 +1057,20 @@ function beginSpotifyConnection(){
     accountStatus('Spotify sign-in opened. Waiting for the Spot+ helper on Spotify’s website…');
     setTimeout(()=>{if(pendingAccount?.nonce===nonce&&!pendingAccount.helperReady)accountStatus('No helper detected yet. If Spotify opened its app, return here and use Copy Spotify browser link. Enable the Spot+ helper in Safari/Firefox, then reload Spotify’s website.');},15000);
   }};
-  openSheet({head:'<div class="sheet-title">Connect your Spotify library</div>',body:`<p class="sheet-note">${phone?'Use '+browser+' with the Spot+ helper installed. Pasting the browser link avoids the Spotify app and blank-screen handoff.':'Install the Spot+ helper once, then sign in on Spotify’s website.'}</p><p class="sheet-note">When your library is ready, choose <b>Send to Spot+</b>. For the iPhone Home Screen app, use <b>Save library file</b> and import it here.</p>`,items:phone?[copy,login]:[login,copy]});
+  if(accountDevice==='iphone')return copy.fn(); // One tap: copy the Safari link straight away.
+  openSheet({head:'<div class="sheet-title">Connect your Spotify library</div>',body:`<p class="sheet-note">${phone?'Use '+browser+' with the Spot+ helper installed. Pasting the browser link avoids the Spotify app and blank-screen handoff.':'Install the Spot+ helper once, then sign in on Spotify’s website.'}</p><p class="sheet-note">${accountDevice==='iphone'?'When your library is ready, tap <b>Copy for Spot+</b> on Spotify, come back here and tap <b>Paste from Spotify</b>.':'When your library is ready, choose <b>Send to Spot+</b>.'}</p>`,items:phone?[copy,login]:[login,copy]});
+}
+// iPhone: Safari and the Home Screen app share only the clipboard. readText is the
+// first call inside the tap so Safari shows its Paste prompt.
+async function pasteSpotifyAccount(){
+  let text='';
+  try{text=await navigator.clipboard.readText();}catch{ /* Denied or unsupported; offer a paste field. */ }
+  if(isLibraryText(text))return applyPastedLibrary(text);
+  openSheet({head:'<div class="sheet-title">Paste your Spotify library</div>',body:`<p class="sheet-note">${text?'Your clipboard doesn’t hold a Spot+ library. On Spotify’s website, tap <b>Copy for Spot+</b> in the Spot+ panel, then return here.':'Touch and hold the box below, choose <b>Paste</b>, then tap Add library.'}</p><textarea id="accountPasteField" class="connection-link" rows="3" aria-label="Copied Spotify library" spellcheck="false" autocomplete="off" placeholder="Paste here"></textarea><div class="account-actions"><button class="btn primary" data-act="account-paste-field">Add library</button></div>`});
+}
+async function applyPastedLibrary(text){
+  try{accountStatus('Opening your copied library…');const raw=await decodeLibraryText(text);accountStatus('Library received. Review it before applying.');await reviewSpotifyAccount(raw);}
+  catch(e){accountStatus(e.message);toast(e.message);}
 }
 function receiveSpotifyAccount(nonce){
   if(window.opener){pendingAccount={nonce,window:window.opener,started:Date.now()};setTimeout(()=>window.opener?.postMessage({type:'spotplus-receiver-ready',nonce},'https://open.spotify.com'),0);}
@@ -1093,7 +1109,7 @@ function viewSpotifyHelper(){return `<div class="helper-page"><a class="link hel
 function viewSpotifyAccount(){
  const account=store.getSpotifyAccount();
  return `<div class="connect-heading"><span class="account-badge">Your music, together</span><h1>${account?'Your Spotify':'Connect Spotify'}</h1><p>${account?'Your profile and music, saved on this device.':'Bring your liked songs and playlists into Spot+.'}</p></div>
-  ${account?`<section class="box"><div class="kicker">Library saved on this device</div>${spotifyProfileHtml(account.account)}<p class="muted">Last read from Spotify: ${esc(new Date(account.capturedAt).toLocaleString())}</p><div class="account-stats">${[['Liked songs',account.likes.length],['Playlists',account.playlists.length],['Albums',account.albums.length],['Artists',account.artists.length]].map(([label,n])=>`<div class="account-stat"><b>${n}</b><span>${label}</span></div>`).join('')}</div><div class="account-actions"><a class="btn primary" href="#/spotify-account/likes">${I.heartFill}Spotify Liked Songs</a><button class="btn" data-act="account-connect">Refresh from Spotify</button><button class="btn" data-act="account-disconnect">Remove connection</button></div><p class="settings-note">This is your last saved library copy. Refresh while Spotify is open to get changes. Edits in Spot+ stay in Spot+.</p>${accountReadNotice(account)?`<p class="account-status">${esc(accountReadNotice(account))}</p>`:''}${account.skipped?`<p class="settings-note">${account.skipped} unsupported or unavailable items were skipped. The companion currently reads music tracks.</p>`:''}</section>`:''}
+  ${account?`<section class="box"><div class="kicker">Library saved on this device</div>${spotifyProfileHtml(account.account)}<p class="muted">Last read from Spotify: ${esc(new Date(account.capturedAt).toLocaleString())}</p><div class="account-stats">${[['Liked songs',account.likes.length],['Playlists',account.playlists.length],['Albums',account.albums.length],['Artists',account.artists.length]].map(([label,n])=>`<div class="account-stat"><b>${n}</b><span>${label}</span></div>`).join('')}</div><div class="account-actions"><a class="btn primary" href="#/spotify-account/likes">${I.heartFill}Spotify Liked Songs</a><button class="btn" data-act="account-connect">Refresh from Spotify</button>${accountDevice==='iphone'?'<button class="btn" data-act="account-paste">Paste from Spotify</button>':''}<button class="btn" data-act="account-disconnect">Remove connection</button></div><p class="settings-note">This is your last saved library copy. Refresh while Spotify is open to get changes. Edits in Spot+ stay in Spot+.</p>${accountReadNotice(account)?`<p class="account-status">${esc(accountReadNotice(account))}</p>`:''}${account.skipped?`<p class="settings-note">${account.skipped} unsupported or unavailable items were skipped. The companion currently reads music tracks.</p>`:''}</section>`:''}
 
  <div id="accountSetup">${setupHtml(accountDevice)}</div>
   ${account?.playlists.length?`<section><h2>Your Spotify playlists</h2><div class="account-cards">${account.playlists.map(p=>`<a class="card" href="#/spotify-account/playlist/${p.id}">${img(p.cover)}<div class="ctitle">${esc(p.title)}</div><div class="csub">${p.status==='unavailable'&&!p.tracks.length?'Tracks unavailable':p.tracks.length+' songs'}${p.status==='unavailable'&&p.tracks.length?' · Saved copy':p.status==='partial'?' · Incomplete read':''}</div></a>`).join('')}</div></section>`:''}

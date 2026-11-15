@@ -1,6 +1,6 @@
 // Read-only Spotify web-client adapter. No cookie access, login or audio extraction.
 // Request names/hashes describe Spotify's interface; see ACCOUNT-CONNECTION.md.
-export const COMPANION_VERSION = '1.3.5';
+export const COMPANION_VERSION = '1.4.0';
 export const SPOTIFY_QUERY_URL = 'https://api-partner.spotify.com/pathfinder/v2/query';
 export const READ_QUERIES = Object.freeze({
   profileAttributes:'53bcb064f6cd18c23f752bc324a791194d20df612d8e1239c735144ab0399ced',
@@ -175,4 +175,49 @@ export async function readSpotifyAccount(query,{signal,onProgress=()=>{}}={}) {
 // Auto-read is scoped to an explicit, fresh Connect Spotify launch.
 export function canAutoRead({bridge,hostReady,authorization,attempted,now=Date.now()}){
  return !!hostReady&&!attempted&&!!bridge&&/^[a-f0-9]{32}$/.test(bridge.nonce||'')&&now>=bridge.started&&now-bridge.started<1800000&&['https://coye2.github.io','https://spot-plus-coyeb.coyeboymitchell2000.chatgpt.site'].includes(bridge.origin)&&/^Bearer\s+\S+$/.test(authorization||'');
+}
+
+// Clipboard handoff: Safari and an iPhone Home Screen app keep separate storage and
+// cannot message each other, but they share the system clipboard. The library is
+// gzip-compressed and base64-encoded behind a fixed prefix. Metadata only.
+export const LIBRARY_TEXT_PREFIX = 'SPOTPLUS-LIBRARY-1:';
+const LIBRARY_TEXT_LIMIT = 12 * 1024 * 1024;
+function toBase64(bytes) {
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) out += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(out);
+}
+export async function encodeLibraryText(library) {
+  const json = JSON.stringify(library);
+  if (typeof CompressionStream !== 'function') return LIBRARY_TEXT_PREFIX + 'json:' + json;
+  const gz = new Uint8Array(await new Response(new Blob([json]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+  return LIBRARY_TEXT_PREFIX + 'gz:' + toBase64(gz);
+}
+export function isLibraryText(value) { return typeof value === 'string' && value.trim().startsWith(LIBRARY_TEXT_PREFIX); }
+export async function decodeLibraryText(value) {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text.startsWith(LIBRARY_TEXT_PREFIX)) throw new Error('No Spot+ library found. On Spotify, tap Copy for Spot+ first.');
+  let body = text.slice(LIBRARY_TEXT_PREFIX.length);
+  if (body.startsWith('gz:')) body = body.replace(/\s+/g, ''); // Base64 may pick up line breaks when pasted.
+  const bad = () => new Error('The copied library is incomplete. On Spotify, tap Copy for Spot+ again.');
+  let json;
+  if (body.startsWith('json:')) json = body.slice(5);
+  else if (body.startsWith('gz:')) {
+    if (typeof DecompressionStream !== 'function') throw new Error('This browser cannot open copied libraries. Use Save library file instead.');
+    if (body.length > LIBRARY_TEXT_LIMIT * 2) throw new Error('The copied library is larger than the 12 MB limit.');
+    let bytes;
+    try { const raw = atob(body.slice(3)); bytes = new Uint8Array(raw.length); for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i); } catch { throw bad(); }
+    const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip')).pipeThrough(new TextDecoderStream()).getReader();
+    json = '';
+    try {
+      for (;;) {
+        const {done, value: chunk} = await reader.read();
+        if (done) break;
+        json += chunk;
+        if (json.length > LIBRARY_TEXT_LIMIT) { reader.cancel().catch(() => {}); throw new Error('The copied library is larger than the 12 MB limit.'); }
+      }
+    } catch (error) { if (/12 MB/.test(error.message)) throw error; throw bad(); }
+  } else throw bad();
+  if (json.length > LIBRARY_TEXT_LIMIT) throw new Error('The copied library is larger than the 12 MB limit.');
+  try { return JSON.parse(json); } catch { throw bad(); }
 }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Spot+ Spotify Library Companion
 // @namespace    https://coye2.github.io/spot-plus/
-// @version      1.3.5
+// @version      1.4.0
 // @description  Copy your signed-in Spotify music library to Spot+ on this device. Read only; no Premium requirement.
 // @updateURL    https://coye2.github.io/spot-plus/js/spotplus-spotify.meta.js
 // @downloadURL  https://coye2.github.io/spot-plus/js/spotplus-spotify.user.js
@@ -15,7 +15,7 @@
 (()=>{if(window.top!==window.self)return;(()=>{
 // Read-only Spotify web-client adapter. No cookie access, login or audio extraction.
 // Request names/hashes describe Spotify's interface; see ACCOUNT-CONNECTION.md.
-const COMPANION_VERSION = '1.3.5';
+const COMPANION_VERSION = '1.4.0';
 const SPOTIFY_QUERY_URL = 'https://api-partner.spotify.com/pathfinder/v2/query';
 const READ_QUERIES = Object.freeze({
   profileAttributes:'53bcb064f6cd18c23f752bc324a791194d20df612d8e1239c735144ab0399ced',
@@ -192,15 +192,61 @@ function canAutoRead({bridge,hostReady,authorization,attempted,now=Date.now()}){
  return !!hostReady&&!attempted&&!!bridge&&/^[a-f0-9]{32}$/.test(bridge.nonce||'')&&now>=bridge.started&&now-bridge.started<1800000&&['https://coye2.github.io','https://spot-plus-coyeb.coyeboymitchell2000.chatgpt.site'].includes(bridge.origin)&&/^Bearer\s+\S+$/.test(authorization||'');
 }
 
+// Clipboard handoff: Safari and an iPhone Home Screen app keep separate storage and
+// cannot message each other, but they share the system clipboard. The library is
+// gzip-compressed and base64-encoded behind a fixed prefix. Metadata only.
+const LIBRARY_TEXT_PREFIX = 'SPOTPLUS-LIBRARY-1:';
+const LIBRARY_TEXT_LIMIT = 12 * 1024 * 1024;
+function toBase64(bytes) {
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) out += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(out);
+}
+async function encodeLibraryText(library) {
+  const json = JSON.stringify(library);
+  if (typeof CompressionStream !== 'function') return LIBRARY_TEXT_PREFIX + 'json:' + json;
+  const gz = new Uint8Array(await new Response(new Blob([json]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+  return LIBRARY_TEXT_PREFIX + 'gz:' + toBase64(gz);
+}
+function isLibraryText(value) { return typeof value === 'string' && value.trim().startsWith(LIBRARY_TEXT_PREFIX); }
+async function decodeLibraryText(value) {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text.startsWith(LIBRARY_TEXT_PREFIX)) throw new Error('No Spot+ library found. On Spotify, tap Copy for Spot+ first.');
+  let body = text.slice(LIBRARY_TEXT_PREFIX.length);
+  if (body.startsWith('gz:')) body = body.replace(/\s+/g, ''); // Base64 may pick up line breaks when pasted.
+  const bad = () => new Error('The copied library is incomplete. On Spotify, tap Copy for Spot+ again.');
+  let json;
+  if (body.startsWith('json:')) json = body.slice(5);
+  else if (body.startsWith('gz:')) {
+    if (typeof DecompressionStream !== 'function') throw new Error('This browser cannot open copied libraries. Use Save library file instead.');
+    if (body.length > LIBRARY_TEXT_LIMIT * 2) throw new Error('The copied library is larger than the 12 MB limit.');
+    let bytes;
+    try { const raw = atob(body.slice(3)); bytes = new Uint8Array(raw.length); for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i); } catch { throw bad(); }
+    const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip')).pipeThrough(new TextDecoderStream()).getReader();
+    json = '';
+    try {
+      for (;;) {
+        const {done, value: chunk} = await reader.read();
+        if (done) break;
+        json += chunk;
+        if (json.length > LIBRARY_TEXT_LIMIT) { reader.cancel().catch(() => {}); throw new Error('The copied library is larger than the 12 MB limit.'); }
+      }
+    } catch (error) { if (/12 MB/.test(error.message)) throw error; throw bad(); }
+  } else throw bad();
+  if (json.length > LIBRARY_TEXT_LIMIT) throw new Error('The copied library is larger than the 12 MB limit.');
+  try { return JSON.parse(json); } catch { throw bad(); }
+}
+
 // Bundled with spotify-reader.js by build-companion.mjs. Runs only on open.spotify.com.
-/* global READ_QUERIES, SPOTIFY_QUERY_URL, COMPANION_VERSION, readSpotifyAccount, canAutoRead */
+/* global READ_QUERIES, SPOTIFY_QUERY_URL, COMPANION_VERSION, readSpotifyAccount, canAutoRead, encodeLibraryText */
 function runSpotifyCompanion(){
   if(location.origin!=='https://open.spotify.com'||document.getElementById('spotplus-companion'))return;
   const permittedOrigins=['https://coye2.github.io','https://spot-plus-coyeb.coyeboymitchell2000.chatgpt.site'];
   let targetOrigin=permittedOrigins[0];
   const originalFetch=window.fetch.bind(window), credentials={};
   const observedQueries=new Map();
-  let controller=null,library=null,host=null,bridge=null,receiver=null,autoAttempted=false,autoTimer,attemptedAuth=null,allowAuthRetry=false,autoCancelled=false;
+  const isIOS=/iPhone|iPad|iPod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+  let libraryText=null,controller=null,library=null,host=null,bridge=null,receiver=null,autoAttempted=false,autoTimer,attemptedAuth=null,allowAuthRetry=false,autoCancelled=false;
   try {
     const params=new URL(location.href).searchParams;
     const nonce=params.get('spotplus_bridge');
@@ -297,27 +343,38 @@ function runSpotifyCompanion(){
     if(!document.body)return;
     host=document.createElement('div');host.id='spotplus-companion';host.style.cssText='position:fixed;right:12px;bottom:88px;z-index:2147483647;max-width:calc(100vw - 24px)';
     const root=host.attachShadow({mode:'open'});
-    root.innerHTML='<style>:host{color-scheme:dark}*{box-sizing:border-box}section{font:14px/1.45 system-ui,sans-serif;color:#fff;background:#090e0b;border:1px solid #315d49;border-radius:16px;padding:16px;width:330px;max-width:100%;box-shadow:0 8px 36px #000a}h2{font-size:18px;margin:0 0 8px}p{color:#c2c9c4;margin:8px 0}button,a{font:inherit;min-height:44px;border:1px solid #315d49;background:#15231b;color:#fff;border-radius:22px;padding:9px 14px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;margin:4px 4px 0 0}button:first-of-type{background:#1b5e46}button:disabled{opacity:.5;cursor:wait}small{display:block;color:#abb6ae;margin-top:12px}#close{float:right;border:0;padding:4px;min-height:28px;margin:0;background:transparent}#cancel[hidden],#send[hidden],#save[hidden]{display:none}</style><section aria-label="Spot+ Spotify companion"><button id="close" aria-label="Minimize companion">−</button><h2>Spot+ companion · Beta</h2><div id="body"><p>Read your signed-in Spotify library. No Premium or developer account needed.</p><p id="status" role="status" aria-live="polite">Sign in and open Your Library, then tap Read library.</p><button id="read">Read library</button><button id="cancel" hidden>Cancel</button><button id="send" hidden>Send to Spot+</button><button id="save" hidden>Save library file</button><small>Reads Liked Songs, playlists, saved albums and followed artists. Only your profile and music details leave this page. Spotify cookies and session tokens stay here.</small></div></section>';
+    root.innerHTML='<style>:host{color-scheme:dark}*{box-sizing:border-box}section{font:14px/1.45 system-ui,sans-serif;color:#fff;background:#090e0b;border:1px solid #315d49;border-radius:16px;padding:16px;width:330px;max-width:100%;box-shadow:0 8px 36px #000a}h2{font-size:18px;margin:0 0 8px}p{color:#c2c9c4;margin:8px 0}button,a{font:inherit;min-height:44px;border:1px solid #315d49;background:#15231b;color:#fff;border-radius:22px;padding:9px 14px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;margin:4px 4px 0 0}button:first-of-type{background:#1b5e46}button:disabled{opacity:.5;cursor:wait}small{display:block;color:#abb6ae;margin-top:12px}#close{float:right;border:0;padding:4px;min-height:28px;margin:0;background:transparent}#cancel[hidden],#copy[hidden],#send[hidden],#save[hidden]{display:none}#copy{background:#1b5e46}</style><section aria-label="Spot+ Spotify companion"><button id="close" aria-label="Minimize companion">−</button><h2>Spot+ companion · Beta</h2><div id="body"><p>Read your signed-in Spotify library. No Premium or developer account needed.</p><p id="status" role="status" aria-live="polite">Sign in and open Your Library, then tap Read library.</p><button id="read">Read library</button><button id="cancel" hidden>Cancel</button><button id="copy" hidden>Copy for Spot+</button><button id="send" hidden>Send to Spot+</button><button id="save" hidden>Save library file</button><small>Reads Liked Songs, playlists, saved albums and followed artists. Only your profile and music details leave this page. Spotify cookies and session tokens stay here.</small></div></section>';
     document.body.append(host);
     const version=document.createElement('small');version.textContent='Helper '+COMPANION_VERSION;root.querySelector('h2').append(version);
     root.getElementById('close').onclick=()=>{const body=root.getElementById('body');body.hidden=!body.hidden;root.getElementById('close').textContent=body.hidden?'+':'−';};
     root.getElementById('cancel').onclick=()=>{clearTimeout(autoTimer);autoAttempted=true;autoCancelled=true;controller?.abort();};
     root.getElementById('read').onclick=async()=>{
       clearTimeout(autoTimer);autoAttempted=true;if(controller&&!controller.signal.aborted&&root.getElementById('read').disabled)return;
-      library=null;controller=new AbortController();controls(true);root.getElementById('send').hidden=true;root.getElementById('save').hidden=true;
+      library=null;libraryText=null;controller=new AbortController();controls(true);for(const id of ['copy','send','save'])root.getElementById(id).hidden=true;
       notify('reading');
       try{
         library=await readSpotifyAccount(query,{signal:controller.signal,onProgress:status});
         if(JSON.stringify(library).length>12*1024*1024)throw new Error('Your library exceeds the 12 MB phone transfer limit. Use Spotify’s data export.');
         const unavailable=library.playlists.filter(p=>p.status==='unavailable').length;
         const unreadable=library.likesUnreadable+library.playlists.reduce((n,p)=>n+(p.unreadable||0),0);
-        status('Ready for review: '+library.likes.length+' liked songs, '+library.playlists.length+' playlists.'+(unavailable?' '+unavailable+' unavailable; any saved copies will be kept.':'')+(unreadable?' Song entries with incomplete details: '+unreadable+'. Existing copies of affected collections will be kept; new collections contain the readable songs.':'')+' Review and send your library to Spot+.');
-        root.getElementById('send').hidden=false;root.getElementById('save').hidden=false;notify('done');
+        status('Ready for review: '+library.likes.length+' liked songs, '+library.playlists.length+' playlists.'+(unavailable?' '+unavailable+' unavailable; any saved copies will be kept.':'')+(unreadable?' Song entries with incomplete details: '+unreadable+'. Existing copies of affected collections will be kept; new collections contain the readable songs.':'')+(isIOS?' Tap Copy for Spot+, then open Spot+ and tap Paste from Spotify.':' Review and send your library to Spot+.'));
+        encodeLibraryText(library).then(text=>{libraryText=text;},()=>{libraryText=null;});
+        for(const id of ['copy','send','save'])root.getElementById(id).hidden=false;notify('done');
         sendLibrary();
       }catch(error){library=null;allowAuthRetry=/sign in|session expired/i.test(error.message||'');status(error.message||'Sync could not complete. Your previous library is kept.');notify('error');}
       finally{controls(false);}
     };
     root.getElementById('send').onclick=()=>sendLibrary(true);
+    // The clipboard is shared by Safari and the iPhone Home Screen app, so this works
+    // where tab messaging cannot. writeText runs inside the tap with prepared text.
+    root.getElementById('copy').onclick=()=>{
+      if(!library)return;
+      if(!libraryText){status('Preparing your library… tap Copy for Spot+ again in a moment.');return;}
+      if(!navigator.clipboard?.writeText){status('Copying is unavailable here. Choose Save library file instead.');return;}
+      navigator.clipboard.writeText(libraryText).then(
+        ()=>status('Copied. Open Spot+ and tap Paste from Spotify. Nothing was sent anywhere else.'),
+        ()=>status('Safari blocked copying. Tap Copy for Spot+ again, or choose Save library file.'));
+    };
     root.getElementById('save').onclick=()=>{
       if(!library)return;const url=URL.createObjectURL(new Blob([JSON.stringify(library)],{type:'application/json'}));
       const a=document.createElement('a');a.href=url;a.download='spotplus-spotify-library.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);
