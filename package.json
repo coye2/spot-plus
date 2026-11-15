@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node scripts/serve.mjs",
     "test": "node --test tests/*.test.mjs",
-    "lint": "eslint js scripts tests sw.js",
+    "lint": "eslint js scripts tests sw.js canvas-bridge/worker.js",
     "check": "node scripts/check.mjs",
     "build": "node scripts/build.mjs"
   },

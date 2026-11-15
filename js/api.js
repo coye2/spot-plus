@@ -3,7 +3,6 @@
 //   Audio    : public Piped / Invidious instances (the same idea Spotube uses: match the song on YouTube)
 //   Lyrics   : LRCLib (time-synced)
 // Requests go from the listener's browser to public providers; availability and CORS vary.
-import {chooseVideo} from './video-clips.js';
 import { getSettings, getVideoCache, setVideoCache } from './store.js';
 
 const DEEZER = 'https://api.deezer.com';
@@ -389,17 +388,4 @@ export async function lyrics(t) {
   }
   lyricCache.set(t.id, res);
   return res;
-}
-
-// User-selected Video mode only: race independent providers within one deadline.
-export async function findVideo(track,signal){
- const list=await instances(),settings=getSettings(),ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),8500);
- const combined=signal?AbortSignal.any([signal,ctl.signal]):ctl.signal;
- const lookup={...track,searchTitle:(track.searchTitle||track.title)+' official music video'};
- try{return await Promise.any(['piped','invidious'].flatMap(kind=>orderedInstances(kind,list,settings).slice(0,2).map(async base=>{
-  let items;
-  if(kind==='piped'){const d=await fetchJSON(base+'/search?q='+encodeURIComponent(query(lookup))+'&filter=videos',7000,combined);items=(d.items||[]).filter(x=>x.url?.includes('v=')).map(x=>({id:new URL(x.url,'https://youtube.com').searchParams.get('v'),title:x.title,channel:x.uploaderName}));}
-  else items=await invSearch(base,lookup,combined);
-  const result=chooseVideo(items,track);if(!result)throw new Error('No music video match');return result;
- })));}finally{clearTimeout(timer);ctl.abort();}
 }

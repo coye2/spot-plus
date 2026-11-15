@@ -1,9 +1,9 @@
 // Spot+ service worker: offline app shell + cached cover art. Audio downloads live in their own cache.
-const SHELL_CACHE = 'spotplus-shell-v21';
+const SHELL_CACHE = 'spotplus-shell-v23';
 const IMG_CACHE = 'spotplus-img-v1';
 const KEEP = [SHELL_CACHE, IMG_CACHE, 'spotplus-audio-v1', 'spotplus-live-voice-v1'];
 const SHELL = [
-  './js/video-clips.js','./js/player-gestures.js','./js/account-setup.js','./js/dj-recognition.js','./js/live-voice.js','./js/live-voice-worker.js','./js/dj-dialogue.js','./js/vendor/supertonic-text.js',
+  './js/canvas.js','./js/player-gestures.js','./js/account-setup.js','./js/dj-recognition.js','./js/live-voice.js','./js/live-voice-worker.js','./js/dj-dialogue.js','./js/vendor/supertonic-text.js',
   ...['afterhours','daylight','classic'].map(host=>'./audio/dj/'+host+'/preview.mp3'),
   './css/app-shell.css','./css/dj-voice.css','./js/shell.js','./js/dj-voice.js','./js/dj-hosts.js','./js/audio-buffer.js',
   './js/folders.js',

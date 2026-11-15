@@ -84,6 +84,7 @@
 
 <div id="np" class="np" hidden data-mode="art" aria-label="Now playing" tabindex="-1">
   <div class="np-bg" id="npBg"></div>
+  <div class="np-canvas" aria-hidden="true"><video id="npCanvas" muted loop playsinline preload="none" disablepictureinpicture></video><div class="np-canvas-shade"></div></div>
   <header class="np-top">
     <button class="icon" data-act="np-close" data-icon="down" aria-label="Close"></button>
     <div class="np-label">Now playing</div>
@@ -91,13 +92,13 @@
   </header>
   <div class="np-body">
     <div class="np-art"><img id="npArt" alt="" draggable="false"></div>
-    <div id="npVideo" class="np-video" hidden></div>
     <div class="np-panel">
       <div id="npLyrics" class="np-lyrics"></div>
       <div id="npQueue" class="np-queue"></div>
     </div>
   </div>
   <div class="np-foot">
+    <div class="np-canvas-status" id="npCanvasStatus" role="status"></div>
     <div class="np-info">
       <div class="np-text"><div id="npTitle"></div><button id="npArtist" class="link" data-act="np-artist"></button></div>
       <button class="icon" data-role="like" data-act="like-current" aria-label="Like"></button>
@@ -112,8 +113,8 @@
       <button class="icon" data-role="repeat" data-act="repeat" aria-label="Repeat"></button>
     </div>
     <div class="np-tabs">
-      <button data-act="np-tab" data-mode="art" class="on">Cover</button>
-      <button data-act="np-tab" data-mode="video">Video</button>
+      <button id="npCoverButton" data-act="canvas-cover" aria-pressed="false">Cover</button>
+      <button id="npCanvasButton" data-act="canvas-enable" aria-pressed="true">Canvas</button>
       <button data-act="np-tab" data-mode="lyrics"><i data-icon="lyrics"></i>Lyrics</button>
       <button data-act="np-tab" data-mode="queue"><i data-icon="queue"></i>Up next</button>
     </div>

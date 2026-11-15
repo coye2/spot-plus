@@ -1,12 +1,19 @@
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
+import { handle as canvasBridge } from '../canvas-bridge/worker.js';
 const root = resolve(process.argv[2] || '.');
 const port = Number(process.env.PORT || 8080);
 const types = { '.html':'text/html', '.js':'text/javascript', '.mjs':'text/javascript', '.css':'text/css', '.png':'image/png', '.json':'application/json', '.webmanifest':'application/manifest+json', '.svg':'image/svg+xml', '.wav':'audio/wav', '.mp3':'audio/mpeg' };
 createServer(async (req, res) => {
   try {
     const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+    if (pathname === '/canvas') {
+      const response = await canvasBridge(new Request('http://localhost'+req.url));
+      res.writeHead(response.status, Object.fromEntries(response.headers));
+      res.end(Buffer.from(await response.arrayBuffer()));
+      return;
+    }
     let file = resolve(root, '.' + pathname);
     if (file !== root && !file.startsWith(root + sep)) throw new Error('Invalid path');
     if ((await stat(file)).isDirectory()) file = resolve(file, 'index.html');

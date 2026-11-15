@@ -1,4 +1,4 @@
-import {youtubeId,embedUrl,savedVideo,saveVideo} from './video-clips.js';
+import {CanvasPlayer,canvasEnabled,setCanvasEnabled} from './canvas.js';
 // app.js — Spot+ UI: router, views, player bar, now-playing screen.
 import * as api from './api.js';
 import * as store from './store.js';
@@ -613,9 +613,8 @@ async function handleAct(act, el) {
     case 'np-close': closeNP(); break;
     case 'np-more': { const t = player.current(); if (t) trackSheet(t); break; }
     case 'np-tab': setNPMode(el.dataset.mode); break;
-    case 'clip-play': playVideoClip(el.dataset.full==='true');break;
-    case 'clip-link': {const id=youtubeId($('#clipUrl')?.value);if(!id){toast('Paste a YouTube video link.');break;}clipChoice={id,title:player.current()?.title||'Video'};saveVideo(player.current(),clipChoice);showClipChoice();break;}
-    case 'clip-retry': loadVideoClip();break;
+    case 'canvas-cover': canvasPreference=false;setCanvasEnabled(false);setNPMode('art');break;
+    case 'canvas-enable': canvasPreference=true;setCanvasEnabled(true);setNPMode('art',{retryCanvas:true});break;
     case 'np-queue': openNP('queue'); break;
     case 'np-artist': { const t = player.current(); if (t?.artistId) go(`#/artist/${t.artistId}`); break; }
     case 'q-jump': player.playIndex(+el.dataset.qi); break;
@@ -753,7 +752,7 @@ function openNP(mode) {
 function closeNP({ fromPop = false, nav = false } = {}) {
   if (!npOpen) return;
   npOpen = false;
-  stopVideoClip();
+  canvasPlayer.clear();
   document.body.classList.remove('has-panel');
   $('.app').inert=false;
   np.removeAttribute('aria-modal');np.removeAttribute('role');
@@ -764,15 +763,13 @@ function closeNP({ fromPop = false, nav = false } = {}) {
 }
 window.addEventListener('popstate', () => { if (npOpen && matchMedia(MOBILE_QUERY).matches) closeNP({ fromPop: true }); });
 matchMedia(MOBILE_QUERY).addEventListener('change',()=>{if(!npOpen)return;const mobile=matchMedia(MOBILE_QUERY).matches;$('.app').inert=mobile;if(mobile){np.setAttribute('role','dialog');np.setAttribute('aria-modal','true');np.focus();}else{np.removeAttribute('role');np.removeAttribute('aria-modal');}});
-function setNPMode(mode) {
+function setNPMode(mode,{retryCanvas=false}={}) {
   if (mode === npMode && mode !== 'art' && matchMedia(MOBILE_QUERY).matches && np.dataset.mode===mode && np.classList.contains('open')) mode = 'art';
-  if(npMode==='video'&&mode!=='video')stopVideoClip();
   npMode = mode;
-  $('#npVideo').hidden=mode!=='video';
-  if(mode==='video')loadVideoClip();
   np.dataset.mode = mode;
-  $('.np-label').textContent=mode==='queue'?'Queue':mode==='lyrics'?'Lyrics':mode==='video'?'Music video':'Now playing';
+  $('.np-label').textContent=mode==='queue'?'Queue':mode==='lyrics'?'Lyrics':'Now playing';
   $$('.np-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
+  syncCanvas(retryCanvas);
   if (mode === 'queue') renderQueue();
   if (mode === 'lyrics') { loadLyrics(); lyrUserScroll = 0; lyr.active = -1; syncLyrics(); }
 }
@@ -782,26 +779,32 @@ function syncNP() {
   const s = player.state;
   if (np.dataset.id !== t.id) {
     np.dataset.id = t.id;
-    if(npMode==='video'&&npOpen)loadVideoClip();
     $('#npArt').src = t.coverXl || t.cover || 'icons/icon-512.png';
     $('#npBg').style.backgroundImage = `url("${safeImage(t.coverXl || t.cover || 'icons/icon-512.png').replace(/"/g, '')}")`;
     $('#npTitle').textContent = t.title;
     $('#npArtist').textContent = t.artist;
   }
   $('#npSrc').textContent = s.offline ? (t.local?'Local audio · On this device':'Downloaded audio · On this device') : s.source?.preview ? '30-second preview · Deezer' : s.source ? `Audio · ${api.host(s.source.instance)}` : s.loading ? 'Finding audio… Tap play to cancel.' : s.error?'Audio unavailable. Retry or change audio source.':'Ready to play';
+  syncCanvas();
   if (npMode === 'queue') renderQueue();
   loadLyrics();
 }
-let clipRequest=0,clipAbort,clipChoice=null;
-function stopVideoClip(){clipRequest++;clipAbort?.abort();$('#npVideo').replaceChildren();clipChoice=null;}
-function clipLinkForm(){return '<details class="clip-link"><summary>Choose a YouTube video</summary><label for="clipUrl">Video link</label><input id="clipUrl" type="url" inputmode="url" placeholder="Paste YouTube link"><button class="btn" data-act="clip-link">Use this video</button></details>';}
-function showClipChoice(){const t=player.current();if(!t||!clipChoice)return;$('#npVideo').innerHTML='<img class="clip-poster" src="https://i.ytimg.com/vi/'+clipChoice.id+'/hqdefault.jpg" alt="Video thumbnail"><p class="clip-title">'+esc(clipChoice.title)+'</p><div class="clip-actions"><button class="btn primary" data-act="clip-play">Watch 30-second clip</button><button class="btn" data-act="clip-play" data-full="true">Full video</button></div><p class="small muted">YouTube video · Music pauses while you watch.</p>'+clipLinkForm();}
-async function loadVideoClip(){stopVideoClip();const request=clipRequest,t=player.current();if(!t)return;clipChoice=savedVideo(t);if(clipChoice){showClipChoice();return;}clipAbort=new AbortController();$('#npVideo').innerHTML='<p class="muted" role="status">Finding a music video…</p>';
- try{const choice=await api.findVideo(t,clipAbort.signal);if(request!==clipRequest||!npOpen||npMode!=='video')return;clipChoice=choice;showClipChoice();}catch{if(request!==clipRequest)return;$('#npVideo').innerHTML='<div class="clip-empty"><h3>No video found here yet</h3><p>Not every song has an available video. You can choose one yourself.</p><a class="btn" target="_blank" rel="noopener" href="https://www.youtube.com/results?search_query='+encodeURIComponent(t.artist+' '+t.title+' official music video')+'">Find on YouTube</a>'+clipLinkForm()+'<p class="small muted">Spotify Canvas loops are not available in Spot+.</p></div>';}}
-function playVideoClip(full=false){if(!clipChoice)return;if(player.state.loading)player.toggle();else player.el.pause();const frame=document.createElement('iframe');frame.src=embedUrl(clipChoice.id,!full);frame.title='YouTube video: '+clipChoice.title;frame.allow='autoplay; encrypted-media; picture-in-picture; fullscreen';frame.allowFullscreen=true;frame.referrerPolicy='strict-origin-when-cross-origin';$('#npVideo').replaceChildren(frame);const note=document.createElement('p');note.className='small muted';note.textContent=full?'YouTube · Full video':'YouTube · 30-second clip';$('#npVideo').append(note);const link=document.createElement('a');link.href='https://www.youtube.com/watch?v='+clipChoice.id;link.target='_blank';link.rel='noopener';link.className='link';link.textContent='Open on YouTube';$('#npVideo').append(link);}
-// Removing the embed stops its audio before any new music starts or the app is hidden.
-player.on('state',()=>{if(player.isPlaying()&&$('#npVideo iframe'))setNPMode('art');});
-document.addEventListener('visibilitychange',()=>{if(document.hidden&&$('#npVideo iframe'))setNPMode('art');});
+let canvasPreference=canvasEnabled({reducedMotion:matchMedia('(prefers-reduced-motion:reduce)').matches||document.body.dataset.motion==='reduced',saveData:navigator.connection?.saveData});
+const canvasPlayer=new CanvasPlayer($('#npCanvas'),{onState:state=>{
+  np.classList.toggle('has-canvas',state==='ready');
+  np.dataset.canvasState=state;
+  $('#npCanvasStatus').textContent=({loading:'Finding a loop…',waiting:'Canvas ready · Press play',ready:'',missing:'No Canvas for this song · Cover shown',error:'Canvas unavailable right now · Cover shown',blocked:'Tap Canvas to start the loop'})[state]||'';
+}});
+function syncCanvas(retry=false){
+  const inCover=npMode==='art';
+  $('#npCoverButton').classList.toggle('on',inCover&&!canvasPreference);
+  $('#npCoverButton').setAttribute('aria-pressed',String(inCover&&!canvasPreference));
+  $('#npCanvasButton').classList.toggle('on',inCover&&canvasPreference);
+  $('#npCanvasButton').setAttribute('aria-pressed',String(inCover&&canvasPreference));
+  canvasPlayer.sync(player.current(),{visible:npOpen&&inCover&&!document.hidden,enabled:canvasPreference,playing:player.isPlaying()&&!player.state.loading,retry});
+}
+player.on('state',()=>syncCanvas());
+document.addEventListener('visibilitychange',()=>syncCanvas());
 function qRow(t, idx, cur) {
   return `<div class="trow${cur ? ' playing' : ''}" data-act="q-jump" data-qi="${idx}">${img(t.cover, 'tcover')}
     <div class="tmeta"><div class="ttitle">${esc(t.title)}</div><div class="tsub">${esc(t.artist)}</div></div>

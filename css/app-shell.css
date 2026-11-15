@@ -40,7 +40,17 @@ body[data-motion=reduced] .dj-eq-bar,body[data-motion=reduced] .dj-orb-small::af
 @media(max-width:767px){.np[data-mode=art] .np-body,.np .np-top{touch-action:pan-x}.np .np-top::after{content:"";position:absolute;top:calc(var(--safe-top) + 3px);left:calc(50% - 17px);height:4px;width:34px;border-radius:99px;background:#ffffff55}}
 
 /* Optional video panel: independent playback, never a fake Canvas loop. */
-.np-video{width:100%;max-width:640px;min-width:0;text-align:center;overflow:auto;max-height:100%;padding:6px 0}.np-video[hidden]{display:none}.np[data-mode=video] .np-art,.np[data-mode=video] .np-panel{display:none}.np-video iframe{border:0;border-radius:12px;width:100%;min-height:200px;aspect-ratio:16/9;background:#000}.clip-poster{width:100%;max-height:210px;object-fit:cover;border-radius:12px}.clip-title{font-weight:650;margin:12px 0}.clip-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}.clip-link{margin:16px auto;max-width:400px;text-align:left}.clip-link summary{cursor:pointer;padding:8px 0}.clip-link label{display:block;margin-top:8px}.clip-link input{display:block;width:100%;min-width:0;margin:8px 0;font-size:16px;padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)}.clip-empty{padding:16px 8px}.clip-empty p{color:var(--muted);font-size:14px;line-height:1.5}.np-tabs button{flex:1;justify-content:center}
-@media(max-width:767px){.np[data-mode=video] .np-body{overflow:auto;align-items:flex-start;min-height:180px;margin:14px 0}.np[data-mode=video] .np-seek,.np[data-mode=video] .np-ctrls{display:none}.np[data-mode=video] .np-info{margin-bottom:14px}.np-video iframe{min-height:200px}.clip-poster{max-height:180px}}
 .np-art,.np-top{user-select:none;-webkit-user-select:none}.np-tabs button{white-space:nowrap;gap:5px}.np-tabs button svg{width:16px;height:16px}
-.np[data-mode=video] .np-src{display:none}@media(max-width:950px) and (max-height:500px) and (orientation:landscape){.np[data-mode=art] .np-body,.np .np-top{touch-action:pan-x}}
+@media(max-width:950px) and (max-height:500px) and (orientation:landscape){.np[data-mode=art] .np-body,.np .np-top{touch-action:pan-x}}
+
+/* Silent Canvas loops sit behind the player; audio controls remain independent. */
+.np-canvas{position:absolute;inset:0;z-index:0;pointer-events:none;opacity:0;transition:opacity .3s ease;overflow:hidden;background:#000}
+.np-canvas video,.np-canvas-shade{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.np-canvas-shade{background:linear-gradient(180deg,#0009 0%,#0001 25%,#0001 40%,#000b 65%,#000f 100%)}
+.np.has-canvas .np-canvas{opacity:1}.np.has-canvas .np-art{opacity:0;pointer-events:none}
+.np-top,.np-body,.np-foot{position:relative;z-index:1}.np-art{transition:opacity .2s ease}
+.np-canvas-status{font-size:11px;line-height:1.4;color:#ced8d2;margin:0 0 10px;text-align:center}.np-canvas-status:empty{display:none}
+.np-tabs button{flex:1;justify-content:center}.np.has-canvas{color:#fff}.np.has-canvas .np-top,.np.has-canvas .np-info{text-shadow:0 1px 6px #0008}
+.np.has-canvas #npArtist,.np.has-canvas .np-src{color:#d6dcd8}.np.has-canvas .np-tabs button.on{background:#ffffff26;color:#fff}
+.np.has-canvas .np-top,.np.has-canvas .np-foot{background:transparent}
+@media(prefers-reduced-motion:reduce){.np-canvas,.np-art{transition:none}}
