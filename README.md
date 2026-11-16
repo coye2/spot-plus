@@ -4,7 +4,7 @@
 
 # Spot+
 
-**A free, installable music app for phone and desktop.** Spotify-style design, your Spotify stats without a login, Jams without accounts, and an on-device AI DJ.
+**The free Spotify alternative and Spotify mod.** Spotify’s look and playlists in a free, installable app for phone and desktop, plus what Spotify doesn’t give you: Rewind stats anytime, Jams without Premium or accounts, and an on-device AI DJ.
 
 [**Open Spot+ →**](https://coye2.github.io/spot-plus/)
 
@@ -26,6 +26,7 @@
 | | |
 |---|---|
 | 🎧 **Full music player** | Search, queue, shuffle, repeat, lyrics, sleep timer, downloads, local files and lock-screen controls. |
+| 🧩 **Spotify mod** | An optional helper adds a Spot+ panel to Spotify’s own web player that copies your Liked Songs and playlists into Spot+. |
 | 🟢 **Spotify collections** | Charts, editorial, mood and decade playlists from Spotify, playable right in Spot+. Paste any playlist link to open it. |
 | 📊 **Rewind** | Your top songs, artists, genres and listening clock, plus a shareable story. Connect Spotify by pasting two links; it then stays up to date without a login. |
 | 👥 **Jam** | Listen together in sync on separate phones. Share a code or QR. No accounts, no servers, end-to-end encrypted. |
