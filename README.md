@@ -11,6 +11,7 @@
 [![Deploy](https://github.com/coye2/spot-plus/actions/workflows/pages.yml/badge.svg)](https://github.com/coye2/spot-plus/actions/workflows/pages.yml)
 ![PWA](https://img.shields.io/badge/PWA-installable-1B5E46)
 ![No accounts](https://img.shields.io/badge/accounts-none%20needed-1B5E46)
+![License](https://img.shields.io/badge/license-all%20rights%20reserved-555)
 ![Tests](https://img.shields.io/badge/tests-157%20passing-1B5E46)
 
 <img src="docs/screenshots/overview.png" alt="Spot+ home, a Spotify playlist, Jam and Connect Spotify screens" width="100%">
@@ -128,6 +129,10 @@ npx wrangler deploy
 ## Contributing
 
 Bug reports and ideas are welcome. Open an [issue](https://github.com/coye2/spot-plus/issues). See [CONTRIBUTING.md](CONTRIBUTING.md) for pull requests.
+
+## License
+
+**All rights reserved.** The source is public for transparency, but Spot+ is not open source. You may use the hosted app personally. Copying, modifying, redistributing or hosting it requires written permission. See [LICENSE](LICENSE).
 
 ## Disclaimer
 

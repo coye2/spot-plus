@@ -10,6 +10,10 @@ Open an [issue](https://github.com/coye2/spot-plus/issues/new/choose) and includ
 - what you did, what you expected and what happened instead
 - a screenshot or screen recording if it's visual
 
+## Before you contribute
+
+Spot+ is not open source (see [LICENSE](LICENSE)). By opening a pull request you agree that your contribution can be used in Spot+ under that license.
+
 ## Making changes
 
 1. Fork the repo and create a branch from `main`.
