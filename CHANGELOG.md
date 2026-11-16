@@ -2,6 +2,11 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.6.1 — Bigger launch logo
+_2026-11-16_
+
+- The Spot+ logo on the launch screen is a bit bigger.
+
 ## 1.6.0 — Daily Mixes, device sync, sing-along and more
 _2026-11-16_
 
