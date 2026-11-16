@@ -1,0 +1,11 @@
+name: Feature idea
+description: Suggest something new for Spot+
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+      description: Describe the feature and the problem it solves.
+    validations:
+      required: true

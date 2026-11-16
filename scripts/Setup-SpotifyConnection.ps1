@@ -3,7 +3,7 @@ param([switch]$ShowFiles)
 $ErrorActionPreference = 'Stop'
 $projectDirectory = Split-Path -Parent $PSScriptRoot
 $companionPath = Join-Path $projectDirectory 'js/spotplus-spotify.user.js'
-$guidePath = Join-Path $projectDirectory 'ACCOUNT-CONNECTION.md'
+$guidePath = Join-Path $projectDirectory 'docs\spotify-helper.md'
 if (-not (Test-Path -LiteralPath $companionPath -PathType Leaf)) {
     throw 'The companion is missing. Run the project build first or use the complete Spot+ download.'
 }

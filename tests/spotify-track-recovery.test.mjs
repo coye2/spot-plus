@@ -5,7 +5,7 @@ import {validateAccountSnapshot,mergeAccountSnapshot,accountReadNotice} from '..
 import {storageMock} from './helpers.mjs';
 
 // Synthetic metadata only: array artist/wrapper variants and getTrack's
-// firstArtist/otherArtists schema are documented in ACCOUNT-CONNECTION.md.
+// firstArtist/otherArtists schema are documented in docs/spotify-helper.md.
 const id=n=>String(n).padStart(22,'0');
 const song=(n=1)=>({__typename:'Track',uri:'spotify:track:'+id(n),name:'Song '+n,artists:{items:[{profile:{name:'Artist'}}]},duration:{totalMilliseconds:180000}});
 const sparse=(n=1)=>({...song(n),artists:undefined});
