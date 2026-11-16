@@ -340,3 +340,4 @@ details.rewind-data summary{cursor:pointer;font-weight:700;padding:6px 0}
 details.settings-more{padding:16px 0}details.settings-more>summary,.connection-help>summary{cursor:pointer;font-weight:700;padding:8px 0}details.settings-more>.box{border-bottom:0;padding:12px 0}
 .helper-optional .connection-help{margin-left:4px}
 @media (max-width:767px){.links-paste{flex-wrap:wrap}.links-paste textarea{flex-basis:100%}.links-paste .btn{flex:1}}
+.toast{display:flex;align-items:center;gap:12px}.toast-action{margin-left:auto;font-weight:800;color:var(--accent);background:none;border:0;padding:4px 2px;flex:none;cursor:pointer}

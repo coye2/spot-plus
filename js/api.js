@@ -98,7 +98,7 @@ export function normTrack(t, album) {
 const normAlbum = (a) => ({
   id: a.id, title: a.title, artist: a.artist?.name || '', artistId: a.artist?.id || null,
   cover: a.cover_medium || a.cover || '', coverXl: a.cover_xl || a.cover_big || '',
-  year: (a.release_date || '').slice(0, 4), type: a.record_type || 'album', count: a.nb_tracks || 0,
+  year: (a.release_date || '').slice(0, 4), released: a.release_date || '', type: a.record_type || 'album', count: a.nb_tracks || 0,
 });
 const normArtist = (a) => ({ id: a.id, name: a.name, picture: a.picture_medium || a.picture || '', pictureXl: a.picture_xl || a.picture_big || '', fans: a.nb_fan || 0 });
 const normPlaylist = (p) => ({
@@ -582,4 +582,9 @@ export async function artistPicture(name) {
 export async function trackArtwork(artist, title) {
   const t = data(await jsonp('/search/track', {q: `${artist} ${title}`, limit: 1}).catch(() => null))[0];
   return t ? {cover: t.album?.cover_medium || '', coverXl: t.album?.cover_xl || t.album?.cover_big || '', preview: t.preview || ''} : null;
+}
+
+/** Newest releases for one artist (cheap: one request). */
+export async function artistReleases(id) {
+  return data(await jsonp(`/artist/${id}/albums`, { limit: 12 })).map(normAlbum);
 }

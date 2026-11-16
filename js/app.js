@@ -8,6 +8,7 @@ import {recentPlaysAsHistory} from './stats-api.js';
 import {fetchSnapshot,newSyncKey,validSyncKey} from './relay-sync.js';
 // app.js — Spot+ UI: router, views, player bar, now-playing screen.
 import * as api from './api.js';
+import * as notify from './notify.js';
 import * as store from './store.js';
 await store.ready(); // Load the Spotify account copy from IndexedDB before the first render.
 import * as player from './player.js';
@@ -89,10 +90,11 @@ const setIcon = (el, name) => { if (el && el.dataset.cur !== name) { el.dataset.
 const main = $('#main');
 const view = $('#view');
 
-function toast(msg, { sticky = false } = {}) {
+function toast(msg, { sticky = false, action = null } = {}) {
   const el = document.createElement('div');
   el.className = 'toast';
   el.textContent = msg;
+  if (action) { const b = document.createElement('button'); b.className = 'toast-action'; b.textContent = action.label; b.onclick = () => { action.run(); el.remove(); }; el.append(b); }
   $('#toasts').appendChild(el);
   requestAnimationFrame(() => el.classList.add('show'));
   const close = (ms = 0) => setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); }, ms);
@@ -352,6 +354,8 @@ async function viewSettings() {
   return `<h1 class="settings-top">Settings</h1>
   <section class="box"><h2>Your profile</h2><label class="field"><span>Display name<small>Shown on your profile and in Jams.</small></span><input maxlength="60" data-setting="displayName" value="${esc(s.displayName)}"></label><a class="btn small" href="#/profile">View profile</a></section>
   <section class="box"><h2>Spotify</h2><p class="settings-note">${spotifyAccount||cachedLinks()?'Connected. Rewind and your profile update by themselves.':'Connect once to get Rewind, your profile picture and Made For You.'}</p><a class="btn primary" href="#/spotify-account">${spotifyAccount||cachedLinks()?'Manage Spotify':'Connect Spotify'}</a></section>
+  <section class="box"><h2>Notifications</h2>${notify.permission()==='unsupported'?'<p class="settings-note">This browser can’t show notifications. On iPhone, add Spot+ to your Home Screen first.</p>':notify.permission()==='granted'?'':`<p class="settings-note">${notify.permission()==='denied'?'Notifications are blocked for Spot+. Allow them in your browser or phone settings.':'Get a heads-up about new music and updates. Never more than two a day, and nothing at night.'}</p>${notify.permission()==='default'?'<button class="btn primary small" data-act="notify-enable">Turn on notifications</button>':''}`}
+  ${toggle('notifyReleases','New releases','When an artist you follow drops a song or album.')}${toggle('notifyStats','Weekly recap','Sunday evening: your minutes and most-played artist.')}${toggle('notifyUpdates','App updates','When a new version of Spot+ is ready.')}</section>
   <section class="box"><h2>Appearance</h2>${themeModeSwitch(s)}<p class="settings-note">Light, dark or automatic, with 19 color themes.</p><a class="btn" href="#/themes">Themes</a><label class="field"><span>Library and track spacing</span>${sel('density',[['comfortable','Comfortable'],['compact','Compact']])}</label><label class="field"><span>Text size</span>${sel('textSize',[['normal','Default'],['large','Larger']])}</label><label class="field"><span>Motion</span>${sel('motion',[['system','Follow system'],['reduced','Reduced']])}</label></section>
   <section class="box"><h2>Playback</h2>
     <label class="field"><span>Audio source<small>Full tracks depend on reachable audio servers. Preview mode plays short samples only.</small></span>${sel('source', [['auto', 'Automatic'], ['piped', 'Piped'], ['invidious', 'Invidious'],['audius','Audius public releases'],['preview','Deezer previews (30 sec)']])}</label>
@@ -686,6 +690,7 @@ async function handleAct(act, el) {
     case 'links-add': {const field=$('#spotifyLinksField'),status=$('#linksStatus');if(!field?.value.trim())return toast('Paste a Spotify link first.');el.disabled=true;status.textContent='Reading from Spotify…';
       try{const added=await addLinks(field.value);field.value='';toast('Linked: '+added.join(', '));await route({keepScroll:true});syncAvatars();}catch(e){status.textContent=e.message;}finally{el.disabled=false;}break;}
     case 'links-paste': {const field=$('#spotifyLinksField');try{const text=await navigator.clipboard.readText();if(!/spotify/i.test(text))return toast('Copy a Spotify link first, then tap Paste.');field.value=(field.value.trim()+'\n'+text).trim();$('[data-act="links-add"]')?.click();}catch{toast('Long-press the box and choose Paste.');field.focus();}break;}
+    case 'notify-enable': {const p=await Notification.requestPermission().catch(()=>'denied');toast(p==='granted'?'Notifications are on.':'Notifications stay off. You can allow them later in your settings.');if(p==='granted')notify.show({title:'Notifications are on',body:'You’ll hear about new releases and your weekly recap.'},'welcome');route({keepScroll:true});break;}
     case 'links-clear': if(await confirmBox('Remove Spotify links?','Rewind keeps the history it already saved.','Remove')){await clearLinks();route({keepScroll:true});}break;
     case 'jam-open': closeSheet();go('#/jam');break;
     case 'jam-react': jam.react(el.dataset.emoji);break;
@@ -1445,6 +1450,39 @@ store.onChange((key) => {
 document.addEventListener('error',event=>{if(event.target instanceof HTMLImageElement&&event.target.closest('.spotify-profile-photo'))event.target.hidden=true;},true);
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; const b = $('#installBtn'); if (b) b.hidden = false; });
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'}).catch((e) => console.warn('SW failed', e));
+/* ---------------- Notifications ---------------- */
+let hadController=!!navigator.serviceWorker?.controller,updateShown=false;
+navigator.serviceWorker?.addEventListener('controllerchange',()=>{
+  if(!hadController){hadController=true;return;}
+  if(updateShown||!store.getSettings().notifyUpdates)return;updateShown=true;
+  if(document.hidden){let st=notify.loadState();if(notify.canSend(st,'update')){notify.show({title:'Spot+ was updated',body:'Open Spot+ to get the newest version.'},'update');notify.saveState(notify.markSent(st,'update'));}}
+  else toast('A new version of Spot+ is ready.',{sticky:true,action:{label:'Update',run:()=>location.reload()}});
+});
+navigator.serviceWorker?.addEventListener('message',e=>{if(e.data?.type==='open'&&e.data.url)go(e.data.url);});
+async function deliver(kind,msg){
+  if(!msg)return;
+  let st=notify.loadState();const visible=!document.hidden;
+  if(!notify.canSend(st,kind,Date.now(),{visible}))return;
+  const sent=visible?(toast(msg.title+' — '+msg.body,{action:{label:'Open',run:()=>go(msg.url)}}),true):await notify.show(msg,kind);
+  if(sent)notify.saveState(notify.markSent(notify.loadState(),kind));
+}
+let notifyBusy=false;
+async function runNotifyChecks(){
+  if(notifyBusy||!navigator.onLine)return;notifyBusy=true;
+  try{
+    const s=store.getSettings();let st=notify.loadState();
+    if(s.notifyReleases&&!(st.releasesChecked>Date.now()-12*3600000)){
+      const artists=store.getArtists().slice(0,30),byArtist={};
+      for(const a of artists){try{byArtist[a.id]=await api.artistReleases(a.id);}catch{/* skip this artist */}}
+      const {fresh,seen}=notify.pickNewReleases(st.seen||{},byArtist);
+      st={...notify.loadState(),seen,releasesChecked:Date.now()};notify.saveState(st);
+      await deliver('release',notify.releaseMessage(fresh));
+    }
+    if(s.notifyStats&&new Date().getDay()===0&&new Date().getHours()>=17)await deliver('stats',notify.weeklyRecap(await readHistory().catch(()=>[])));
+  }finally{notifyBusy=false;}
+}
+setTimeout(runNotifyChecks,8000);setInterval(runNotifyChecks,3*3600000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout(runNotifyChecks,3000);});
 
 player.restore();
 applyPreferences();
