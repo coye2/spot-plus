@@ -22,7 +22,7 @@ jobs:
       - name: Skip when Cloudflare isn't connected yet
         if: env.HAS_TOKEN != 'true'
         run: echo "Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets to enable automatic deploys."
-      - uses: cloudflare/wrangler-action@v3
+      - uses: cloudflare/wrangler-action@v4
         if: env.HAS_TOKEN == 'true'
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
