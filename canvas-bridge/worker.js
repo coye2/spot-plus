@@ -1,3 +1,4 @@
+import {youtubeMatch} from './youtube-match.js';
 // A narrow public-metadata adapter, never an arbitrary URL or credential proxy.
 import {spotifyStats} from './spotify-stats.js';
 import {spotifyPublic} from './spotify-public.js';
@@ -68,8 +69,9 @@ export async function handle(request, {fetcher=fetch,cache,waitUntil=()=>{},env}
   if (request.method !== 'GET') return json({error:'Use GET'},405);
   const url = new URL(request.url);
   if (url.pathname === '/spotify-stats') return spotifyStats(request,{fetcher,cache,waitUntil});
+  if (url.pathname === '/match') return youtubeMatch(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/spotify-public') return spotifyPublic(request,{fetcher,cache,waitUntil});
-  if (url.pathname === '/health') return json({service:'Spot+ Canvas bridge',status:'ok',lyrics:true,spotifyPublic:true});
+  if (url.pathname === '/health') return json({service:'Spot+ Canvas bridge',status:'ok',lyrics:true,spotifyPublic:true,match:true});
   if (url.pathname === '/lyrics-search') return lyricsSearch(url,{fetcher,cache,waitUntil});
   if (url.pathname !== '/canvas') return json({error:'Not found'},404);
   const query = queryFor(url.searchParams);

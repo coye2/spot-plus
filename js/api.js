@@ -236,6 +236,21 @@ export function instances(force = false) {
   return force ? instancePromise : Promise.resolve(instanceSnapshot);
 }
 
+// Shared match lookup on the Spot+ bridge: one fast, edge-cached search for every user.
+export const MATCH_ENDPOINT = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/match';
+let matchDown = 0;
+async function bridgeMatches(t, signal) {
+  if (matchDown > Date.now()) throw new Error('Match lookup paused');
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 2500);
+  try {
+    const r = await fetch(MATCH_ENDPOINT + '?q=' + encodeURIComponent(query(t)), {signal: signal ? AbortSignal.any([signal, ctl.signal]) : ctl.signal, credentials: 'omit'});
+    if (r.status === 404) matchDown = Date.now() + 3600e3;
+    if (!r.ok) throw new Error('Match lookup unavailable');
+    const matches = best(((await r.json()).items || []).slice(0, 8), t);
+    if (!matches.length) throw new Error('No match');
+    return matches;
+  } finally { clearTimeout(timer); }
+}
 const goodKey = 'spotplus.goodInstance';
 const failedInstances = new Map();
 function lastGood() { try { return JSON.parse(localStorage.getItem(goodKey) || '{}'); } catch { return {}; } }
@@ -378,6 +393,8 @@ async function resolveUncached(t, { skip = [], signal } = {}, _retry = false) {
   const control=new AbortController();
   const deadline=setTimeout(()=>control.abort(),18000);
   const combined=signal?AbortSignal.any([signal,control.signal]):control.signal;
+  // Ask the shared lookup once; every server below can skip its own search when it answers first.
+  const shared=cached?null:bridgeMatches(t,combined);shared?.catch(()=>{});
   try {
     const groups=kinds(set.source).map(kind=>kind==='audius'?[{kind,base:'https://api.audius.co'}]:orderedInstances(kind,inst,set).slice(0,10).map(base=>({kind,base})));
     const sources=[];for(let i=0;i<10;i++)for(const group of groups)if(group[i]&&!skip.includes(group[i].base))sources.push(group[i]);
@@ -389,7 +406,7 @@ async function resolveUncached(t, { skip = [], signal } = {}, _retry = false) {
       catch(error){if(!combined.aborted)recordSpeed(base,performance.now()-began,false);throw error;}
     },{signal:combined,quality:set.quality,concurrency:6,qualityWait:450});
     async function attemptServer(kind,base){
-      const choices=cached?[cached]:(await ENGINES[kind].search(base,t,combined)).slice(0,3);
+      const choices=cached?[cached]:(await Promise.any([shared,ENGINES[kind].search(base,t,combined)].filter(Boolean))).slice(0,3);
       for(const choice of choices){
         try {const stream=await ENGINES[kind].stream(base,choice.id,combined,cached?.manual?null:t);combined.throwIfAborted();return {...stream,videoId:choice.id,instance:base,kind};}
         catch(error){combined.throwIfAborted();if(choice===choices.at(-1))throw error;}
