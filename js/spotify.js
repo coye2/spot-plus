@@ -1,6 +1,18 @@
 // Public Spotify embeds and user-selected exports. No passwords, cookies or tokens.
 export const collections=[
   {
+    "id": "37i9dQZEVXbMDoHDwVN2tF",
+    "title": "Top 50 - Global",
+    "category": "Charts",
+    "cover": "https://charts-images.scdn.co/assets/locale_en/regional/daily/region_global_default.jpg"
+  },
+  {
+    "id": "37i9dQZEVXbLRQDuF5jeBp",
+    "title": "Top 50 - USA",
+    "category": "Charts",
+    "cover": "https://charts-images.scdn.co/assets/locale_en/regional/daily/region_us_default.jpg"
+  },
+  {
     "id": "37i9dQZF1DXcBWIGoYBM5M",
     "title": "Today’s Top Hits",
     "category": "Editorial",
@@ -17,6 +29,96 @@ export const collections=[
     "title": "Viva Latino",
     "category": "Editorial",
     "cover": "https://i.scdn.co/image/ab67706f0000000214fdfb5cfd606164a8fa6121"
+  },
+  {
+    "id": "37i9dQZF1DX4dyzvuaRJ0n",
+    "title": "mint",
+    "category": "Editorial",
+    "cover": "https://i.scdn.co/image/ab67706f000000027c0d2b8585ca941163c7ce29"
+  },
+  {
+    "id": "37i9dQZF1DX1lVhptIYRda",
+    "title": "Hot Country",
+    "category": "Editorial",
+    "cover": "https://i.scdn.co/image/ab67706f000000026b1bf0c0eeb4192a3c13d5a6"
+  },
+  {
+    "id": "37i9dQZF1DX4SBhb3fqCJd",
+    "title": "RNB X",
+    "category": "Editorial",
+    "cover": "https://i.scdn.co/image/ab67706f000000025a28b43bc413c2648b55d061"
+  },
+  {
+    "id": "37i9dQZF1DXcF6B6QPhFDv",
+    "title": "MARROW",
+    "category": "Editorial",
+    "cover": "https://i.scdn.co/image/ab67706f000000023543badbd59c2e5d7eaeece6"
+  },
+  {
+    "id": "37i9dQZF1DX4WYpdgoIcn6",
+    "title": "Chill Hits",
+    "category": "Moods",
+    "cover": "https://i.scdn.co/image/ab67706f000000020408713c731caaf1f800615a"
+  },
+  {
+    "id": "37i9dQZF1DWZeKCadgRdKQ",
+    "title": "Deep Focus",
+    "category": "Moods",
+    "cover": "https://i.scdn.co/image/ab67706f000000026020f2f6476db518ef747da4"
+  },
+  {
+    "id": "37i9dQZF1DX4sWSpwq3LiO",
+    "title": "Peaceful Piano",
+    "category": "Moods",
+    "cover": "https://i.scdn.co/image/ab67706f0000000270e1fb7db7b45809d6a80377"
+  },
+  {
+    "id": "37i9dQZF1DWWQRwui0ExPn",
+    "title": "lofi beats",
+    "category": "Moods",
+    "cover": "https://i.scdn.co/image/ab67706f00000002266beb50b0032b0f140a749e"
+  },
+  {
+    "id": "37i9dQZF1DX76Wlfdnj7AP",
+    "title": "Beast Mode",
+    "category": "Moods",
+    "cover": "https://i.scdn.co/image/ab67706f00000002f367481f06b565250cc7b139"
+  },
+  {
+    "id": "37i9dQZF1DWWMOmoXKqHTD",
+    "title": "Songs to Sing in the Car",
+    "category": "Moods",
+    "cover": "https://i.scdn.co/image/ab67706f0000000292af799a11403259b8474500"
+  },
+  {
+    "id": "37i9dQZF1DX4UtSsGT1Sbe",
+    "title": "All Out 80s",
+    "category": "Decades",
+    "cover": "https://i.scdn.co/image/ab67706f000000028c767aab2034bb8fafd33124"
+  },
+  {
+    "id": "37i9dQZF1DXbTxeAdrVG2l",
+    "title": "All Out 90s",
+    "category": "Decades",
+    "cover": "https://i.scdn.co/image/ab67706f000000021eb48d2e1cd771ef1c6abc39"
+  },
+  {
+    "id": "37i9dQZF1DX4o1oenSJRJd",
+    "title": "All Out 2000s",
+    "category": "Decades",
+    "cover": "https://i.scdn.co/image/ab67706f00000002043bfef44142136749fc2917"
+  },
+  {
+    "id": "37i9dQZF1DX5Ejj0EkURtP",
+    "title": "All Out 2010s",
+    "category": "Decades",
+    "cover": "https://i.scdn.co/image/ab67706f00000002ddeb90231491c14812b062ff"
+  },
+  {
+    "id": "37i9dQZF1DWXRqgorJj26U",
+    "title": "Rock Classics",
+    "category": "Decades",
+    "cover": "https://i.scdn.co/image/ab67706f00000002694bf33281695f3b7542a09a"
   },
   {
     "id": "37i9dQZF1DZ06evO3n0Aus",
@@ -38,18 +140,6 @@ export const collections=[
     "artist": "Taylor Swift",
     "category": "This Is",
     "cover": "https://i.scdn.co/image/ab67706f00000002fb24bccb89a4fbbd3fdf201b"
-  },
-  {
-    "id": "37i9dQZF1DXbzvkbLgvQvI",
-    "title": "Viva Latino No. 1s",
-    "category": "Editorial",
-    "cover": "https://i.scdn.co/image/ab67706f0000000223748c4e1779c5aefef3cc7e"
-  },
-  {
-    "id": "37i9dQZF1DWZFV9Asvj1J9",
-    "title": "RapCaviar Presents: Best Hip-Hop Songs of 2025",
-    "category": "Editorial",
-    "cover": "https://i.scdn.co/image/ab67706f00000002b414d16d320ee77cb187a773"
   }
 ];
 export function parseSpotifyLink(input){

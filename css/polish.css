@@ -320,3 +320,16 @@ html{background-color:var(--edge,var(--canvas))!important}
 .helper-optional>summary{font-weight:700}
 .rw-moods{display:flex;flex-wrap:wrap;gap:8px}
 .rw-moods span{padding:8px 14px;border-radius:999px;background:linear-gradient(120deg,color-mix(in srgb,var(--accent) 35%,var(--bg3)),var(--bg3));font-weight:600;text-transform:capitalize}
+
+/* Icons instead of emoji-prone glyphs */
+.rewind-link-icon{display:grid;place-items:center;width:36px;height:36px;border-radius:50%;background:color-mix(in srgb,var(--text) 10%,transparent);flex:none}.rewind-link-icon svg{width:20px;height:20px;fill:currentColor}
+.rw-cta-play{padding-left:0}.rw-cta-play svg{width:24px;height:24px;fill:currentColor}.rw-songs .icon svg{width:18px;height:18px;fill:currentColor}
+/* Cards: no stuck hover boxes on touch; desktop hover box aligned to the padded card */
+@media (hover:none),(max-width:767px){.card:hover,.card:focus-visible,[data-mode=light] .card:hover{background:transparent!important}.card:active{opacity:.72}}
+@media (hover:hover) and (min-width:768px){.shelf .card,.cards-grid .card{padding:10px;border-radius:8px}.card.round img,.card.round .ph-cover{border-radius:50%}}
+/* Spotify page */
+.spotify-heading{padding:20px 0 4px}.spotify-heading h1{margin:6px 0}.link-cta{display:flex;align-items:center;gap:14px;padding:14px 16px;margin:16px 0;border-radius:10px;background:var(--bg3);color:var(--text);max-width:640px}.link-cta>span{display:grid;place-items:center;width:40px;height:40px;border-radius:50%;background:var(--accent);color:var(--on-contrast);flex:none}.link-cta svg{width:22px;height:22px;fill:currentColor}.link-cta>div{flex:1;min-width:0}.link-cta small{display:block;color:var(--muted);font-size:12px;margin-top:2px}.link-cta>svg{color:var(--muted)}
+#spotifyLinkForm{max-width:640px;margin:8px 0 8px}
+.actions>.btn.spotify-open{width:auto;height:40px;padding:0 18px;display:inline-flex;align-items:center;gap:8px}.actions>.btn.spotify-open svg{width:18px;height:18px;fill:currentColor}
+details.rewind-data summary{cursor:pointer;font-weight:700;padding:6px 0}
+#spotifyLinkForm{display:flex;flex-wrap:nowrap!important;gap:8px}#spotifyLinkForm input{flex:1 1 auto!important;min-width:0;width:auto!important}#spotifyLinkForm .btn{flex:none}
