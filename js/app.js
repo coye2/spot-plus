@@ -20,6 +20,7 @@ import {clipSource,hasLocalClip,prefetchClips} from './canvas-cache.js';
 import {Jam,jamLink,validJamCode} from './jam.js';
 import qrcode from './vendor/qrcode.js';
 import {shouldOnboard,showOnboarding} from './onboarding.js';
+import {shouldShowLanding,showLanding} from './landing.js';
 import {addLinks,syncLinks,loadLinks,cachedLinks,clearLinks,madeForYou,fetchPublic} from './spotify-links.js';
 import {bindPlayerDismiss} from './player-gestures.js';
 import {COMPANION_INSTALL_URL,connectionDevice,setupHtml,spotifyConnectionURLs,helperInstallHtml,copyHelperInstallLink,spotifyProfileHtml} from './account-setup.js';
@@ -381,8 +382,7 @@ async function viewSettings() {
     <p class="settings-note">Local audio files are stored separately and are kept when downloads are cleared.</p><button class="btn small" data-act="import-local">Add local audio files</button>
   </section>
   <section class="box"><h2>Install</h2>
-    <button class="btn small primary" data-act="install" ${installEvt ? '' : 'hidden'} id="installBtn">Install Spot+</button>
-    <p class="muted">Android/desktop Chrome: use the install button or the browser menu → Install app. iPhone: Safari → Share → Add to Home Screen.</p>
+    ${isStandalone()?'<p class="muted">Spot+ is installed on this device.</p>':'<button class="btn small primary" data-act="open-landing">Install Spot+</button><p class="muted">One button for iPhone, Android and computers.</p>'}
   </section>
   <section class="box"><h2>DJ</h2>${toggle('djVoice','DJ voice','Choose your host in DJ preferences.')}<a class="btn small" href="#/dj">Open DJ</a><p class="settings-note">Turn on live conversation from the DJ screen (one-time 600 MB download).</p><button class="btn small" data-act="dj-live-remove">Remove DJ downloads</button></section>
   <details class="box settings-more"><summary>About, shortcuts and what’s supported</summary>
@@ -691,6 +691,7 @@ async function handleAct(act, el) {
       try{const added=await addLinks(field.value);field.value='';toast('Linked: '+added.join(', '));await route({keepScroll:true});syncAvatars();}catch(e){status.textContent=e.message;}finally{el.disabled=false;}break;}
     case 'links-paste': {const field=$('#spotifyLinksField');try{const text=await navigator.clipboard.readText();if(!/spotify/i.test(text))return toast('Copy a Spotify link first, then tap Paste.');field.value=(field.value.trim()+'\n'+text).trim();$('[data-act="links-add"]')?.click();}catch{toast('Long-press the box and choose Paste.');field.focus();}break;}
     case 'notify-enable': {const p=await Notification.requestPermission().catch(()=>'denied');toast(p==='granted'?'Notifications are on.':'Notifications stay off. You can allow them later in your settings.');if(p==='granted')notify.show({title:'Notifications are on',body:'You’ll hear about new releases and your weekly recap.'},'welcome');route({keepScroll:true});break;}
+    case 'open-landing': showLanding({qr:landingQR,getPrompt:()=>installEvt,usedPrompt:()=>{installEvt=null;},standalone:isStandalone()});break;
     case 'links-clear': if(await confirmBox('Remove Spotify links?','Rewind keeps the history it already saved.','Remove')){await clearLinks();route({keepScroll:true});}break;
     case 'jam-open': closeSheet();go('#/jam');break;
     case 'jam-react': jam.react(el.dataset.emoji);break;
@@ -1372,6 +1373,7 @@ function jamGuestControl(action){
   if(!jam.guestControl){toast('Only the host can control playback in this Jam.');return true;}
   jam.control(action);return true;
 }
+function landingQR(url){try{const q=qrcode(0,'M');q.addData(url);q.make();return q.createSvgTag({cellSize:5,margin:1,scalable:true});}catch{return '';}}
 function jamQR(code){try{const q=qrcode(0,'M');q.addData(jamLink(code));q.make();return q.createSvgTag({cellSize:5,margin:2,scalable:true});}catch{return '';}}
 function syncJamChip(){
   let chip=$('#jamChip');
@@ -1498,9 +1500,10 @@ function dismissWelcome(){try{localStorage.setItem('spotplus.welcome','1');}catc
 {
   const standalone=isStandalone(),device=connectionDevice(navigator.userAgent,navigator.platform,navigator.maxTouchPoints);
   const deepLink=/spotify-account|#\/jam\//.test(location.hash);
-  if(!deepLink&&shouldOnboard({standalone}))setTimeout(()=>showOnboarding({icons:I,standalone,platform:device,currentMode:store.getSettings().themeMode||'dark',
+  const landing=shouldShowLanding({standalone,hash:location.hash})?showLanding({qr:landingQR,getPrompt:()=>installEvt,usedPrompt:()=>{installEvt=null;},standalone}):Promise.resolve();
+  if(!deepLink&&shouldOnboard({standalone}))landing.then(()=>setTimeout(()=>showOnboarding({icons:I,standalone,platform:device,currentMode:store.getSettings().themeMode||'dark',
     canInstall:()=>!!installEvt,install:async()=>{if(!installEvt)return;installEvt.prompt();await installEvt.userChoice.catch(()=>{});installEvt=null;},
-    onTheme:patch=>store.setSettings(patch),onConnect:()=>go('#/spotify-account'),onRestore:()=>$('#welcomeBackup').click()}),400);
+    onTheme:patch=>store.setSettings(patch),onConnect:()=>go('#/spotify-account'),onRestore:()=>$('#welcomeBackup').click()}),400));
 }
 window.dispatchEvent(new Event('spotplus-ready'));
 let intentTimer;
