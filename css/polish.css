@@ -349,3 +349,13 @@ details.settings-more{padding:16px 0}details.settings-more>summary,.connection-h
 .fx-slider{display:block;margin:10px 0}.fx-slider span{display:flex;justify-content:space-between;font-weight:700;font-size:14px;margin-bottom:6px}.fx-slider b{color:var(--text);font-variant-numeric:tabular-nums}
 .fx-slider input{width:100%;accent-color:var(--accent);height:28px}
 .fx-row{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 10px}
+
+/* Download toggle */
+.dl-toggle{position:relative;border-radius:50%!important}
+.dl-toggle.busy{background:conic-gradient(var(--accent) calc(var(--p)*1%),color-mix(in srgb,var(--text) 14%,transparent) 0)!important;color:var(--text)}
+.dl-toggle.busy::before{content:'';position:absolute;inset:3px;border-radius:50%;background:var(--canvas)}.dl-toggle.busy svg{position:relative}
+.dl-toggle.done{background:var(--accent)!important;color:var(--on-contrast,#000)!important}
+
+/* What's new */
+.whats-new{padding:0 4px 12px;max-height:60vh;overflow:auto}.whats-new h3{font-size:17px;margin:14px 0 6px}.whats-new h3 small{color:var(--muted);font-weight:600;font-size:12px;margin-left:6px}
+.whats-new ul{margin:0;padding-left:20px}.whats-new li{margin:6px 0;line-height:1.45;color:var(--text)}.whats-new .link{display:inline-block;margin-top:12px;color:var(--accent);font-weight:700}

@@ -1,6 +1,7 @@
 // Sound effects: speed, pitch, reverb, room size, bass, lo-fi and 8D, live on the device.
 // Speed works on any song. The rest uses the Web Audio graph below.
-import {corsOK} from './cors-probe.js';
+import {corsOK, knownCors} from './cors-probe.js';
+export {knownCors};
 const KEY = 'spotplus.fx';
 export const DEFAULTS = {preset: 'off', speed: 1, keepPitch: true, pitch: 0, reverb: 0, room: 'hall', bass: 0, lofi: false, eightD: false};
 export const ROOMS = {
@@ -35,16 +36,31 @@ export const isActive = s => needsGraph(s) || s.speed !== 1;
 export function impulse(ctx, room) {
   const r = ROOMS[room] || ROOMS.hall, rate = ctx.sampleRate, length = Math.floor(rate * r.seconds), pre = Math.floor(rate * r.predelay);
   const buffer = ctx.createBuffer(2, length + pre, rate);
+  const smooth = Math.exp(-2 * Math.PI * r.tone / rate), keep = 1 - smooth;
+  // Exponential tail by repeated multiplication: same shape, a fraction of the work of pow() per sample.
+  const step = Math.exp(-r.decay * 2.3 / length);
+  let seed = 22222;
+  const rand = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 2147483648) - 1;
   for (let c = 0; c < 2; c++) {
     const data = buffer.getChannelData(c);
-    let last = 0; const smooth = Math.exp(-2 * Math.PI * r.tone / rate);
-    for (let i = 0; i < length; i++) {
-      const noise = (Math.random() * 2 - 1) * Math.pow(1 - i / length, r.decay);
-      last = noise * (1 - smooth) + last * smooth; // darker tail for bigger rooms
-      data[i + pre] = last * 2.2;
-    }
+    let last = 0, env = 2.2;
+    for (let i = 0; i < length; i++) { last = rand() * env * keep + last * smooth; data[i + pre] = last; env *= step; }
+    // Fade the last 5% so long rooms end without a click.
+    const fade = Math.floor(length * 0.05);
+    for (let i = 0; i < fade; i++) data[pre + length - 1 - i] *= i / fade;
   }
   return buffer;
+}
+const impulses = new Map();
+function roomBuffer(room) {
+  if (!impulses.has(room)) impulses.set(room, impulse(ctx, room));
+  return impulses.get(room);
+}
+/** Build every room in idle moments so switching rooms never stalls. */
+function prewarmRooms() {
+  const queue = Object.keys(ROOMS).filter(room => !impulses.has(room));
+  const next = () => { const room = queue.shift(); if (!room || !ctx) return; roomBuffer(room); (globalThis.requestIdleCallback || setTimeout)(next, {timeout: 400}); };
+  (globalThis.requestIdleCallback || setTimeout)(next, {timeout: 400});
 }
 
 let settings = load(), ctx = null, nodes = null;
@@ -56,14 +72,16 @@ export const get = () => ({...settings});
 
 function build() {
   ctx = new (globalThis.AudioContext || globalThis.webkitAudioContext)({latencyHint: 'playback'});
-  const input = ctx.createGain(), bass = ctx.createBiquadFilter(), lofi = ctx.createBiquadFilter(), dry = ctx.createGain(), wet = ctx.createGain(), convolver = ctx.createConvolver(), pan = ctx.createStereoPanner(), lfo = ctx.createOscillator(), depth = ctx.createGain(), out = ctx.createGain();
+  const input = ctx.createGain(), bass = ctx.createBiquadFilter(), lofi = ctx.createBiquadFilter(), dry = ctx.createGain(), wet = ctx.createGain(), convA = ctx.createConvolver(), convB = ctx.createConvolver(), gainA = ctx.createGain(), gainB = ctx.createGain(), pan = ctx.createStereoPanner(), lfo = ctx.createOscillator(), depth = ctx.createGain(), out = ctx.createGain();
   bass.type = 'lowshelf'; bass.frequency.value = 110;
   lofi.type = 'lowpass'; lofi.frequency.value = 20000; lofi.Q.value = 0.4;
   lfo.frequency.value = 0.11; depth.gain.value = 0; lfo.connect(depth).connect(pan.pan); lfo.start();
   input.connect(bass).connect(lofi);
-  lofi.connect(dry).connect(pan); lofi.connect(convolver).connect(wet).connect(pan);
+  gainB.gain.value = 0;
+  lofi.connect(dry).connect(pan); lofi.connect(convA).connect(gainA).connect(wet); lofi.connect(convB).connect(gainB).connect(wet); wet.connect(pan);
   pan.connect(out).connect(ctx.destination);
-  nodes = {input, bass, lofi, dry, wet, convolver, pan, depth, out, room: null, pitch: null};
+  nodes = {input, bass, lofi, dry, wet, convs: [convA, convB], gains: [gainA, gainB], active: 0, pan, depth, out, room: null, pitch: null};
+  prewarmRooms();
   ctx.audioWorklet?.addModule(new URL('./pitch-worklet.js', import.meta.url)).then(() => {
     nodes.pitch = new AudioWorkletNode(ctx, 'spotplus-pitch', {outputChannelCount: [2]});
     input.disconnect(); input.connect(nodes.pitch).connect(bass);
@@ -107,15 +125,29 @@ function applyGraph() {
   ramp(nodes.wet.gain, s.reverb * 1.1);
   ramp(nodes.dry.gain, 1 - s.reverb * 0.45);
   ramp(nodes.depth.gain, s.eightD ? 0.95 : 0);
-  if (nodes.room !== s.room) { nodes.convolver.buffer = impulse(ctx, s.room); nodes.room = s.room; }
+  if (nodes.room !== s.room) {
+    if (nodes.room === null) { nodes.convs[0].buffer = roomBuffer(s.room); }
+    else { // Load the new room into the idle reverb, then crossfade (no click, no gap).
+      const next = 1 - nodes.active; nodes.convs[next].buffer = roomBuffer(s.room);
+      nodes.gains[next].gain.setTargetAtTime(1, t, 0.06); nodes.gains[nodes.active].gain.setTargetAtTime(0, t, 0.06); nodes.active = next;
+    }
+    nodes.room = s.room;
+  }
   nodes.pitch?.parameters.get('ratio').setTargetAtTime(Math.pow(2, s.pitch / 12), t, 0.02);
 }
 
-let appliedRate = 0, appliedKeep = null;
+let appliedRate = 0, appliedKeep = null, glide = 0;
+function glideRate(media, target) {
+  cancelAnimationFrame(glide);
+  const from = media.playbackRate || 1, start = performance.now(), ms = Math.abs(target - from) > 0.05 ? 220 : 0;
+  if (!ms || typeof requestAnimationFrame !== 'function') { media.playbackRate = target; return; }
+  const tick = now => { const k = Math.min(1, (now - start) / ms), e = 1 - (1 - k) ** 3; media.playbackRate = from + (target - from) * e; if (k < 1) glide = requestAnimationFrame(tick); };
+  glide = requestAnimationFrame(tick);
+}
 function applyRate(media) {
   if (!media) return;
   const rate = Math.max(0.5, Math.min(1.5, settings.speed));
-  if (media.playbackRate !== rate || appliedRate !== rate) { media.defaultPlaybackRate = rate; media.playbackRate = rate; appliedRate = rate; }
+  if (media.playbackRate !== rate || appliedRate !== rate) { media.defaultPlaybackRate = rate; glideRate(media, rate); appliedRate = rate; }
   if (appliedKeep !== settings.keepPitch || media.preservesPitch !== settings.keepPitch) { media.preservesPitch = settings.keepPitch; media.webkitPreservesPitch = settings.keepPitch; appliedKeep = settings.keepPitch; }
 }
 
@@ -126,14 +158,15 @@ export function bind(media) {
   route(media);
 }
 let probing = null;
-async function route(media) {
-  if (!media || !needsGraph(settings)) { if (nodes) applyGraph(); return; }
+async function route(media, warm = false) {
+  if (!media || (!needsGraph(settings) && !warm)) { if (nodes) applyGraph(); return; }
   if (!ctx) build();
   if (ctx.state !== 'running') ctx.resume().catch(() => {});
   if (sources.has(media)) { applyGraph(); return; }
   const src = media.currentSrc || media.src;
   if (!src || src.startsWith('data:')) return;
   if (media.crossOrigin === 'anonymous') { try { attach(media, false); } catch { /* already routed */ } applyGraph(); return; }
+  if (warm && !needsGraph(settings)) { corsOK(src); return; } // Just learn; never restart a song only because the panel opened.
   if (probing === media) return;
   probing = media;
   const ok = await corsOK(src);
@@ -153,4 +186,10 @@ export function set(patch, storage = globalThis.localStorage) {
   listeners.forEach(fn => fn(get()));
 }
 export const usePreset = name => set(fromPreset(name));
+/** Called when the effects panel opens: builds the sound engine and every reverb room ahead of time. */
+export function warmUp() {
+  if (!ctx) build();
+  if (ctx.state !== 'running') ctx.resume().catch(() => {});
+  if (current) route(current, true);
+}
 export const resume = () => { if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {}); };

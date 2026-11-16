@@ -23,8 +23,10 @@ document.addEventListener('touchmove', event => { if (event.touches.length > 1) 
 const splash = document.getElementById('splash');
 const hideSplash = () => { splash?.classList.add('leaving'); setTimeout(() => splash?.remove(), 220); };
 // Never keep a listener waiting for catalog requests or an unavailable module.
-const deadline = setTimeout(hideSplash, 850);
-window.addEventListener('spotplus-ready', () => { clearTimeout(deadline); setTimeout(hideSplash, 140); }, { once: true });
+// Show the splash for at least ~1.6s so it reads as a proper launch screen, but never longer than 3s.
+const shownAt = performance.now(), MIN_SPLASH = 1600;
+const deadline = setTimeout(hideSplash, 3000);
+window.addEventListener('spotplus-ready', () => { clearTimeout(deadline); setTimeout(hideSplash, Math.max(140, MIN_SPLASH - (performance.now() - shownAt))); }, { once: true });
 
 const pane = document.getElementById('main');
 const content = document.getElementById('view');

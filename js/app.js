@@ -10,6 +10,7 @@ import {fetchSnapshot,newSyncKey,validSyncKey} from './relay-sync.js';
 import * as api from './api.js';
 import * as notify from './notify.js';
 import * as fx from './fx.js';
+import {unseen as unseenReleases,markSeen as markReleasesSeen,APP_VERSION} from './changelog.js';
 import * as store from './store.js';
 await store.ready(); // Load the Spotify account copy from IndexedDB before the first render.
 import * as player from './player.js';
@@ -292,7 +293,7 @@ async function viewAlbum(id) {
   return header({ cover: a.coverXl || a.cover, kicker: a.type || 'Album', title: a.title,
       sub: `<a href="#/artist/${a.artistId}">${esc(a.artist)}</a> · ${esc(a.year)} · ${plural(tracks.length, 'song')}, ${total(tracks)}` })
     + actions(k, `<button class="btn" data-act="save-album" aria-pressed="${store.hasAlbum(id)}">${store.hasAlbum(id)?I.check:I.plus}<span>${store.hasAlbum(id)?'Saved':'Save album'}</span></button><button class="icon" data-act="save-list" data-key="${k}" aria-label="Copy album to a playlist">${I.more}</button>
-      <button class="btn icon-only" data-act="download-list" data-key="${k}" aria-label="Download all">${I.download}</button>`)
+      ${dlButton(k)}`)
     + trackRows(allowed, k, { numbered: true });
 }
 
@@ -303,7 +304,7 @@ async function viewPlaylist(id) {
       sub: `${p.by ? esc(p.by) + ' · ' : ''}${plural(tracks.length, 'song')}, ${total(tracks)}` })
     + (p.description ? `<p class="muted desc">${esc(p.description)}</p>` : '')
     + actions(k, `<button class="btn" data-act="save-list" data-key="${k}">${I.plus}<span>Save</span></button>
-      <button class="btn icon-only" data-act="download-list" data-key="${k}" aria-label="Download all">${I.download}</button>`)
+      ${dlButton(k)}`)
     + trackRows(tracks, k);
 }
 
@@ -321,7 +322,7 @@ function viewLiked() {
   const likes = store.getLikes();
   const k = reg(likes);
   return header({ coverHtml: `<div class="ph-cover grad big">${I.heartFill}</div>`, kicker: 'Playlist', title: 'Liked Songs', sub: `${plural(likes.length, 'song')}${likes.length ? ', ' + total(likes) : ''}` })
-    + (likes.length ? actions(k, `<button class="btn icon-only" data-act="download-list" data-key="${k}" aria-label="Download all">${I.download}</button>`) : '')
+    + (likes.length ? actions(k, dlButton(k,'liked')) : '')
     + (likes.length?trackRows(likes,k):emptyState('Songs you like will appear here','Save a song using its options menu. You can find it here whenever you want to listen.', 'Search music', '#/search'));
 }
 
@@ -330,7 +331,7 @@ function viewMy(id) {
   if (!p) return '<div class="empty"><h2>Playlist not found</h2><a class="btn" href="#/library">Back to library</a></div>';
   const k = reg(p.tracks, { playlistId: p.id, name: p.name });
   return header({ coverHtml: mosaic(p.tracks), kicker: 'Your playlist', title: p.name, sub: `${plural(p.tracks.length, 'song')}${p.tracks.length&&p.tracks.every(t=>t.duration>0) ? ', ' + total(p.tracks) : ''}` })
-    + actions(k, `<button class="btn icon-only" data-act="download-list" data-key="${k}" aria-label="Download all">${I.download}</button>
+    + actions(k, `${dlButton(k,'pl:'+p.id)}
       <button class="btn icon-only" data-act="folder-move" data-id="${p.id}" aria-label="Move to folder">${I.folder}</button>
       <button class="btn icon-only" data-act="rename-pl" data-id="${p.id}" aria-label="Rename">${I.edit}</button>
       <button class="btn icon-only" data-act="delete-pl" data-id="${p.id}" aria-label="Delete">${I.trash}</button>`)
@@ -475,28 +476,61 @@ async function startRadio(t) {
   } catch (e) { tt.set(`Couldn't start radio: ${e.message}`); }
 }
 
-let dlBusy = false;
-async function downloadTracks(tracks) {
-  const todo = tracks.filter((t) => !t.local && !store.isDownloaded(t.id));
-  if(store.getSettings().source==='preview')return toast('Preview mode cannot download full songs. Choose a full audio source in Settings.');
-  if (!todo.length) return toast('Already downloaded');
-  if (dlBusy) return toast('Another download is still running');
-  dlBusy = true;
-  const tt = toast('Starting download…', { sticky: true });
-  let ok = 0, fail = 0;
-  for (let i = 0; i < todo.length; i++) {
-    const t = todo[i];
-    const label = todo.length > 1 ? `${i + 1}/${todo.length}: ` : '';
-    tt.set(`Downloading ${label}${t.title}`);
-    try {
-      await player.download(t, (p) => tt.set(`Downloading ${label}${t.title} — ${Math.round(p * 100)}%`));
-      ok++;
-    } catch (e) { fail++; console.warn('Download failed', t.title, e); }
-  }
-  tt.set(fail ? `Downloaded ${ok}, ${fail} failed (that server may block downloads; try again later)` : `Downloaded ${plural(ok, 'song')}`);
-  tt.close(4000);
-  dlBusy = false;
+/* ---------------- Downloads (Spotify-style toggle) ---------------- */
+// One job at a time, 3 songs at once. The header button fills up as it goes and turns green when done.
+let dlJob = null;
+const KEEP_KEY='spotplus.keepDownloaded';
+const keptLists=()=>{try{return JSON.parse(localStorage.getItem(KEEP_KEY)||'[]');}catch{return [];}};
+const setKept=(id,on)=>{const set=new Set(keptLists());on?set.add(id):set.delete(id);try{localStorage.setItem(KEEP_KEY,JSON.stringify([...set]));}catch{}};
+const keptTracks=id=>id==='liked'?store.getLikes():id.startsWith('pl:')?(store.getPlaylist(id.slice(3))?.tracks||[]):[];
+function dlState(tracks,keep){
+  const list=tracks.filter(t=>!t.local);
+  if(dlJob&&(dlJob.keep?dlJob.keep===keep:false))return {state:'busy',pct:dlJob.total?Math.round(dlJob.done/dlJob.total*100):0};
+  if(list.length&&list.every(t=>store.isDownloaded(t.id)))return {state:'done',pct:100};
+  return {state:'',pct:0};
 }
+function dlButton(k,keep=''){
+  const {state,pct}=dlState(listOf(k).tracks,keep||k);
+  const label=state==='busy'?`Downloading, ${pct}%. Tap to stop`:state==='done'?'Downloaded. Tap to remove':'Download';
+  return `<button class="btn icon-only dl-toggle ${state}" data-act="download-list" data-key="${k}" data-keep="${esc(keep)}" style="--p:${pct}" aria-label="${label}">${state==='done'?I.check:I.download}</button>`;
+}
+function refreshDl(){
+  for(const b of $$('.dl-toggle')){
+    const keep=b.dataset.keep||b.dataset.key,{state,pct}=dlState(listOf(b.dataset.key).tracks,keep);
+    b.className=`btn icon-only dl-toggle ${state}`;b.style.setProperty('--p',pct);
+    b.setAttribute('aria-label',state==='busy'?`Downloading, ${pct}%. Tap to stop`:state==='done'?'Downloaded. Tap to remove':'Download');
+    b.innerHTML=state==='done'?I.check:I.download;
+  }
+}
+async function downloadTracks(tracks,{keep='',quiet=false}={}) {
+  const todo = tracks.filter((t) => !t.local && !store.isDownloaded(t.id));
+  if(store.getSettings().source==='preview'){if(!quiet)toast('Preview mode cannot download full songs. Choose a full audio source in Settings.');return;}
+  if (!todo.length) { if(!quiet)toast('Already downloaded'); refreshDl(); return; }
+  if (dlJob) { if(!quiet)toast('Another download is still running'); return; }
+  const controller=new AbortController();
+  dlJob={keep,done:0,failed:0,total:todo.length,controller};refreshDl();
+  const tt=quiet?null:toast(`Downloading ${plural(todo.length,'song')}…`,{sticky:true});
+  let cursor=0;
+  const worker=async()=>{while(cursor<todo.length&&!controller.signal.aborted){const t=todo[cursor++];
+    try{await player.download(t,()=>{},controller.signal);}catch(e){if(!controller.signal.aborted){dlJob.failed++;console.warn('Download failed',t.title,e);}}
+    dlJob.done++;tt?.set(`Downloading ${dlJob.done}/${dlJob.total}`);refreshDl();$$(`.trow[data-id="${CSS.escape(String(t.id))}"]`).forEach(row=>{if(store.isDownloaded(t.id)&&!row.querySelector('.dl-mark'))row.querySelector('.tdur')?.insertAdjacentHTML('beforebegin',`<span class="dl-mark" title="Downloaded">${I.download}</span>`);});}};
+  await Promise.all([worker(),worker(),worker()]);
+  const {failed,done}=dlJob,stopped=controller.signal.aborted;dlJob=null;refreshDl();
+  if(tt){tt.set(stopped?'Download stopped':failed?`Downloaded ${done-failed}, ${failed} couldn’t download (try again later)`:`Downloaded ${plural(done,'song')}`);tt.close(3500);}
+}
+async function toggleListDownload(k,keep){
+  const tracks=listOf(k).tracks,{state}=dlState(tracks,keep||k);
+  if(state==='busy'){dlJob?.controller.abort();return;}
+  if(state==='done'){
+    openSheet({head:'<div class="sheet-title">Remove download?</div>',items:[{icon:I.trash||I.close,label:'Remove from this device',sub:'You can still stream these songs',fn:async()=>{for(const t of tracks)if(store.isDownloaded(t.id))await player.removeDownload(t.id);if(keep)setKept(keep,false);toast('Download removed');route({keepScroll:true});}}]});
+    return;
+  }
+  if(keep)setKept(keep,true);
+  downloadTracks(tracks,{keep:keep||k});
+}
+// Lists you turned downloading on for stay downloaded: new songs download quietly in the background.
+function topUpKept(){if(dlJob||!navigator.onLine)return;for(const id of keptLists()){const tracks=keptTracks(id);if(tracks.some(t=>!t.local&&!store.isDownloaded(t.id))){downloadTracks(tracks,{keep:id,quiet:true});return;}}}
+setTimeout(topUpKept,12000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout(topUpKept,4000);});
 
 function playlistPicker(tracks) {
   openSheet({
@@ -644,7 +678,7 @@ async function handleAct(act, el) {
       if (name) { const p = store.createPlaylist(name, tracks); toast('Saved'); go(`#/my/${p.id}`); }
       break;
     }
-    case 'download-list': downloadTracks(listOf(key).tracks); break;
+    case 'download-list': toggleListDownload(key, el.dataset.keep||''); break;
     case 'new-playlist': {
       const folderId=location.hash.match(/^#\/folder\/(folder[\w-]+)$/)?.[1];
       const name = await ask({ title: 'New playlist', placeholder: 'Playlist name', ok: 'Create' });
@@ -1137,14 +1171,23 @@ function fxSheet(refresh=false){
     ${slider('bass','Bass',-6,12,1)}
     <div class="fx-row">${chip('fx-toggle','data-key="eightD"','8D audio',s.eightD)}${chip('fx-toggle','data-key="lofi"','Lo-fi',s.lofi)}</div>
     <p class="settings-note fx-note">${fx.isBlocked()?'This song’s audio server doesn’t allow reverb, pitch or bass, so it plays normally. Speed still works, and effects come back on the next song that allows them.':'Effects stay on for every song until you choose Off. Headphones recommended for 8D.'}</p></div>`;
-  if(refresh&&!sheet.hidden&&$('#sheetPanel .fx')){$('#sheetPanel .fx').outerHTML=body;return;}
+  if(refresh&&!sheet.hidden&&$('#sheetPanel .fx')){syncFx();return;}
+  fx.warmUp();
   openSheet({head:'<div class="sheet-title">Sound effects</div>',body});
+}
+// Update the open panel in place (no redraw, so a slider being dragged is never interrupted).
+function syncFx(){
+  const s=fx.get(),panel=$('#sheetPanel .fx');if(!panel)return;
+  for(const input of $$('input[data-fx]',panel)){const k=input.dataset.fx;if(document.activeElement!==input)input.value=s[k];const label=$('#fxv-'+k);if(label)label.textContent=fxFmt[k](s[k]);}
+  $$('[data-preset]',panel).forEach(c=>c.classList.toggle('on',c.dataset.preset===s.preset));
+  $$('[data-room]',panel).forEach(c=>c.classList.toggle('on',c.dataset.room===s.room));
+  $$('[data-key]',panel).forEach(c=>{const k=c.dataset.key;c.classList.toggle('on',k==='keepPitch'?!s.keepPitch:!!s[k]);if(k==='keepPitch')c.textContent=s.keepPitch?'Speed keeps pitch':'Speed changes pitch (vinyl)';});
 }
 let fxFrame=0,fxPending={};
 document.addEventListener('input',e=>{const key=e.target.dataset?.fx;if(!key)return;const v=Number(e.target.value);fxPending[key]=v;if(!fxFrame)fxFrame=requestAnimationFrame(()=>{fxFrame=0;const patch=fxPending;fxPending={};fx.set(patch);});const label=$('#fxv-'+key);if(label)label.textContent=fxFmt[key](v);$$('.fx-presets .chip').forEach(c=>c.classList.remove('on'));});
 let fxEl=null;
 const fxBind=()=>{if(player.el!==fxEl){fxEl=player.el;fx.bind(player.el);}};
-player.setEffectsHooks({effectsOn:()=>fx.needsGraph(fx.get()),isCaptured:fx.isCaptured,prepareElement:fx.prepare});
+player.setEffectsHooks({effectsOn:()=>fx.needsGraph(fx.get()),isCaptured:fx.isCaptured,prepareElement:fx.prepare,corsKnown:fx.knownCors});
 player.on('time',()=>{if(player.el===fxEl&&!fx.isCaptured(fxEl)&&fx.needsGraph(fx.get()))fx.bind(fxEl);});
 const fxBadge=()=>{$('.np-fx')?.classList.toggle('on',fx.isActive(fx.get()));const note=$('#sheetPanel .fx-note');if(note&&fx.isBlocked())note.textContent='This song’s audio server doesn’t allow reverb, pitch or bass, so it plays normally. Speed still works, and effects come back on the next song that allows them.';};
 $('.np-fx')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();fxSheet();});
@@ -1540,6 +1583,12 @@ function dismissWelcome(){try{localStorage.setItem('spotplus.welcome','1');}catc
     onTheme:patch=>store.setSettings(patch),onConnect:()=>go('#/spotify-account'),onRestore:()=>$('#welcomeBackup').click()}),400));
 }
 window.dispatchEvent(new Event('spotplus-ready'));
+/* ---------------- What's new ---------------- */
+function whatsNew(releases){
+  const body=`<div class="whats-new">${releases.map(r=>`<section><h3>${esc(r.title)} <small>${esc(r.version)}</small></h3><ul>${r.items.map(i=>`<li>${esc(i)}</li>`).join('')}</ul></section>`).join('')}<a class="link" href="https://github.com/coye2/spot-plus/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Full changelog</a></div>`;
+  openSheet({head:`<div class="sheet-title">What’s new in Spot+ ${esc(APP_VERSION)}</div>`,body});
+}
+{const fresh=unseenReleases();if(fresh.length&&!$('.lp'))setTimeout(()=>{if(sheet.hidden)whatsNew(fresh);},2200);markReleasesSeen();}
 let intentTimer;
 document.addEventListener('pointerover',event=>{const target=event.target.closest('[data-act="track-play"]');if(!target||store.getSettings().preloadNext===false)return;clearTimeout(intentTimer);intentTimer=setTimeout(()=>api.prewarm(listOf(target.dataset.key).tracks[+target.dataset.i]),140);});
 document.addEventListener('pointerdown',event=>{const target=event.target.closest('[data-act="track-play"]');if(target&&store.getSettings().preloadNext!==false)api.prewarm(listOf(target.dataset.key).tracks[+target.dataset.i]);},{passive:true});

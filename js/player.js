@@ -14,8 +14,8 @@ export const on = (ev, fn) => listeners[ev].add(fn);
 /** Every media element the player uses (current + preloaded next). */
 export const mediaElements = () => [audio, nextBuffer.spare];
 /* Effects hooks (set by fx.js): which elements are routed through effects, and whether effects are on. */
-let effectsOn = () => false, isCaptured = () => false, prepareElement = async () => {};
-export function setEffectsHooks(hooks) { ({effectsOn, isCaptured, prepareElement} = {effectsOn, isCaptured, prepareElement, ...hooks}); }
+let effectsOn = () => false, isCaptured = () => false, prepareElement = async () => {}, corsKnown = () => undefined;
+export function setEffectsHooks(hooks) { ({effectsOn, isCaptured, prepareElement, corsKnown} = {effectsOn, isCaptured, prepareElement, corsKnown, ...hooks}); }
 // A plain element held in reserve (unlocked on the first tap, never routed through effects) for songs whose
 // server doesn't allow effects. A routed element would play them silently.
 let plainSpare = null;
@@ -142,6 +142,10 @@ async function load(opts = {}) {
         audio.volume = volumeLevel * (ducks.size ? .18 : 1);
         emit('effects-skipped');
       } else if (!isCaptured(audio) && effectsOn()) await prepareElement(audio, src);
+      // Effects off: if this server is already known to allow effects, get ready anyway so switching
+      // them on later is seamless (no restart). Unknown or refusing servers play exactly as before.
+      else if (!isCaptured(audio) && corsKnown(src) === true) audio.crossOrigin = 'anonymous';
+      else if (!isCaptured(audio)) audio.removeAttribute('crossorigin');
       if (my !== token) return;
       audio.src = src;
     }
@@ -391,12 +395,13 @@ export async function offlineBlob(id) {
     return r ? await r.blob() : null;
   } catch { return null; }
 }
-export async function download(t, onProgress = () => {}) {
+export async function download(t, onProgress = () => {}, signal) {
   if (!('caches' in window)) throw new Error('This browser can’t store offline audio');
   navigator.storage?.persist?.().catch(() => {});
-  const r = await api.resolve(t);
+  // Downloads read the audio directly, which needs a server that allows it: prefer those.
+  const r = await api.resolve(t, {cors: true, signal});
   if (r.preview) throw new Error('Preview mode provides short samples, not full-song downloads. Choose a full audio source in Settings.');
-  const res = await fetch(r.url);
+  const res = await fetch(r.url, {signal});
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const total = Number(res.headers.get('content-length')) || 0;
   const chunks = [];

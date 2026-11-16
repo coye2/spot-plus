@@ -22,6 +22,8 @@
 
 ---
 
+See what changed in each update: **[Changelog](CHANGELOG.md)**
+
 ## Highlights
 
 | | |
