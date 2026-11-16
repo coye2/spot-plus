@@ -34,6 +34,9 @@ See what changed in each update: **[Changelog](CHANGELOG.md)**
 | 🧩 **Spotify mod** | An optional helper adds a Spot+ panel to Spotify’s own web player that copies your Liked Songs and playlists into Spot+. |
 | 🟢 **Spotify collections** | Charts, editorial, mood and decade playlists from Spotify, playable right in Spot+. Paste any playlist link to open it. |
 | 📊 **Rewind** | Your top songs, artists, genres and listening clock, plus a shareable story. Connect Spotify by pasting two links; it then stays up to date without a login. |
+| 🎲 **Daily Mixes & Smart Radio** | Fresh mixes every day from what you play and skip, and music that keeps going when your queue ends. |
+| 🔗 **Your devices & shared playlists** | Keep your library in sync across phone and computer, and edit playlists live with friends. Encrypted, no accounts. |
+| 🎤 **Sing-along** | Turn the vocals down and follow lyrics that fill in as you sing. |
 | 👥 **Jam** | Listen together in sync on separate phones. Share a code or QR. No accounts, no servers, end-to-end encrypted. |
 | 🎙️ **Spot+ DJ** | Talk or type to request music. Optional live mode runs a small AI model and voice entirely on your device. |
 | 🎬 **Canvas loops** | Full-screen portrait video loops behind the player, like Spotify mobile. |

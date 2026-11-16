@@ -19,6 +19,13 @@ export function setEffectsHooks(hooks) { ({effectsOn, isCaptured, prepareElement
 // A plain element held in reserve (unlocked on the first tap, never routed through effects) for songs whose
 // server doesn't allow effects. A routed element would play them silently.
 let plainSpare = null;
+/* Smart Radio + learning hooks (set by the app). */
+let continueQueue = null, onSkip = () => {}, onFinish = () => {};
+export function setQueueHooks(hooks) { ({continueQueue = continueQueue, onSkip = onSkip, onFinish = onFinish} = hooks); }
+/* AutoMix: crossfade into the next song. Needs adjustable element volume (not on iPhone) and effects off. */
+let mixSeconds = 0, mixing = false;
+export const crossfadeSupported = (() => { try { const a = new Audio(); a.volume = 0.5; return a.volume === 0.5; } catch { return false; } })();
+export function setAutoMix(seconds) { mixSeconds = crossfadeSupported ? Math.max(0, Math.min(12, Number(seconds) || 0)) : 0; }
 const emit = (ev, d) => listeners[ev].forEach((fn) => { try { fn(d); } catch (e) { console.error(e); } });
 
 export const state = { queue: [], index: -1, original: null, shuffle: false, repeat: 'off', loading: false, source: null, offline: false };
@@ -47,6 +54,22 @@ function recoverMedia(){
   api.reportPlaybackSource(state.source,false);
   if(!state.offline&&state.source&&errRetries<2){errRetries++;skipList.push(state.source.instance);load({keepSkip:true,startAt:audio.currentTime||0});return;}
   state.loading=false;state.error=`Playback failed for “${current().title}”. Retry or choose another audio source in Settings.`;audio.pause();emit('error',state.error);emit('state');
+}
+function maybeMix() {
+  if (!mixSeconds || mixing || effectsOn() || state.repeat === 'one' || audio.paused || !isFinite(audio.duration)) return;
+  const left = audio.duration - audio.currentTime;
+  if (left > mixSeconds || left < 1 || state.index >= state.queue.length - 1) return;
+  const nextTrack = state.queue[state.index + 1];
+  if (!nextBuffer.entry || nextBuffer.entry.key !== api.streamKey(nextTrack) || nextBuffer.entry.media.readyState < 3) return;
+  mixing = true; onFinish(current()); state.index++; errRetries = 0;
+  load({mixSeconds: Math.max(1, left)}).finally(() => { mixing = false; });
+}
+function fade(media, from, to, seconds) {
+  return new Promise(resolve => {
+    const start = performance.now(), ms = seconds * 1000;
+    const step = () => { const k = Math.min(1, (performance.now() - start) / ms); media.volume = Math.max(0, Math.min(1, from + (to - from) * k)); if (k < 1) setTimeout(step, 50); else resolve(); };
+    step();
+  });
 }
 const ducks = new Set();
 export function duck(reason, enabled) { if (enabled) ducks.add(reason); else ducks.delete(reason); audio.volume = volumeLevel * (ducks.size ? .18 : 1); }
@@ -97,12 +120,19 @@ async function load(opts = {}) {
   ++warmGeneration; clearTimeout(prefetchTimer);
   api.cancelPrewarm(t);
   const warmed = !opts.keepSkip && !effectsOn() && nextBuffer.take(api.streamKey(t));
-  audio.pause();
+  if (!(opts.mixSeconds && warmed)) audio.pause();
   if (warmed) {
-    const previous = audio;
+    const previous = audio, target = volumeLevel * (ducks.size ? .18 : 1);
     audio = warmed.media; el = audio; bindAudio(audio);
-    audio.volume = volumeLevel * (ducks.size ? .18 : 1);
-    nextBuffer.recycle(previous);
+    if (opts.mixSeconds) {
+      // AutoMix: the old song fades out while the new one fades in; a fresh spare preloads the song after.
+      audio.volume = 0; fade(audio, 0, target, opts.mixSeconds);
+      fade(previous, previous.volume, 0, opts.mixSeconds).then(() => { previous.pause(); previous.removeAttribute('src'); previous.load(); });
+      const spare = new Audio(); spare.preload = 'none'; bindAudio(spare); nextBuffer.spare = spare;
+    } else {
+      audio.volume = target;
+      nextBuffer.recycle(previous);
+    }
   } else {
     nextBuffer.clear(); audio.removeAttribute('src'); audio.load();
   }
@@ -211,10 +241,11 @@ listen('timeupdate', () => {
   const now = Date.now();
   if (now - lastPos > 1000) { lastPos = now; positionState(); }
   if (now - lastSave > 10000) { lastSave = now; save(); }
+  maybeMix();
 });
 listen('ended', () => {
   if (state.repeat === 'one') { state.playbackId=(state.playbackId||0)+1;audio.currentTime = 0;emit('state');audio.play().catch(() => {}); }
-  else next();
+  else { onFinish(current()); if (!mixing) next(false); }
 });
 listen('error',recoverMedia);
 }
@@ -258,12 +289,23 @@ export function toggle() {
     else audio.play().catch(() => {});
   } else audio.pause();
 }
-export function next() {
+export function next(fromUser = true) {
+  if (fromUser && current() && isRealSrc()) onSkip(current(), audio.currentTime || 0);
   if (state.index < state.queue.length - 1) state.index++;
   else if (state.repeat === 'all' && state.queue.length) state.index = 0;
+  else if (continueQueue) { radioContinue(); return; }
   else { audio.pause(); emit('state'); return; }
   errRetries = 0;
   load();
+}
+let radioBusy = false;
+async function radioContinue() {
+  if (radioBusy) return; radioBusy = true; state.loading = true; emit('state');
+  try {
+    const more = await continueQueue(state.queue.slice());
+    if (more?.length) { state.queue.push(...more); state.index++; state.radio = true; errRetries = 0; save(); load(); return; }
+  } catch { /* fall through */ } finally { radioBusy = false; }
+  state.loading = false; audio.pause(); emit('state');
 }
 export function prev() {
   if (audio.currentTime > 3 || state.index <= 0) { audio.currentTime = 0; return; }
@@ -379,7 +421,7 @@ if ('mediaSession' in navigator) {
   h('play', () => { updateSession(current()); if(audio.paused) toggle(); });
   h('pause', () => { audio.pause(); updateSession(current()); });
   h('previoustrack', prev);
-  h('nexttrack', next);
+  h('nexttrack', () => next(true));
   h('seekto', (d) => seek(d.seekTime));
   h('seekbackward', (d) => seek(audio.currentTime - (d.seekOffset || 10)));
   h('seekforward', (d) => seek(audio.currentTime + (d.seekOffset || 10)));

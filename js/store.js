@@ -48,11 +48,12 @@ export function createPlaylist(name, tracks = []) {
   savePlaylists([p, ...getPlaylists()]);
   return p;
 }
-export function updatePlaylist(id, fn) {
+export function updatePlaylist(id, fn, {remote = false} = {}) {
   const pls = getPlaylists();
   const p = pls.find((x) => x.id === id);
   if (!p) return;
   fn(p);
+  if (!remote) p.updated = Date.now();
   savePlaylists(pls);
 }
 export const renamePlaylist = (id, name) => updatePlaylist(id, (p) => { p.name = name; });
@@ -108,7 +109,7 @@ export function addDownload(t) { write('downloads', [slim(t), ...getDownloads().
 export function removeDownloadMeta(id) { write('downloads', getDownloads().filter((x) => x.id !== String(id))); }
 
 /* ---------- Settings ---------- */
-const DEFAULTS = { notifyUpdates:true, notifyReleases:true, notifyStats:true, themePreset:'pine', amoled:true, preloadNext:true, source: 'auto', quality: 'high', customPiped: '', customInvidious: '', density: 'comfortable', accent: 'green', motion: 'system', textSize: 'normal', sidebarWidth: 288, librarySort: 'recent', libraryFilter: 'all', showExplicit: true, displayName: 'Your library', libraryCollapsed:false, djVoice:true, djCommentary:true, djHost:'afterhours' };
+const DEFAULTS = { smartRadio:true, automix:'0', notifyUpdates:true, notifyReleases:true, notifyStats:true, themePreset:'pine', amoled:true, preloadNext:true, source: 'auto', quality: 'high', customPiped: '', customInvidious: '', density: 'comfortable', accent: 'green', motion: 'system', textSize: 'normal', sidebarWidth: 288, librarySort: 'recent', libraryFilter: 'all', showExplicit: true, displayName: 'Your library', libraryCollapsed:false, djVoice:true, djCommentary:true, djHost:'afterhours' };
 export const getSettings = () => {
   const saved={...DEFAULTS,...read('settings',{})};
   for(const key of ['displayName','customPiped','customInvidious'])saved[key]=typeof saved[key]==='string'?saved[key]:DEFAULTS[key];
@@ -254,4 +255,15 @@ export function importData(d) {
   for(const key of ['spotifyLinks','themes'])if(Array.isArray(d[key])){const merged=new Map([...read(key,[]),...d[key].filter(x=>x&&typeof x.id==='string')].map(x=>[x.id,x]));write(key,[...merged.values()]);}
   if(Array.isArray(d.folders))write('folders',mergeFolders(getFolders(),d.folders));
   return {spotifyAccount:accountResult};
+}
+
+/** Library for syncing between your devices. */
+export const librarySnapshot = () => ({likes: getLikes(), playlists: getPlaylists(), albums: getAlbums(), artists: getArtists(), folders: getFolders()});
+/** Replace the library with a synced copy (used when another of your devices changed it). */
+export function replaceLibrary(lib) {
+  if (Array.isArray(lib.likes)) { likedIds = null; write('likes', lib.likes.filter(t => t && t.id != null).map(slim)); }
+  if (Array.isArray(lib.playlists)) write('playlists', lib.playlists.filter(p => p && p.id && Array.isArray(p.tracks)).map(p => ({...p, name: String(p.name || 'Playlist'), tracks: p.tracks.filter(t => t && t.id != null).map(slim)})));
+  if (Array.isArray(lib.albums)) write('albums', lib.albums.filter(a => a && a.id != null));
+  if (Array.isArray(lib.artists)) write('artists', lib.artists.filter(a => a && a.id != null));
+  if (Array.isArray(lib.folders)) write('folders', normalizeFolders(lib.folders));
 }

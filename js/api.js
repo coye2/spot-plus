@@ -651,3 +651,8 @@ export async function trackArtwork(artist, title) {
 export async function artistReleases(id) {
   return data(await jsonp(`/artist/${id}/albums`, { limit: 12 })).map(normAlbum);
 }
+/** Deezer artist ID for a name (for building mixes from listening history). */
+export async function findArtist(name) {
+  const hit = data(await jsonp('/search/artist', {q: name, limit: 1}))[0];
+  return hit ? normArtist(hit) : null;
+}

@@ -3,7 +3,7 @@
 import {corsOK, knownCors} from './cors-probe.js';
 export {knownCors};
 const KEY = 'spotplus.fx';
-export const DEFAULTS = {preset: 'off', speed: 1, keepPitch: true, pitch: 0, reverb: 0, room: 'hall', bass: 0, lofi: false, eightD: false};
+export const DEFAULTS = {preset: 'off', speed: 1, keepPitch: true, pitch: 0, reverb: 0, room: 'hall', bass: 0, lofi: false, eightD: false, vocals: 0};
 export const ROOMS = {
   room: {label: 'Room', seconds: 0.9, decay: 3.2, tone: 9000, predelay: 0.008},
   hall: {label: 'Hall', seconds: 2.6, decay: 2.6, tone: 6500, predelay: 0.02},
@@ -23,13 +23,14 @@ export const PRESETS = {
   bass: {label: 'Bass Boost', bass: 9},
   chipmunk: {label: 'Chipmunk', pitch: 7, keepPitch: true},
   deep: {label: 'Deep Voice', pitch: -5, keepPitch: true},
+  karaoke: {label: 'Sing-along', vocals: 0.9, reverb: 0.15, room: 'room'},
 };
 
 export function load(storage = globalThis.localStorage) {
   try { return {...DEFAULTS, ...JSON.parse(storage.getItem(KEY) || '{}')}; } catch { return {...DEFAULTS}; }
 }
 export const fromPreset = name => { const {label: _label, ...values} = PRESETS[name] || {}; return {...DEFAULTS, ...values, preset: name}; };
-export const needsGraph = s => s.reverb > 0 || s.pitch !== 0 || s.bass !== 0 || s.lofi || s.eightD;
+export const needsGraph = s => s.reverb > 0 || s.pitch !== 0 || s.bass !== 0 || s.lofi || s.eightD || s.vocals > 0;
 export const isActive = s => needsGraph(s) || s.speed !== 1;
 
 /** Stereo impulse response: decaying noise with a soft pre-delay. */
@@ -77,10 +78,24 @@ function build() {
   lofi.type = 'lowpass'; lofi.frequency.value = 20000; lofi.Q.value = 0.4;
   lfo.frequency.value = 0.11; depth.gain.value = 0; lfo.connect(depth).connect(pan.pan); lfo.start();
   input.connect(bass).connect(lofi);
+  // Vocal remover (mid/side): lead vocals sit in the middle of the stereo mix. Keep the sides and the
+  // low end of the middle (bass, kick), and turn down the rest of the middle.
+  const split = ctx.createChannelSplitter(2), merge = ctx.createChannelMerger(2), voxOut = ctx.createGain();
+  const lToMid = ctx.createGain(), rToMid = ctx.createGain(), lToSide = ctx.createGain(), rToSide = ctx.createGain();
+  lToMid.gain.value = 0.5; rToMid.gain.value = 0.5; lToSide.gain.value = 0.5; rToSide.gain.value = -0.5;
+  const mid = ctx.createGain(), side = ctx.createGain(), sideInv = ctx.createGain(), midLow = ctx.createBiquadFilter(), midHigh = ctx.createBiquadFilter(), midHighGain = ctx.createGain(), midSum = ctx.createGain(), dryVox = ctx.createGain(), wetVox = ctx.createGain();
+  sideInv.gain.value = -1; midLow.type = 'lowpass'; midLow.frequency.value = 180; midHigh.type = 'highpass'; midHigh.frequency.value = 180;
+  lofi.connect(split);
+  split.connect(lToMid, 0); split.connect(rToMid, 1); split.connect(lToSide, 0); split.connect(rToSide, 1);
+  lToMid.connect(mid); rToMid.connect(mid); lToSide.connect(side); rToSide.connect(side);
+  mid.connect(midLow).connect(midSum); mid.connect(midHigh).connect(midHighGain).connect(midSum);
+  midSum.connect(merge, 0, 0); midSum.connect(merge, 0, 1); side.connect(merge, 0, 0); side.connect(sideInv).connect(merge, 0, 1);
+  merge.connect(wetVox).connect(voxOut); lofi.connect(dryVox).connect(voxOut);
+  wetVox.gain.value = 0; dryVox.gain.value = 1;
   gainB.gain.value = 0;
-  lofi.connect(dry).connect(pan); lofi.connect(convA).connect(gainA).connect(wet); lofi.connect(convB).connect(gainB).connect(wet); wet.connect(pan);
+  voxOut.connect(dry).connect(pan); voxOut.connect(convA).connect(gainA).connect(wet); voxOut.connect(convB).connect(gainB).connect(wet); wet.connect(pan);
   pan.connect(out).connect(ctx.destination);
-  nodes = {input, bass, lofi, dry, wet, convs: [convA, convB], gains: [gainA, gainB], active: 0, pan, depth, out, room: null, pitch: null};
+  nodes = {input, bass, lofi, dryVox, wetVox, midHighGain, dry, wet, convs: [convA, convB], gains: [gainA, gainB], active: 0, pan, depth, out, room: null, pitch: null};
   prewarmRooms();
   ctx.audioWorklet?.addModule(new URL('./pitch-worklet.js', import.meta.url)).then(() => {
     nodes.pitch = new AudioWorkletNode(ctx, 'spotplus-pitch', {outputChannelCount: [2]});
@@ -125,6 +140,9 @@ function applyGraph() {
   ramp(nodes.wet.gain, s.reverb * 1.1);
   ramp(nodes.dry.gain, 1 - s.reverb * 0.45);
   ramp(nodes.depth.gain, s.eightD ? 0.95 : 0);
+  // Sing-along: blend from the original to the vocal-reduced mix.
+  const v = Math.max(0, Math.min(1, s.vocals || 0));
+  ramp(nodes.dryVox.gain, v > 0 ? 0 : 1); ramp(nodes.wetVox.gain, v > 0 ? 1 : 0); ramp(nodes.midHighGain.gain, 1 - v);
   if (nodes.room !== s.room) {
     if (nodes.room === null) { nodes.convs[0].buffer = roomBuffer(s.room); }
     else { // Load the new room into the idle reverb, then crossfade (no click, no gap).

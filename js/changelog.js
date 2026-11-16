@@ -1,6 +1,14 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.6.0', date: '2026-11-16', title: 'Daily Mixes, device sync, sing-along and more', items: [
+    'Daily Mixes: up to 6 fresh mixes every day on Home, built from what you play, like and skip.',
+    'Smart Radio: when your queue ends, music keeps going with similar songs. Skips teach it what you don’t want.',
+    'Link your devices (Settings › Your devices): scan a code and your likes and playlists stay the same on your phone and computer. Encrypted, no account.',
+    'Edit playlists together: tap the share button on a playlist, send the link, and everyone can add and remove songs live.',
+    'Sing-along: tap Sing along in Lyrics to turn the vocals down and follow the words as they fill in. There’s also a Vocal remover slider in ✨ effects.',
+    'AutoMix (Settings › Playback): songs blend into each other like a DJ set. Not available on iPhone and iPad.',
+  ]},
   {version: '1.5.1', date: '2026-11-16', title: 'Cleaner launch screen', items: ['The launch screen now shows just the Spot+ logo.']},
   {version: '1.5.0', date: '2026-11-16', title: 'Live counters', items: [
     'See how many people are listening to Spot+ right now, and how many have installed it, live on Home and the download page.',

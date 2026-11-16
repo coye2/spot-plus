@@ -11,6 +11,8 @@ import * as api from './api.js';
 import * as notify from './notify.js';
 import * as fx from './fx.js';
 import * as live from './live-stats.js';
+import * as mixes from './mixes.js';
+import * as libsync from './library-sync.js';
 import {unseen as unseenReleases,markSeen as markReleasesSeen,APP_VERSION} from './changelog.js';
 import * as store from './store.js';
 await store.ready(); // Load the Spotify account copy from IndexedDB before the first render.
@@ -187,6 +189,85 @@ const actions = (key, extra = '') => `<div class="actions">
 const loadingHtml = '<div class="loading" role="status"><div class="spin" aria-hidden="true"></div><span class="muted">Loading music…</span></div>';
 const errorHtml = (e) => `<div class="empty"><h2>Something went wrong</h2><p class="muted">${esc(e?.message || e)}</p><button class="btn" data-act="retry">Try again</button></div>`;
 
+/* ---------------- Daily Mixes & Smart Radio ---------------- */
+let mixList = mixes.cachedMixes() || [], mixBuild = null;
+const mixCard = m => `<a class="card mix-card" href="#/mix/${m.id}" style="--mix:${m.color}"><div class="mix-cover">${m.picture?`<img src="${esc(m.picture)}" alt="" loading="lazy">`:''}<span>${esc(m.title)}</span></div><div class="ctitle">${esc(m.title)}</div><div class="csub">${esc(m.subtitle)}</div></a>`;
+function mixCards(){ensureMixes();return mixList.map(mixCard);}
+function ensureMixes(){
+  if(mixList.length||mixBuild)return mixBuild;
+  mixBuild=(async()=>{
+    const built=await mixes.buildMixes({history:await readHistory().catch(()=>[]),likes:store.getLikes(),recent:store.getRecent(),findArtist:api.findArtist,artistRadio:api.artistRadio}).catch(()=>[]);
+    if(built.length){mixList=built;mixes.saveMixes(built);if(['','#/','#/home'].includes(location.hash))route({keepScroll:true});}
+  })().finally(()=>{mixBuild=null;});
+  return mixBuild;
+}
+async function viewMix(id){
+  if(!mixList.length)await ensureMixes();
+  const m=mixList.find(x=>x.id===id);
+  if(!m)return '<div class="empty"><h2>Your mixes are on the way</h2><p class="muted">Play a few songs or like some, and Spot+ makes Daily Mixes for you.</p><a class="btn" href="#/home">Back home</a></div>';
+  const k=reg(m.tracks,{name:m.title});
+  return header({coverHtml:`<div class="mix-cover big" style="--mix:${m.color}">${m.picture?`<img src="${esc(m.picture)}" alt="">`:''}<span>${esc(m.title)}</span></div>`,kicker:'Made for you',title:m.title,sub:`${esc(m.subtitle)} · ${plural(m.tracks.length,'song')} · New every day`})
+    +actions(k,`${dlButton(k)}<button class="icon" data-act="save-list" data-key="${k}" aria-label="Save as playlist">${I.plus}</button>`)+trackRows(m.tracks,k);
+}
+player.setQueueHooks({
+  continueQueue:queue=>store.getSettings().smartRadio===false?null:mixes.radioAfter(queue,{artistRadio:api.artistRadio,findArtist:api.findArtist}),
+  onSkip:(t,sec)=>mixes.recordSkip(t,sec),
+  onFinish:t=>mixes.recordFinish(t),
+});
+player.setAutoMix(store.getSettings().automix||0);
+
+/* ---------------- Your devices & shared playlists ---------------- */
+const appBase=()=>new URL('./',location.href).href;
+let libDirty=false,libTimer=0,applyingRemote=false;
+store.onChange(key=>{if(applyingRemote)return;if(['likes','playlists','albums','artists','folders'].includes(key)){libDirty=true;clearTimeout(libTimer);libTimer=setTimeout(()=>runLibrarySync(),4000);}
+  if(key==='playlists'){clearTimeout(collabTimer);collabTimer=setTimeout(()=>runCollabSync(),2500);}});
+async function runLibrarySync(){
+  if(!libsync.syncState()||!navigator.onLine)return;
+  const dirty=libDirty;libDirty=false;
+  try{applyingRemote=true;const changed=await libsync.syncLibrary({secret:syncKey(),store,dirty});applyingRemote=false;if(changed){renderSidebar?.();route({keepScroll:true});}}
+  catch{applyingRemote=false;libDirty=libDirty||dirty;}
+}
+setInterval(()=>{if(!document.hidden)runLibrarySync();},60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout(runLibrarySync,1500);});setTimeout(runLibrarySync,5000);
+function devicesSheet(){
+  const link=libsync.pairLink(appBase(),syncKey()),on=!!libsync.syncState();
+  if(!on){try{localStorage.setItem('spotplus.librarySync',JSON.stringify({syncedAt:0}));}catch{}libDirty=true;runLibrarySync();}
+  openSheet({head:'<div class="sheet-title">Link your devices</div>',body:`<div class="pair-sheet"><p>Open this on your other phone or computer: scan the code, or send yourself the link. Your likes, playlists and saved music stay the same everywhere.</p><div class="pair-qr">${landingQR(link)}</div><button class="btn primary" data-act="copy-pair">Copy link</button><p class="settings-note">Keep this link private: anyone with it can see and change your library. Everything is encrypted and there’s no account.</p><button class="link" data-act="stop-sync">Stop syncing on this device</button></div>`});
+}
+async function viewPair(key){
+  const mine=syncKey();
+  if(key===mine)return '<div class="empty"><h2>This device is already linked</h2><a class="btn" href="#/library">Go to your library</a></div>';
+  return `<div class="empty pair-join"><h2>Link this device?</h2><p class="muted">Your library here and on your other device will be combined and stay in sync from now on.</p><button class="btn primary" data-act="pair-confirm" data-key="${key}">Link this device</button><a class="btn" href="#/home">Not now</a></div>`;
+}
+let collabTimer=0;
+async function runCollabSync(){
+  if(!navigator.onLine)return;
+  for(const p of store.getPlaylists().filter(x=>libsync.validShareCode(x.collab)).slice(0,8)){
+    try{
+      const remote=await libsync.fetchShared(p.collab);
+      const {playlist,publish}=libsync.applyShared(p,remote);
+      if(playlist!==p){applyingRemote=true;store.updatePlaylist(p.id,x=>Object.assign(x,{name:playlist.name,tracks:playlist.tracks,syncedAt:playlist.syncedAt,updated:playlist.updated}),{remote:true});applyingRemote=false;if(location.hash==='#/my/'+p.id)route({keepScroll:true});}
+      if(publish){const now=Date.now();await libsync.publishShared(p.collab,store.getPlaylist(p.id),{now});store.updatePlaylist(p.id,x=>{x.syncedAt=now;x.updated=now;},{remote:true});}
+    }catch{applyingRemote=false;}
+  }
+}
+setInterval(()=>{if(!document.hidden)runCollabSync();},20000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout(runCollabSync,2000);});setTimeout(runCollabSync,6000);
+async function shareSheet(id){
+  let p=store.getPlaylist(id);if(!p)return;
+  if(!libsync.validShareCode(p.collab)){const code=libsync.newShareCode(),now=Date.now();store.updatePlaylist(id,x=>{x.collab=code;x.syncedAt=now;x.updated=now;},{remote:true});p=store.getPlaylist(id);libsync.publishShared(code,p,{now}).catch(()=>{});}
+  const link=libsync.shareLink(appBase(),p.collab);
+  openSheet({head:`<div class="sheet-title">Edit “${esc(p.name)}” together</div>`,body:`<div class="pair-sheet"><p>Anyone you send this to can add, remove and reorder songs. Changes show up for everyone within seconds. No accounts.</p><div class="pair-qr">${landingQR(link)}</div><button class="btn primary" data-act="copy-collab" data-link="${esc(link)}">Copy invite link</button><button class="link" data-act="stop-collab" data-id="${esc(id)}">Stop sharing on this device</button></div>`});
+}
+async function viewCollab(code){
+  const have=store.getPlaylists().find(p=>p.collab===code);
+  if(have){setTimeout(()=>go('#/my/'+have.id),0);return loadingHtml;}
+  const remote=await libsync.fetchShared(code).catch(()=>null);
+  if(!remote)return '<div class="empty"><h2>Playlist not found</h2><p class="muted">The link may be wrong, or the playlist hasn’t synced yet. Try again in a minute.</p><a class="btn" href="#/home">Back home</a></div>';
+  const p=store.createPlaylist(remote.name||'Shared playlist',remote.tracks||[]);
+  store.updatePlaylist(p.id,x=>{x.collab=code;x.syncedAt=remote.updatedAt;x.updated=remote.updatedAt;},{remote:true});
+  setTimeout(()=>{go('#/my/'+p.id);toast('You joined “'+(remote.name||'Shared playlist')+'”. Edits sync with everyone.');},0);
+  return loadingHtml;
+}
+
 /* ---------------- Views ---------------- */
 async function viewHome() {
   const recent = store.getRecent();
@@ -202,7 +283,7 @@ async function viewHome() {
   d.tracks = visibleTracks(d.tracks,store.getSettings());
   const tk = reg(d.tracks);
   const linked=cachedLinks(),mfy=madeForYou(linked).map(p=>`<a class="card" href="#/linked/${p.id}">${img(p.cover)}<div class="ctitle">${esc(p.name)}</div><div class="csub">From your Spotify</div></a>`),pub=(linked?.profile?.playlists||[]).map(p=>`<a class="card" href="#/linked/${p.id}">${img(p.cover)}<div class="ctitle">${esc(p.name)}</div><div class="csub">Your playlist</div></a>`);
-  return toolbar + shortcuts + requestBar + shelf('Made for you', mfy) + `<div data-home-section="recent">${shelf('Jump back in', recent.slice(0, 12).map((t, i) => trackCard(t, rk, i)))}</div>` + shelf('Your Spotify playlists', pub)
+  return toolbar + shortcuts + requestBar + shelf('Made for you', [...mixCards(), ...mfy]) + `<div data-home-section="recent">${shelf('Jump back in', recent.slice(0, 12).map((t, i) => trackCard(t, rk, i)))}</div>` + shelf('Your Spotify playlists', pub)
     + shelf('Trending songs', d.tracks.slice(0,12).map((t,i)=>trackCard(t,tk,i)))
     + shelf('Popular artists', d.artists.slice(0,12).map(artistCard))
     + shelf('New releases', d.releases.slice(0,12).map(albumCard))
@@ -332,7 +413,7 @@ function viewMy(id) {
   if (!p) return '<div class="empty"><h2>Playlist not found</h2><a class="btn" href="#/library">Back to library</a></div>';
   const k = reg(p.tracks, { playlistId: p.id, name: p.name });
   return header({ coverHtml: mosaic(p.tracks), kicker: 'Your playlist', title: p.name, sub: `${plural(p.tracks.length, 'song')}${p.tracks.length&&p.tracks.every(t=>t.duration>0) ? ', ' + total(p.tracks) : ''}` })
-    + actions(k, `${dlButton(k,'pl:'+p.id)}
+    + actions(k, `${dlButton(k,'pl:'+p.id)}<button class="btn icon-only${p.collab?' collab-on':''}" data-act="share-pl" data-id="${p.id}" aria-label="${p.collab?'Shared playlist: invite more people':'Edit together with friends'}">${I.share||I.plus}</button>
       <button class="btn icon-only" data-act="folder-move" data-id="${p.id}" aria-label="Move to folder">${I.folder}</button>
       <button class="btn icon-only" data-act="rename-pl" data-id="${p.id}" aria-label="Rename">${I.edit}</button>
       <button class="btn icon-only" data-act="delete-pl" data-id="${p.id}" aria-label="Delete">${I.trash}</button>`)
@@ -358,12 +439,15 @@ async function viewSettings() {
   return `<h1 class="settings-top">Settings</h1>
   <section class="box"><h2>Your profile</h2><label class="field"><span>Display name<small>Shown on your profile and in Jams.</small></span><input maxlength="60" data-setting="displayName" value="${esc(s.displayName)}"></label><a class="btn small" href="#/profile">View profile</a></section>
   <section class="box"><h2>Spotify</h2><p class="settings-note">${spotifyAccount||cachedLinks()?'Connected. Rewind and your profile update by themselves.':'Connect once to get Rewind, your profile picture and Made For You.'}</p><a class="btn primary" href="#/spotify-account">${spotifyAccount||cachedLinks()?'Manage Spotify':'Connect Spotify'}</a></section>
+  <section class="box"><h2>Your devices</h2><p class="settings-note">${libsync.syncState()?'Your library syncs with your other devices.':'Keep your likes and playlists the same on your phone and computer. No account.'}</p><button class="btn primary small" data-act="link-devices">${libsync.syncState()?'Link another device':'Link a device'}</button></section>
   <section class="box"><h2>Notifications</h2>${notify.permission()==='unsupported'?'<p class="settings-note">This browser can’t show notifications. On iPhone, add Spot+ to your Home Screen first.</p>':notify.permission()==='granted'?'':`<p class="settings-note">${notify.permission()==='denied'?'Notifications are blocked for Spot+. Allow them in your browser or phone settings.':'Get a heads-up about new music and updates. Never more than two a day, and nothing at night.'}</p>${notify.permission()==='default'?'<button class="btn primary small" data-act="notify-enable">Turn on notifications</button>':''}`}
   ${toggle('notifyReleases','New releases','When an artist you follow drops a song or album.')}${toggle('notifyStats','Weekly recap','Sunday evening: your minutes and most-played artist.')}${toggle('notifyUpdates','App updates','When a new version of Spot+ is ready.')}</section>
   <section class="box"><h2>Appearance</h2>${themeModeSwitch(s)}<p class="settings-note">Light, dark or automatic, with 19 color themes.</p><a class="btn" href="#/themes">Themes</a><label class="field"><span>Library and track spacing</span>${sel('density',[['comfortable','Comfortable'],['compact','Compact']])}</label><label class="field"><span>Text size</span>${sel('textSize',[['normal','Default'],['large','Larger']])}</label><label class="field"><span>Motion</span>${sel('motion',[['system','Follow system'],['reduced','Reduced']])}</label></section>
   <section class="box"><h2>Playback</h2>
     <label class="field"><span>Audio source<small>Full tracks depend on reachable audio servers. Preview mode plays short samples only.</small></span>${sel('source', [['auto', 'Automatic'], ['piped', 'Piped'], ['invidious', 'Invidious'],['audius','Audius public releases'],['preview','Deezer previews (30 sec)']])}</label>
     <label class="field"><span>Streaming quality</span>${sel('quality', [['high', 'High'], ['low', 'Data saver']])}</label>
+    ${toggle('smartRadio','Smart Radio','When your queue ends, keep playing similar songs. It learns from what you skip.')}
+    <label class="field"><span>AutoMix<small>${player.crossfadeSupported?'Blend each song into the next, like a DJ. Off while effects are on.':'Blending songs isn’t possible on iPhone and iPad (Safari doesn’t let apps fade audio).'}</small></span>${sel('automix',[['0','Off'],['3','3 seconds'],['6','6 seconds'],['9','9 seconds']])}</label>
     ${toggle('preloadNext','Prepare the next song','Buffers the beginning of the next song after your current music has enough buffered audio. Skipped on data-saving connections.')}
     ${toggle('showExplicit','Allow explicit content','When off, explicit tracks are excluded from discovery and new playback queues.')}
     <button class="btn small" data-act="sleep-timer">Sleep timer</button>
@@ -412,6 +496,9 @@ const routes = [
   [/^#\/profile$/, viewProfile],
   [/^#\/recent$/, viewRecent],
   [/^#\/rewind$/, rewindView],
+  [/^#\/mix\/(\d)$/, viewMix],
+  [/^#\/pair\/([a-f0-9]{64})$/, viewPair],
+  [/^#\/collab\/([a-z2-9]{12})$/, viewCollab],
   [/^#\/local$/, viewLocal],
   [/^#\/dj$/, viewDJ],
   [/^#\/radio\/(\d+)$/, viewRadio],
@@ -739,6 +826,14 @@ async function handleAct(act, el) {
     case 'fx-preset': fx.usePreset(el.dataset.preset); fxSheet(true); break;
     case 'fx-room': fx.set({room:el.dataset.room}); fxSheet(true); break;
     case 'fx-toggle': fx.set({[el.dataset.key]:!fx.get()[el.dataset.key]}); fxSheet(true); break;
+    case 'sing-along': {const on=fx.get().vocals>0;fx.set(on?{vocals:0,preset:'custom'}:{...fx.fromPreset('karaoke')});const b=$('.sing-btn');if(b){b.classList.toggle('on',!on);b.querySelector('span').textContent=!on?'Singing along':'Sing along';}karaokeLoop();if(!on&&fx.isBlocked())toast('This song’s audio server doesn’t allow the vocal remover. Lyrics still highlight as you sing.');break;}
+    case 'link-devices': devicesSheet(); break;
+    case 'copy-pair': navigator.clipboard?.writeText(libsync.pairLink(appBase(),syncKey())).then(()=>toast('Link copied. Open it on your other device.'),()=>toast('Couldn’t copy. Scan the code instead.')); break;
+    case 'stop-sync': libsync.stopSync(); closeSheet(); toast('This device stopped syncing.'); break;
+    case 'pair-confirm': {try{localStorage.setItem('spotplus.syncKey',el.dataset.key);localStorage.setItem('spotplus.librarySync',JSON.stringify({syncedAt:0}));}catch{}libDirty=true;toast('Linking…');await runLibrarySync();pullSpotifyStats({force:true});toast('This device is linked. Your library stays in sync.');go('#/library');break;}
+    case 'share-pl': shareSheet(el.dataset.id); break;
+    case 'copy-collab': navigator.clipboard?.writeText(el.dataset.link).then(()=>toast('Invite link copied'),()=>toast('Couldn’t copy. Scan the code instead.')); break;
+    case 'stop-collab': store.updatePlaylist(el.dataset.id,x=>{delete x.collab;},{remote:true}); closeSheet(); toast('Stopped sharing on this device'); route({keepScroll:true}); break;
     case 'np-more': { const t = player.current(); if (t) trackSheet(t); break; }
     case 'np-tab': setNPMode(el.dataset.mode); break;
     case 'canvas-cover': canvasPreference=false;setCanvasEnabled(false);setNPMode('art');break;
@@ -800,7 +895,7 @@ document.addEventListener('change', async (e) => {
     t.disabled=true;const status=$('#rewindImportStatus');
     try{const n=await importRewind([...t.files],message=>{status.textContent=message;});await route({keepScroll:true});toast(`Added ${n.toLocaleString()} listens. Duplicates skipped.`);}catch(error){status.textContent=error.message;t.disabled=false;t.value='';}return;
   }
-  if (t.dataset.setting) { try { store.setSettings({ [t.dataset.setting]: t.type==='checkbox'?t.checked:t.value.trim() }); applyPreferences(); toast('Saved'); } catch(err) { toast(err.message); } }
+  if (t.dataset.setting) { try { store.setSettings({ [t.dataset.setting]: t.type==='checkbox'?t.checked:t.value.trim() }); if(t.dataset.setting==='automix')player.setAutoMix(t.value); applyPreferences(); toast('Saved'); } catch(err) { toast(err.message); } }
   if (['importFile','welcomeBackup'].includes(t.id) && t.files[0]) {
     try { if(t.id==='welcomeBackup')dismissWelcome();if(t.files[0].size>30*1024*1024)throw new Error('Choose a Spot+ backup smaller than 30 MB.');const result=store.importData(JSON.parse(await t.files[0].text()));toast(result.spotifyAccount==='different-account-kept'?'Backup imported. Your current Spotify account copy was kept; the backup belongs to another account.':result.spotifyAccount==='newer-copy-kept'?'Backup imported. Your newer Spotify library copy was kept.':'Backup imported'); }
     catch (err) { toast(`Import failed: ${err.message}`); }
@@ -1006,7 +1101,7 @@ async function loadLyrics() {
   if (!r) box.innerHTML = '<p class="muted pad center">No lyrics found for this song.</p>';
   else if (r.synced?.length) {
     lyr.lines = r.synced;
-    box.innerHTML = `<div class="ly-pad"></div>${r.synced.map((l, i) => `<p class="ly" data-act="ly-seek" data-t="${l.t}" data-li="${i}">${esc(l.text) || '♪'}</p>`).join('')}<div class="ly-pad"></div>`;
+    box.innerHTML = `<button class="sing-btn${fx.get().vocals>0?' on':''}" data-act="sing-along">${I.mic||''}<span>${fx.get().vocals>0?'Singing along':'Sing along'}</span></button><div class="ly-pad"></div>${r.synced.map((l, i) => `<p class="ly" data-act="ly-seek" data-t="${l.t}" data-li="${i}">${esc(l.text) || '♪'}</p>`).join('')}<div class="ly-pad"></div>`;
     syncLyrics();
   } else if (r.plain) box.innerHTML = `<div class="ly-plain">${esc(r.plain).replace(/\n/g, '<br>')}</div><p class="muted center small">Lyrics aren’t time-synced for this one.</p>`;
   else box.innerHTML = '<p class="muted pad center">♪ Instrumental ♪</p>';
@@ -1023,9 +1118,26 @@ function syncLyrics() {
   const el = i >= 0 ? box.querySelector(`[data-li="${i}"]`) : null;
   if (!el) return;
   el.classList.add('on');
+  karaokeLoop();
   if (Date.now() - lyrUserScroll > 3500) box.scrollTo({ top: el.offsetTop - box.clientHeight / 2 + el.clientHeight / 2, behavior: 'smooth' });
 }
 ['wheel', 'touchmove'].forEach((ev) => $('#npLyrics').addEventListener(ev, () => { lyrUserScroll = Date.now(); }, { passive: true }));
+// Sing-along: the current line fills in word by word, timed across the line's length.
+let karaokeFrame = 0;
+function karaokeLoop() {
+  cancelAnimationFrame(karaokeFrame);
+  const box = $('#npLyrics'), singing = fx.get().vocals > 0;
+  box.classList.toggle('karaoke', singing);
+  if (!singing || !lyr.lines) return;
+  const tick = () => {
+    const i = lyr.active, line = box.querySelector(`[data-li="${i}"]`);
+    if (!line || !npOpen || player.current()?.id !== lyr.id) return;
+    const start = lyr.lines[i].t, end = lyr.lines[i + 1]?.t ?? start + 4, now = player.el.currentTime || 0;
+    line.style.setProperty('--k', Math.max(0, Math.min(1, (now - start) / Math.max(0.5, (end - start) * 0.92))).toFixed(3));
+    if (!player.el.paused) karaokeFrame = requestAnimationFrame(tick);
+  };
+  tick();
+}
 
 /* ---------------- Shared desktop and mobile experience ---------------- */
 let activeArtist=null, activeAlbum=null, libraryQuery='', sheetFocus=null, npFocus=null;
@@ -1158,7 +1270,7 @@ function createMenu(){openSheet({head:'<div class="sheet-title">Create</div>',it
 function profileMenu(){openSheet({head:`<div class="sheet-title">${esc(store.getSettings().displayName)}</div>`,items:[{icon:I.person,label:'Profile',sub:'Your library on this device',fn:()=>go('#/profile')},{icon:I.history,label:'Your Rewind',sub:'Your listening, all year round',fn:()=>go('#/rewind')},{icon:I.history,label:'Listening history',fn:()=>go('#/recent')},{icon:I.settings,label:'Theme Studio',sub:'Make Spot+ yours',fn:()=>go('#/themes')},{icon:I.library,label:'Spotify account',fn:()=>go('#/spotify-account')},{icon:I.settings,label:'Settings',fn:()=>go('#/settings')},{icon:I.dj,label:'Spot+ DJ',fn:()=>go('#/dj')}]});}
 function deviceMenu(){openSheet({head:'<div class="sheet-title">Connect</div>',body:`<button class="jam-entry" data-act="jam-open">${I.jam}<div><b>${jam.active?'Jam · '+esc(jam.code):'Start a Jam'}</b><small>${jam.active?jam.members.length+' listening':'Listen together with friends, live'}</small></div>${I.arrow}</button><div class="device-card">${I.device}<div><b>This browser</b><small>Current audio output</small></div></div><p class="sheet-note">Use your phone or computer’s audio controls for Bluetooth or AirPlay. Spotify Connect is not available through these music sources.</p>`,items:typeof player.el.setSinkId==='function' && navigator.mediaDevices?.selectAudioOutput?[{icon:I.device,label:'Choose audio output',fn:async()=>{try{const d=await navigator.mediaDevices.selectAudioOutput();await player.el.setSinkId(d.deviceId);toast('Audio output changed');}catch(e){toast(e.name==='NotAllowedError'?'Audio output selection was cancelled.':e.message);}}}]:[]});}
 /* ---------------- Sound effects ---------------- */
-const fxFmt={speed:v=>Number(v).toFixed(2).replace(/0$/,'')+'×',pitch:v=>(v>0?'+':'')+v+' st',reverb:v=>Math.round(v*100)+'%',bass:v=>(v>0?'+':'')+v+' dB'};
+const fxFmt={vocals:v=>v>0?'−'+Math.round(v*100)+'%':'Off',speed:v=>Number(v).toFixed(2).replace(/0$/,'')+'×',pitch:v=>(v>0?'+':'')+v+' st',reverb:v=>Math.round(v*100)+'%',bass:v=>(v>0?'+':'')+v+' dB'};
 function fxSheet(refresh=false){
   const s=fx.get(),slider=(key,label,min,max,step)=>`<label class="fx-slider"><span>${label}<b id="fxv-${key}">${fxFmt[key](s[key])}</b></span><input type="range" data-fx="${key}" min="${min}" max="${max}" step="${step}" value="${s[key]}" aria-label="${label}"></label>`;
   const chip=(act,attr,label,on)=>`<button class="chip${on?' on':''}" data-act="${act}" ${attr}>${esc(label)}</button>`;
@@ -1170,6 +1282,7 @@ function fxSheet(refresh=false){
     ${slider('reverb','Reverb',0,1,0.01)}
     <div class="fx-row">${Object.entries(fx.ROOMS).map(([k,room])=>chip('fx-room',`data-room="${k}"`,room.label,s.room===k)).join('')}</div>
     ${slider('bass','Bass',-6,12,1)}
+    ${slider('vocals','Vocal remover',0,1,0.05)}
     <div class="fx-row">${chip('fx-toggle','data-key="eightD"','8D audio',s.eightD)}${chip('fx-toggle','data-key="lofi"','Lo-fi',s.lofi)}</div>
     <p class="settings-note fx-note">${fx.isBlocked()?'This song’s audio server doesn’t allow reverb, pitch or bass, so it plays normally. Speed still works, and effects come back on the next song that allows them.':'Effects stay on for every song until you choose Off. Headphones recommended for 8D.'}</p></div>`;
   if(refresh&&!sheet.hidden&&$('#sheetPanel .fx')){syncFx();return;}
