@@ -2,6 +2,13 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.2 — Right song, smooth sound
+_2026-11-16_
+
+- Fixed songs sometimes playing a mashup or a different recording: mashups, medleys and “song x song” blends are no longer accepted, and every song is re-matched once.
+- Fixed choppy audio: if an audio server can’t keep up, Spot+ switches to another one mid-song and stops using that server for fast starts.
+- With effects off, sound no longer goes through the effects at all, so nothing changes the original.
+
 ## 1.9.1 — Developer profile fix
 _2026-11-16_
 

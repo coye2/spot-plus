@@ -75,7 +75,7 @@ function build() {
   ctx = new (globalThis.AudioContext || globalThis.webkitAudioContext)({latencyHint: 'playback'});
   const input = ctx.createGain(), bass = ctx.createBiquadFilter(), lofi = ctx.createBiquadFilter(), dry = ctx.createGain(), wet = ctx.createGain(), convA = ctx.createConvolver(), convB = ctx.createConvolver(), gainA = ctx.createGain(), gainB = ctx.createGain(), pan = ctx.createStereoPanner(), lfo = ctx.createOscillator(), depth = ctx.createGain(), out = ctx.createGain();
   bass.type = 'lowshelf'; bass.frequency.value = 110;
-  lofi.type = 'lowpass'; lofi.frequency.value = 20000; lofi.Q.value = 0.4;
+  lofi.type = 'lowpass'; lofi.frequency.value = ctx.sampleRate / 2 - 100; lofi.Q.value = 0.707;
   lfo.frequency.value = 0.11; depth.gain.value = 0; lfo.connect(depth).connect(pan.pan); lfo.start();
   input.connect(bass).connect(lofi);
   // Vocal remover (mid/side): lead vocals sit in the middle of the stereo mix. Keep the sides and the
@@ -95,7 +95,9 @@ function build() {
   gainB.gain.value = 0;
   voxOut.connect(dry).connect(pan); voxOut.connect(convA).connect(gainA).connect(wet); voxOut.connect(convB).connect(gainB).connect(wet); wet.connect(pan);
   pan.connect(out).connect(ctx.destination);
-  nodes = {input, bass, lofi, dryVox, wetVox, midHighGain, dry, wet, convs: [convA, convB], gains: [gainA, gainB], active: 0, pan, depth, out, room: null, pitch: null};
+  // With every effect off, sound skips the effects completely (bit-for-bit the original).
+  const bypass = ctx.createGain(); input.connect(bypass).connect(ctx.destination); bypass.gain.value = 0;
+  nodes = {bypass, input, bass, lofi, dryVox, wetVox, midHighGain, dry, wet, convs: [convA, convB], gains: [gainA, gainB], active: 0, pan, depth, out, room: null, pitch: null};
   prewarmRooms();
   ctx.audioWorklet?.addModule(new URL('./pitch-worklet.js', import.meta.url)).then(() => {
     nodes.pitch = new AudioWorkletNode(ctx, 'spotplus-pitch', {outputChannelCount: [2]});
@@ -136,7 +138,8 @@ function applyGraph() {
   if (!nodes) return;
   const t = ctx.currentTime, s = settings, ramp = (param, value) => param.setTargetAtTime(value, t, 0.03);
   ramp(nodes.bass.gain, s.bass);
-  ramp(nodes.lofi.frequency, s.lofi ? 3200 : 20000);
+  ramp(nodes.lofi.frequency, s.lofi ? 3200 : ctx.sampleRate / 2 - 100);
+  const neutral = !needsGraph(s); ramp(nodes.bypass.gain, neutral ? 1 : 0); ramp(nodes.out.gain, neutral ? 0 : 1);
   ramp(nodes.wet.gain, s.reverb * 1.1);
   ramp(nodes.dry.gain, 1 - s.reverb * 0.45);
   ramp(nodes.depth.gain, s.eightD ? 0.95 : 0);

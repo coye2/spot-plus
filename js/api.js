@@ -393,7 +393,7 @@ async function resolveUncached(t, { skip = [], signal, cors = false } = {}, _ret
   }
   const inst = await instances();
   const stored = getVideoCache(t.id);
-  const cached = stored?.manual || stored?.matchVersion===2 ? stored : null;
+  const cached = stored?.manual || stored?.matchVersion===3 ? stored : null;
   const control=new AbortController();
   const deadline=setTimeout(()=>control.abort(),18000);
   const combined=signal?AbortSignal.any([signal,control.signal]):control.signal;
@@ -428,7 +428,7 @@ async function resolveUncached(t, { skip = [], signal, cors = false } = {}, _ret
       }
     }
     combined.throwIfAborted();
-    if(result.videoId)setVideoCache(t.id,{id:result.videoId,manual:!!cached?.manual,matchVersion:2});
+    if(result.videoId)setVideoCache(t.id,{id:result.videoId,manual:!!cached?.manual,matchVersion:3});
     return result;
   } catch {
     if(signal?.aborted)throw new DOMException('Playback cancelled','AbortError');
@@ -438,6 +438,9 @@ async function resolveUncached(t, { skip = [], signal, cors = false } = {}, _ret
 }
 
 export const FAST_ITAGS={opus:251,aac:140};
+// Servers that stuttered recently aren't used for fast starts (they stream audio through themselves).
+const choppy=new Map();
+export function reportChoppy(source){if(source?.fast&&source.instance){choppy.set(source.instance,Date.now()+3*3600e3);for(const [key,value] of streamCache)if(value.stream.instance===source.instance&&value.stream.fast)forget(key);}}
 // H.264 video itags by height: plays everywhere, including iPhone.
 export const VIDEO_ITAGS={1080:137,720:136,480:135,360:134};
 /** Loops, fast path: one cached search for the official video, then a fixed address on a server that works for you. */
@@ -457,7 +460,7 @@ export async function fastVideoLoop(track,{signal,skip=[],target=720}={}){
 async function fastStream(t,{cached,shared,set,cors,skip,signal}){
   if(['piped','audius','preview'].includes(set.source))return null;
   const base=lastGood().invidious||(set.customInvidious||'').split(/[\s,]+/).map(clean).find(x=>/^https:\/\//.test(x));
-  if(!base||skip.includes(base)||(failedInstances.get(base)||0)>Date.now())return null;
+  if(!base||skip.includes(base)||(failedInstances.get(base)||0)>Date.now()||(choppy.get(base)||0)>Date.now())return null;
   let id=cached?.id;
   if(!id&&shared)id=(await Promise.race([shared,new Promise((_,reject)=>setTimeout(()=>reject(new Error('slow')),1500))]))[0]?.id;
   if(!id||!/^[\w-]{11}$/.test(id))return null;
@@ -466,7 +469,7 @@ async function fastStream(t,{cached,shared,set,cors,skip,signal}){
   const make=itag=>`${base}/latest_version?id=${id}&itag=${itag}&local=true`;
   const url=make(opus?FAST_ITAGS.opus:FAST_ITAGS.aac);
   if(cors&&!(await corsOK(url)))return null;
-  if(!cached?.id)setVideoCache(t.id,{id,manual:false,matchVersion:2});
+  if(!cached?.id)setVideoCache(t.id,{id,manual:false,matchVersion:3});
   // No alternatives: if this server stalls, skip it and run the full search instead of retrying it.
   return {url,mime:opus?'audio/webm; codecs="opus"':'audio/mp4',bitrate:opus?160000:128000,kind:'invidious',instance:base,videoId:id,fast:true,alternatives:[]};
 }
@@ -475,7 +478,7 @@ async function fastStream(t,{cached,shared,set,cors,skip,signal}){
 // starts, so skip/next usually does not wait for a fresh provider search.
 const streamCache=new Map(),warmups=new Map(),warmControllers=new Map();
 export const streamKey=(t,s=getSettings(),videoId=getVideoCache(t.id)?.id||'')=>[t.id,s.source,s.quality,s.customPiped,s.customInvidious,videoId].join('|');
-const STREAMS_KEY='spotplus.streams';
+const STREAMS_KEY='spotplus.streams.v2';
 export function streamExpiry(url,now=Date.now()){
   const exp=Number(String(url||'').match(/[?&]expire=(\d{9,11})/)?.[1]||0)*1000;
   return Math.min(exp?exp-10*60e3:now+45*60e3,now+3*3600e3);

@@ -233,7 +233,8 @@ media.addEventListener('play',() => { if (media !== audio && media.src && !media
 listen('playing', () => { clearStall();if (state.startupMs == null && startedAt && isRealSrc()) state.startupMs = Math.round(performance.now() - startedAt); state.loading = false; api.reportPlaybackSource(state.source); emit('state'); prefetch(); });
 listen('play', () => { if ('mediaSession' in navigator) { navigator.mediaSession.playbackState = 'playing'; updateSession(current()); } emit('state'); });
 listen('pause', () => { clearStall();if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'; emit('state'); save(); ++warmGeneration; clearTimeout(prefetchTimer); if(nextBuffer.entry)nextBuffer.clear(); });
-listen('waiting', () => { if (isRealSrc()) { watchStall();state.loading = true; ++warmGeneration; clearTimeout(prefetchTimer); nextBuffer.clear(); api.cancelPrewarm(); emit('state'); } });
+listen('waiting', () => { if (isRealSrc() && audio.currentTime > 1 && state.source?.fast) { api.reportChoppy(state.source); recoverMedia(); return; }
+  if (isRealSrc()) { watchStall();state.loading = true; ++warmGeneration; clearTimeout(prefetchTimer); nextBuffer.clear(); api.cancelPrewarm(); emit('state'); } });
 listen('canplay', () => { if (state.loading && !audio.paused) { state.loading = false; emit('state'); } });
 listen('progress', () => emit('state'));
 listen('timeupdate', () => {

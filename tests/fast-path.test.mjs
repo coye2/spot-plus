@@ -21,3 +21,9 @@ test('loops: one cached search finds the official video and plays it straight fr
   assert.match(loop.url,/^https:\/\/inv\.example\/latest_version\?id=4NRXx6U8ABQ&itag=137&local=true$/);
   assert.equal(loop.height,1080);assert.equal(loop.start,70);
 });
+test('mashups and "song x song" blends never count as the song',async()=>{
+  const {rankAudioMatches}=await import('../js/audio-selection.js');
+  const items=[{id:'a',title:'Linkin Park x Ludacris - In The End x Move Bitch (Mashup)',channel:'Mashup Kid',duration:220},{id:'b',title:'In the End',channel:'Linkin Park',duration:216},{id:'c',title:'In The End vs Move Bitch',channel:'DJ',duration:216}];
+  assert.deepEqual(rankAudioMatches(items,{title:'In the End',artist:'Linkin Park',duration:216}).map(x=>x.id),['b']);
+  assert.equal(rankAudioMatches([{id:'d',title:'Lil Nas X - Old Town Road',channel:'Lil Nas X',duration:157}],{title:'Old Town Road',artist:'Lil Nas X',duration:157}).length,1,'artists with X in the name still match');
+});

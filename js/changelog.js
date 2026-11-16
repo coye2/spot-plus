@@ -1,6 +1,11 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.2', date: '2026-11-16', title: 'Right song, smooth sound', items: [
+    'Fixed songs sometimes playing a mashup or a different recording: mashups, medleys and “song x song” blends are no longer accepted, and every song is re-matched once.',
+    'Fixed choppy audio: if an audio server can’t keep up, Spot+ switches to another one mid-song and stops using that server for fast starts.',
+    'With effects off, sound no longer goes through the effects at all, so nothing changes the original.',
+  ]},
   {version: '1.9.1', date: '2026-11-16', title: 'Developer profile fix', items: ['The “Made by” section now loads the developer’s Discord picture reliably.']},
   {version: '1.9.0', date: '2026-11-16', title: 'Faster, sharper loops for every song', items: [
     'Loops load much faster: one shared, cached search finds the official music video, which then plays straight from an audio server that works for you.',

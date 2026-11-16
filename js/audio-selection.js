@@ -13,7 +13,9 @@ export function rankAudioMatches(items,track) {
     const conflicting=editions.some(word=>new RegExp('\\b'+word+'\\b').test(name)!==new RegExp('\\b'+word+'\\b').test(title));
     const delta=expected&&duration?Math.abs(expected-duration):0;
     const wrongLength=duration<20 || (expected&&delta>Math.max(25,expected*.14));
-    const unwanted=/\b(reaction|tutorial|bass boosted|tiktok version|1 hour|10 hours|full album)\b/.test(name);
+    // Mashups, medleys and "song x song" blends contain the title and artist but are a different recording.
+    const blend=/\b(mashup|mash up|medley|megamix|bootleg|blend|vs|versus)\b/.test(name)||/\s(x|×)\s/.test(` ${String(item.title||'').toLowerCase().split(String(track.artist||'').toLowerCase()).join(' ')} `.replace(/[^\p{L}\p{N}×]+/gu,' '))&&!/\s(x|×)\s/.test(` ${String(track.title||'').toLowerCase()} `);
+    const unwanted=blend||/\b(reaction|tutorial|bass boosted|tiktok version|1 hour|10 hours|full album)\b/.test(name);
     let core=name.split(/\b(?:official audio|official music video|official video|lyrics?|visuali[sz]er)\b/)[0].trim();
     for(const prefix of [clean(track.artist),who])if(core.startsWith(prefix+' '))core=core.slice(prefix.length+1);
     const ambiguous=title.split(' ').length===1&&core!==title;
