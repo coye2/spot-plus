@@ -28,6 +28,8 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: canvas-bridge
+          wranglerVersion: '4.162.0'
+          command: deploy
       - name: Check the deployed bridge
         if: env.HAS_TOKEN == 'true'
         run: sleep 5 && curl -fsS https://spot-plus-canvas.pwr97pnmkn.workers.dev/health
