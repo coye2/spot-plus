@@ -215,7 +215,7 @@ export async function readSpotifyStats(get, {onProgress = () => {}} = {}) {
 
 // Auto-read is scoped to an explicit, fresh Connect Spotify launch.
 export function canAutoRead({bridge,hostReady,authorization,attempted,now=Date.now()}){
- return !!hostReady&&!attempted&&!!bridge&&/^[a-f0-9]{32}$/.test(bridge.nonce||'')&&now>=bridge.started&&now-bridge.started<1800000&&['https://coye2.github.io','https://spot-plus-coyeb.coyeboymitchell2000.chatgpt.site'].includes(bridge.origin)&&/^Bearer\s+\S+$/.test(authorization||'');
+ return !!hostReady&&!attempted&&!!bridge&&/^[a-f0-9]{32}$/.test(bridge.nonce||'')&&now>=bridge.started&&now-bridge.started<1800000&&['https://coye2.github.io'].includes(bridge.origin)&&/^Bearer\s+\S+$/.test(authorization||'');
 }
 
 // Clipboard handoff: Safari and an iPhone Home Screen app keep separate storage and

@@ -18,7 +18,7 @@ for (const name of await readdir('js')) {
   if (!name.endsWith('.js') || skip(name)) continue;
   const source = await readFile(`js/${name}`, 'utf8');
   // shell.js is a classic script: keep its names out of the global scope.
-  const {code} = await transform(source, {loader: 'js', format: name === 'shell.js' ? 'iife' : 'esm', minify: true, target: 'es2022', legalComments: 'none'});
+  const {code} = await transform(source, {loader: 'js', format: name === 'shell.js' || name === 'boot.js' ? 'iife' : 'esm', minify: true, target: 'es2022', legalComments: 'none'});
   saved += source.length - code.length;
   await writeFile(`dist/js/${name}`, code);
 }

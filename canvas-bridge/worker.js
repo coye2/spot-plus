@@ -93,4 +93,34 @@ export async function handle(request, {fetcher=fetch,cache,waitUntil=()=>{},env}
   } catch (error) { console.warn(JSON.stringify({event:'canvas_upstream_error',name:error.name,message:String(error.message).slice(0,160)})); return json({error:'Canvas source unavailable'},503); }
   finally { clearTimeout(timeout); }
 }
-export default {fetch(request,env,ctx) { return handle(request,{env,cache:caches.default,waitUntil:promise=>ctx.waitUntil(promise)}); }};
+/* ---------- Security layer: origin allowlist, rate limit, hardened headers ---------- */
+export const ALLOWED_ORIGINS = ['https://coye2.github.io','https://open.spotify.com','http://localhost:8080','http://127.0.0.1:8080'];
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'no-referrer',
+  'Content-Security-Policy':"default-src 'none'; frame-ancestors 'none'",'Cross-Origin-Resource-Policy':'cross-origin',
+  'Strict-Transport-Security':'max-age=63072000; includeSubDomains','Permissions-Policy':'interest-cohort=()',
+};
+const RATE = {limit:120, windowMs:60000}, hits = new Map();
+export function rateLimited(ip, now = Date.now(), table = hits, rate = RATE) {
+  const entry = table.get(ip);
+  if (!entry || now - entry.start > rate.windowMs) { table.set(ip,{start:now,count:1}); if (table.size > 5000) table.clear(); return false; }
+  entry.count++;
+  return entry.count > rate.limit;
+}
+export async function secureHandle(request, options = {}) {
+  const origin = request.headers.get('Origin');
+  const allowed = !origin || ALLOWED_ORIGINS.includes(origin);
+  const finish = response => {
+    const headers = new Headers(response.headers);
+    for (const [k,v] of Object.entries(SECURITY_HEADERS)) headers.set(k,v);
+    if (origin && allowed) { headers.set('Access-Control-Allow-Origin',origin); headers.set('Vary','Origin'); }
+    else headers.delete('Access-Control-Allow-Origin');
+    return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
+  };
+  if (!allowed) return finish(json({error:'Origin not allowed'},403));
+  if (new URL(request.url).search.length > 1200) return finish(json({error:'Request too long'},414));
+  const ip = request.headers.get('CF-Connecting-IP') || 'local';
+  if (rateLimited(ip)) { const r = json({error:'Too many requests. Try again in a minute.'},429); return finish(new Response(r.body,{status:429,headers:{...Object.fromEntries(r.headers),'Retry-After':'60'}})); }
+  return finish(await handle(request, options));
+}
+export default {fetch(request,env,ctx) { return secureHandle(request,{env,cache:caches.default,waitUntil:promise=>ctx.waitUntil(promise)}); }};

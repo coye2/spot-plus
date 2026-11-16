@@ -2,7 +2,7 @@
 /* global READ_QUERIES, SPOTIFY_QUERY_URL, COMPANION_VERSION, readSpotifyAccount, canAutoRead, encodeLibraryText, readSpotifyStats, readSpotifyProfile, SpotPlusSync */
 function runSpotifyCompanion(){
   if(location.origin!=='https://open.spotify.com'||document.getElementById('spotplus-companion'))return;
-  const permittedOrigins=['https://coye2.github.io','https://spot-plus-coyeb.coyeboymitchell2000.chatgpt.site'];
+  const permittedOrigins=['https://coye2.github.io'];
   let targetOrigin=permittedOrigins[0];
   const originalFetch=window.fetch.bind(window), credentials={};
   const observedQueries=new Map();
