@@ -701,7 +701,6 @@ async function handleAct(act, el) {
     case 'like-current': { const t = player.current(); if (t) toast(store.toggleLike(t) ? 'Added to Liked Songs' : 'Removed from Liked Songs'); break; }
     case 'np-open': openNP(); break;
     case 'np-close': closeNP(); break;
-    case 'np-fx': fxSheet(); break;
     case 'fx-preset': fx.usePreset(el.dataset.preset); fxSheet(true); break;
     case 'fx-room': fx.set({room:el.dataset.room}); fxSheet(true); break;
     case 'fx-toggle': fx.set({[el.dataset.key]:!fx.get()[el.dataset.key]}); fxSheet(true); break;
@@ -1145,6 +1144,7 @@ document.addEventListener('input',e=>{const key=e.target.dataset?.fx;if(!key)ret
 let fxEl=null;
 const fxBind=()=>{if(player.el!==fxEl){fxEl=player.el;fx.bind(player.el,player.mediaElements().filter(m=>m!==player.el));}};
 const fxBadge=()=>$('.np-fx')?.classList.toggle('on',fx.isActive(fx.get()));
+$('.np-fx')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();fxSheet();});
 player.on('state',fxBind);fx.onChange(fxBadge);fxBadge();
 addEventListener('spotplus:music-play',fx.resume);document.addEventListener('visibilitychange',()=>{if(!document.hidden)fx.resume();});
 function sleepMenu(){openSheet({head:'<div class="sheet-title">Sleep timer</div>',items:[...[5,15,30,60].map(minutes=>({icon:I.history,label:`${minutes} minutes`,fn:()=>{clearTimeout(sleepTimer);sleepTimer=setTimeout(()=>{player.el.pause();dj.stop();toast('Sleep timer ended');},minutes*60000);toast(`Playback will pause in ${minutes} minutes`);}})),{icon:I.close,label:'Turn off timer',fn:()=>{clearTimeout(sleepTimer);sleepTimer=null;toast('Sleep timer off');}}]});}

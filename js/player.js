@@ -33,7 +33,7 @@ let prefetchTimer = 0, warmGeneration = 0, startedAt = 0;
 let volumeLevel = 1;
 let stallTimer;
 function clearStall(){clearTimeout(stallTimer);stallTimer=null;}
-function watchStall(){clearStall();const generation=token;stallTimer=setTimeout(()=>{if(generation===token&&pendingPlay&&isRealSrc())recoverMedia();},8000);stallTimer.unref?.();}
+function watchStall(){clearStall();const generation=token;stallTimer=setTimeout(()=>{if(generation===token&&pendingPlay&&isRealSrc())recoverMedia();},6000);stallTimer.unref?.();}
 function recoverMedia(){
   clearStall();if(!isRealSrc()||!current())return;
   const alternatives=state.source?.alternatives||[];
@@ -177,7 +177,7 @@ const listen = (event,fn) => media.addEventListener(event,() => { if (media === 
 // Only the current track may make sound: a spare/preloaded element that starts on its own is stopped at once.
 media.addEventListener('play',() => { if (media !== audio && media.src && !media.src.startsWith('data:')) media.pause(); else if (media === audio) window.dispatchEvent?.(new Event('spotplus:music-play')); });
 listen('playing', () => { clearStall();if (state.startupMs == null && startedAt && isRealSrc()) state.startupMs = Math.round(performance.now() - startedAt); state.loading = false; api.reportPlaybackSource(state.source); emit('state'); prefetch(); });
-listen('play', () => { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'; emit('state'); });
+listen('play', () => { if ('mediaSession' in navigator) { navigator.mediaSession.playbackState = 'playing'; updateSession(current()); } emit('state'); });
 listen('pause', () => { clearStall();if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'; emit('state'); save(); ++warmGeneration; clearTimeout(prefetchTimer); if(nextBuffer.entry)nextBuffer.clear(); });
 listen('waiting', () => { if (isRealSrc()) { watchStall();state.loading = true; ++warmGeneration; clearTimeout(prefetchTimer); nextBuffer.clear(); api.cancelPrewarm(); emit('state'); } });
 listen('canplay', () => { if (state.loading && !audio.paused) { state.loading = false; emit('state'); } });
@@ -223,12 +223,15 @@ export function playList(tracks, i = 0, { shuffle = null } = {}) {
   load();
 }
 export function playIndex(i) { if (i >= 0 && i < state.queue.length) { state.index = i; errRetries = 0; load(); } }
+// Audio links from YouTube servers expire after a few hours; a paused song may need a fresh one.
+const linkExpired = () => { const exp = Number(String(state.source?.url || '').match(/[?&]expire=(\d{9,11})/)?.[1] || 0) * 1000; return !!exp && exp - 60e3 < Date.now(); };
 export function toggle() {
   if (!current()) return;
   if (state.loading) { cancelLoad?.abort(); ++token; state.loading = false; pendingPlay = false; audio.pause(); audio.removeAttribute('src'); audio.load(); emit('state'); return; }
   if(!isRealSrc()){const at=restorePos;restorePos=0;load({startAt:at});return;}
   if (audio.paused) {
     if (!isRealSrc()) { const at = restorePos; restorePos = 0; load({ startAt: at }); }
+    else if (linkExpired()) load({ startAt: audio.currentTime || 0 });
     else audio.play().catch(() => {});
   } else audio.pause();
 }
@@ -326,6 +329,7 @@ export function restore() {
     state.index = Math.max(0, Math.min(s.index || 0, s.queue.length - 1));
     restorePos = s.pos || 0;
     updateSession(current());
+    setTimeout(() => { if (current() && !isRealSrc()) api.prewarm(current()); }, 1500);
   }
   emit('state');
 }
@@ -349,8 +353,8 @@ function positionState() {
 }
 if ('mediaSession' in navigator) {
   const h = (a, fn) => { try { navigator.mediaSession.setActionHandler(a, fn); } catch {} };
-  h('play', () => { if(audio.paused) toggle(); });
-  h('pause', () => audio.pause());
+  h('play', () => { updateSession(current()); if(audio.paused) toggle(); });
+  h('pause', () => { audio.pause(); updateSession(current()); });
   h('previoustrack', prev);
   h('nexttrack', next);
   h('seekto', (d) => seek(d.seekTime));
