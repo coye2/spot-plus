@@ -382,3 +382,23 @@ details.settings-more{padding:16px 0}details.settings-more>summary,.connection-h
 .pair-sheet{padding:4px 4px 12px;text-align:center}.pair-sheet p{margin:6px 0 14px;line-height:1.5}
 .pair-qr{width:200px;height:200px;margin:0 auto 16px;background:#fff;border-radius:16px;padding:10px}.pair-qr svg{width:100%;height:100%}
 .pair-sheet .btn{width:100%;justify-content:center;margin-bottom:10px}.collab-on{color:var(--accent)!important}
+
+/* Playlist generator */
+.gen{max-width:720px;padding-bottom:40px}.gen h1{margin:4px 0 6px}.gen-block{margin:22px 0}.gen-block h3{font-size:16px;margin:0 0 10px}.gen-block h3 small{color:var(--muted);font-weight:500;margin-left:6px}
+.gen-chips{display:flex;flex-wrap:wrap;gap:8px}
+.gen-taste{display:flex;align-items:center;gap:12px;padding:10px 0}.gen-taste input{width:22px;height:22px;accent-color:var(--accent)}.gen-taste small{display:block;color:var(--muted);font-size:12px}
+.gen-search{position:relative;margin:8px 0}.gen-search input{width:100%;height:46px;border-radius:999px;padding:0 18px;border:1px solid color-mix(in srgb,var(--text) 16%,transparent);background:var(--bg3);color:var(--text);font-size:15px}
+.gen-found{position:absolute;left:0;right:0;top:52px;z-index:20;background:var(--bg2);border:1px solid color-mix(in srgb,var(--text) 12%,transparent);border-radius:14px;padding:6px;box-shadow:0 18px 50px #0008;max-height:340px;overflow:auto}
+.gen-found button{display:flex;align-items:center;gap:10px;width:100%;padding:8px;border:0;background:none;color:var(--text);text-align:left;border-radius:10px;font-size:14px}.gen-found button:hover{background:var(--hover)}
+.gen-found img{width:36px;height:36px;border-radius:6px;object-fit:cover}.gen-found img.round{border-radius:50%}.gen-type{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;min-width:48px}
+.gen-seeds{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}.gen-seed{display:inline-flex;align-items:center;gap:8px;padding:4px 6px 4px 4px;border-radius:999px;background:color-mix(in srgb,var(--accent) 22%,transparent);font-size:13px;font-weight:600}
+.gen-seed img{width:26px;height:26px;border-radius:50%;object-fit:cover}.gen-seed button{border:0;background:none;color:var(--text);display:grid;place-items:center;width:22px;height:22px;padding:0}.gen-seed svg{width:14px;height:14px;fill:currentColor}
+.gen-seg{display:flex;background:var(--bg3);border-radius:999px;padding:4px;gap:4px}.gen-seg button{flex:1;border:0;background:none;color:var(--muted);padding:9px 6px;border-radius:999px;font-weight:700;font-size:14px}.gen-seg button.on{background:var(--text);color:var(--canvas)}
+.gen-slider input{width:100%;accent-color:var(--accent);height:28px}.gen-slider div{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);font-weight:600;margin-bottom:10px}
+.gen-name{display:flex;align-items:center;gap:12px;margin-top:10px}.gen-name input{flex:1;height:44px;border-radius:10px;padding:0 14px;border:1px solid color-mix(in srgb,var(--text) 16%,transparent);background:var(--bg3);color:var(--text);font-size:15px}
+.gen-go{width:100%;height:54px;font-size:17px;justify-content:center;margin-top:8px}
+.gen-result{margin-top:30px;padding-top:20px;border-top:1px solid color-mix(in srgb,var(--text) 12%,transparent)}.gen-result h2{margin:4px 0}
+
+/* Dev credits */
+.credit-card{display:flex;align-items:center;gap:14px;margin:6px 0 12px}.credit-pfp{width:64px;height:64px;border-radius:50%;object-fit:cover;box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 60%,transparent)}
+.credit-card b{display:block;font-size:17px}.credit-card small{color:var(--muted)}.credit-links{display:flex;gap:10px;flex-wrap:wrap}

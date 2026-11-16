@@ -2,6 +2,13 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.7.0 — Playlist generator
+_2026-11-16_
+
+- New playlist generator (Create › Generate a playlist): start from your taste, artists, songs or genres, pick vibes, then tune familiar ↔ new, deep cuts ↔ big hits, length, songs per artist, order and clean-only. Preview it, regenerate, play or save.
+- The full changelog is now in Settings.
+- New “Made by” section in Settings with the developer’s live Discord profile and a link to the Spot+ Discord.
+
 ## 1.6.1 — Bigger launch logo
 _2026-11-16_
 

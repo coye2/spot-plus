@@ -13,7 +13,8 @@ import * as fx from './fx.js';
 import * as live from './live-stats.js';
 import * as mixes from './mixes.js';
 import * as libsync from './library-sync.js';
-import {unseen as unseenReleases,markSeen as markReleasesSeen,APP_VERSION} from './changelog.js';
+import * as gen from './generator.js';
+import {unseen as unseenReleases,markSeen as markReleasesSeen,APP_VERSION,CHANGELOG as CHANGELOG_ALL} from './changelog.js';
 import * as store from './store.js';
 await store.ready(); // Load the Spotify account copy from IndexedDB before the first render.
 import * as player from './player.js';
@@ -268,6 +269,79 @@ async function viewCollab(code){
   return loadingHtml;
 }
 
+/* ---------------- Playlist generator ---------------- */
+let genOpts=(()=>{try{return {...gen.DEFAULTS,...JSON.parse(localStorage.getItem('spotplus.generator')||'{}'),name:''};}catch{return {...gen.DEFAULTS};}})();
+let genResult=null,genBusy=false,genGenres=null;
+const saveGen=()=>{try{localStorage.setItem('spotplus.generator',JSON.stringify({...genOpts,name:''}));}catch{}};
+function genSegment(key,opts){return `<div class="gen-seg" role="radiogroup">${opts.map(([v,l])=>`<button class="${genOpts[key]===v?'on':''}" role="radio" aria-checked="${genOpts[key]===v}" data-act="gen-set" data-key="${key}" data-value="${v}">${l}</button>`).join('')}</div>`;}
+function genSlider(key,left,right){return `<div class="gen-slider"><input type="range" min="0" max="1" step="0.05" value="${genOpts[key]}" data-gen="${key}" aria-label="${left} to ${right}"><div><span>${left}</span><span>${right}</span></div></div>`;}
+function genSeedChips(){
+  const chip=(type,i,label,img)=>`<span class="gen-seed">${img?`<img src="${esc(img)}" alt="">`:''}${esc(label)}<button data-act="gen-remove" data-type="${type}" data-i="${i}" aria-label="Remove ${esc(label)}">${I.close}</button></span>`;
+  return [...genOpts.artists.map((a,i)=>chip('artists',i,a.name,a.picture)),...genOpts.songs.map((s,i)=>chip('songs',i,`${s.title} · ${s.artist}`,s.cover)),...genOpts.genres.map((g,i)=>chip('genres',i,g.name,''))].join('');
+}
+async function viewGenerate(){
+  if(!genGenres)api.genres().then(g=>{genGenres=g;if(location.hash==='#/generate')route({keepScroll:true});}).catch(()=>{});
+  const o=genOpts,quickGenres=(genGenres||[]).slice(0,14);
+  const results=genResult?(()=>{const k=reg(genResult.tracks,{name:genResult.name});return `<section class="gen-result" id="genResult"><div class="gen-result-head"><div><div class="kicker">Your new playlist</div><h2>${esc(genResult.name)}</h2><p class="muted">${plural(genResult.tracks.length,'song')}, ${total(genResult.tracks)}</p></div></div>
+    <div class="actions"><button class="btn primary" data-act="play-all" data-key="${k}">${I.play}<span>Play</span></button><button class="btn" data-act="gen-save">${I.plus}<span>Save playlist</span></button><button class="btn" data-act="gen-run" data-again="1">${I.shuffle}<span>Regenerate</span></button></div>${trackRows(genResult.tracks,k)}</section>`;})():'';
+  return `<div class="gen"><div class="kicker">Create</div><h1>Playlist generator</h1><p class="muted">Pick as much or as little as you like. Spot+ does the rest.</p>
+  <section class="gen-block"><h3>Start from</h3>
+    <label class="gen-taste"><input type="checkbox" data-gen-check="useTaste" ${o.useTaste?'checked':''}><span><b>My taste</b><small>Use what you play and like</small></span></label>
+    <div class="gen-search"><input id="genSearch" type="search" placeholder="Add artists, songs or genres" autocomplete="off" aria-label="Add artists, songs or genres"><div id="genFound" class="gen-found" hidden></div></div>
+    <div class="gen-seeds">${genSeedChips()}</div>
+    ${quickGenres.length?`<div class="gen-chips">${quickGenres.map(g=>`<button class="chip${o.genres.some(x=>x.id===g.id)?' on':''}" data-act="gen-genre" data-id="${g.id}" data-name="${esc(g.name)}">${esc(g.name)}</button>`).join('')}</div>`:''}
+  </section>
+  <section class="gen-block"><h3>Vibe <small>pick any</small></h3><div class="gen-chips">${Object.entries(gen.VIBES).map(([k,v])=>`<button class="chip${o.vibes.includes(k)?' on':''}" data-act="gen-vibe" data-vibe="${k}">${v.label}</button>`).join('')}</div></section>
+  <section class="gen-block"><h3>Sound</h3>${genSlider('discovery','Familiar','Discover new')}${genSlider('popularity','Deep cuts','Big hits')}</section>
+  <section class="gen-block"><h3>Length</h3>${genSegment('length',[[15,'15'],[30,'30'],[50,'50'],[100,'100']])}</section>
+  <section class="gen-block"><h3>Songs per artist</h3>${genSegment('perArtist',[[1,'1'],[2,'2'],[3,'3'],[0,'Any']])}</section>
+  <section class="gen-block"><h3>Order</h3>${genSegment('order',[['flow','Smooth flow'],['shuffle','Shuffled'],['popular','Biggest first']])}</section>
+  <section class="gen-block"><label class="gen-taste"><input type="checkbox" data-gen-check="clean" ${o.clean?'checked':''}><span><b>Clean only</b><small>Leave out explicit songs</small></span></label>
+    <label class="gen-name"><span>Name</span><input id="genName" maxlength="80" placeholder="${esc(gen.suggestName(o))}" value="${esc(o.name)}"></label></section>
+  <button class="btn primary gen-go" data-act="gen-run" ${genBusy?'disabled':''}>${genBusy?'Building your playlist…':'Generate playlist'}</button>
+  ${results}</div>`;
+}
+async function runGenerator(again){
+  if(genBusy)return;genBusy=true;genOpts.name=$('#genName')?.value||genOpts.name;saveGen();route({keepScroll:true});
+  try{
+    const you={history:await readHistory().catch(()=>[]),likes:store.getLikes(),recent:store.getRecent(),skips:mixes.loadSkips()};
+    const r=await gen.generate(genOpts,{artistRadio:api.artistRadio,artistTop:api.artistTop,genreArtists:api.genreArtists,vibeTracks:api.vibeTracks,findArtist:api.findArtist},you,again?Date.now():Date.now());
+    genResult=visibleTracks(r.tracks,store.getSettings()).length?{...r,tracks:visibleTracks(r.tracks,store.getSettings())}:null;
+    if(!genResult)toast('Couldn’t find enough songs. Try fewer filters.');
+  }catch(e){toast(e.message||'Couldn’t build a playlist right now.');}
+  genBusy=false;await route({keepScroll:true});$('#genResult')?.scrollIntoView({behavior:'smooth',block:'start'});
+}
+let genSearchTimer=0;
+document.addEventListener('input',e=>{
+  if(e.target.dataset?.gen){genOpts[e.target.dataset.gen]=Number(e.target.value);saveGen();}
+  if(e.target.id==='genName')genOpts.name=e.target.value;
+  if(e.target.id!=='genSearch')return;
+  clearTimeout(genSearchTimer);const q=e.target.value.trim(),box=$('#genFound');
+  if(q.length<2){box.hidden=true;return;}
+  genSearchTimer=setTimeout(async()=>{
+    const [artists,songs]=await Promise.all([api.searchArtists(q,4).catch(()=>[]),api.searchTracks(q).then(t=>t.slice(0,4)).catch(()=>[])]);
+    const genres=(genGenres||[]).filter(g=>g.name.toLowerCase().includes(q.toLowerCase())).slice(0,3);
+    if($('#genSearch')?.value.trim()!==q)return;
+    genFound={artists,songs,genres};
+    box.innerHTML=[...genres.map((g,i)=>`<button data-act="gen-add" data-type="genres" data-i="${i}"><span class="gen-type">Genre</span>${esc(g.name)}</button>`),
+      ...artists.map((a,i)=>`<button data-act="gen-add" data-type="artists" data-i="${i}">${a.picture?`<img src="${esc(a.picture)}" alt="" class="round">`:''}<span class="gen-type">Artist</span>${esc(a.name)}</button>`),
+      ...songs.map((s,i)=>`<button data-act="gen-add" data-type="songs" data-i="${i}">${s.cover?`<img src="${esc(s.cover)}" alt="">`:''}<span class="gen-type">Song</span>${esc(s.title)} · ${esc(s.artist)}</button>`)].join('')||'<p class="muted">Nothing found</p>';
+    box.hidden=false;
+  },250);
+});
+document.addEventListener('change',e=>{const k=e.target.dataset?.genCheck;if(k){genOpts[k]=e.target.checked;saveGen();}});
+let genFound={artists:[],songs:[],genres:[]};
+
+/* ---------------- Dev credits (live Discord picture) ---------------- */
+let devCache=(()=>{try{return JSON.parse(localStorage.getItem('spotplus.dev')||'null');}catch{return null;}})(),devFetched=0;
+async function refreshDev(){
+  if(Date.now()-devFetched<600000)return;devFetched=Date.now();
+  try{const r=await fetch(live.STATS_URL+'/dev',{credentials:'omit'});if(!r.ok)return;const d=await r.json();if(!d?.name)return;
+    devCache=d;try{localStorage.setItem('spotplus.dev',JSON.stringify(d));}catch{}
+    const box=$('#devCredits');if(box){if(d.avatar)box.querySelector('.credit-pfp').src=d.avatar;box.querySelector('.credit-name').textContent=d.name;box.querySelector('.credit-user').textContent=d.username?'@'+d.username:'';box.querySelector('.credit-count').textContent=d.members?` · ${live.formatCount(d.members)} members`:'';}
+  }catch{ /* offline: keep the last copy */ }
+}
+
 /* ---------------- Views ---------------- */
 async function viewHome() {
   const recent = store.getRecent();
@@ -439,6 +513,10 @@ async function viewSettings() {
   return `<h1 class="settings-top">Settings</h1>
   <section class="box"><h2>Your profile</h2><label class="field"><span>Display name<small>Shown on your profile and in Jams.</small></span><input maxlength="60" data-setting="displayName" value="${esc(s.displayName)}"></label><a class="btn small" href="#/profile">View profile</a></section>
   <section class="box"><h2>Spotify</h2><p class="settings-note">${spotifyAccount||cachedLinks()?'Connected. Rewind and your profile update by themselves.':'Connect once to get Rewind, your profile picture and Made For You.'}</p><a class="btn primary" href="#/spotify-account">${spotifyAccount||cachedLinks()?'Manage Spotify':'Connect Spotify'}</a></section>
+  <section class="box credits" id="devCredits"><h2>Made by</h2><div class="credit-card"><img class="credit-pfp" src="${esc(devCache?.avatar||'icons/icon-192.png')}" alt="" width="64" height="64"><div><b class="credit-name">${esc(devCache?.name||'Coye | NXInfinity DEV')}</b><small class="credit-user">${devCache?.username?'@'+esc(devCache.username):'Spot+ developer'}</small></div></div>
+    <p class="settings-note">Spot+ is a solo project, built with Claude and Takumi. Bugs, ideas or just want to talk music? Come hang out.</p>
+    <div class="credit-links"><a class="btn primary small" href="${esc(devCache?.invite||'https://discord.gg/DbhTQD7jW')}" target="_blank" rel="noopener">Join the Discord<span class="credit-count">${devCache?.members?` · ${live.formatCount(devCache.members)} members`:''}</span></a><a class="btn small" href="https://github.com/coye2/spot-plus" target="_blank" rel="noopener">GitHub</a></div></section>
+  <section class="box"><h2>What’s new</h2><p class="settings-note">You’re on Spot+ ${esc(APP_VERSION)}. See what changed in every update.</p><button class="btn small" data-act="changelog">Changelog</button></section>
   <section class="box"><h2>Your devices</h2><p class="settings-note">${libsync.syncState()?'Your library syncs with your other devices.':'Keep your likes and playlists the same on your phone and computer. No account.'}</p><button class="btn primary small" data-act="link-devices">${libsync.syncState()?'Link another device':'Link a device'}</button></section>
   <section class="box"><h2>Notifications</h2>${notify.permission()==='unsupported'?'<p class="settings-note">This browser can’t show notifications. On iPhone, add Spot+ to your Home Screen first.</p>':notify.permission()==='granted'?'':`<p class="settings-note">${notify.permission()==='denied'?'Notifications are blocked for Spot+. Allow them in your browser or phone settings.':'Get a heads-up about new music and updates. Never more than two a day, and nothing at night.'}</p>${notify.permission()==='default'?'<button class="btn primary small" data-act="notify-enable">Turn on notifications</button>':''}`}
   ${toggle('notifyReleases','New releases','When an artist you follow drops a song or album.')}${toggle('notifyStats','Weekly recap','Sunday evening: your minutes and most-played artist.')}${toggle('notifyUpdates','App updates','When a new version of Spot+ is ready.')}</section>
@@ -497,6 +575,7 @@ const routes = [
   [/^#\/recent$/, viewRecent],
   [/^#\/rewind$/, rewindView],
   [/^#\/mix\/(\d)$/, viewMix],
+  [/^#\/generate$/, viewGenerate],
   [/^#\/pair\/([a-f0-9]{64})$/, viewPair],
   [/^#\/collab\/([a-z2-9]{12})$/, viewCollab],
   [/^#\/local$/, viewLocal],
@@ -537,7 +616,7 @@ async function route({ keepScroll = false } = {}) {
       if (my !== routeTok) return;
       lists.forEach((_, k) => { if (+k.slice(1) <= startSeq) lists.delete(k); });
       view.innerHTML = html;
-      hydrateStatistics(view);syncAvatars();if(view.querySelector('[data-live]'))refreshLive();if(location.hash==='#/rewind')hydrateRewind(view);
+      hydrateStatistics(view);syncAvatars();if(view.querySelector('[data-live]'))refreshLive();if(view.querySelector('#devCredits'))refreshDev();if(location.hash==='#/rewind')hydrateRewind(view);
       syncVoices();
       view.setAttribute('aria-busy','false');
       renderSidebar();
@@ -834,6 +913,14 @@ async function handleAct(act, el) {
     case 'share-pl': shareSheet(el.dataset.id); break;
     case 'copy-collab': navigator.clipboard?.writeText(el.dataset.link).then(()=>toast('Invite link copied'),()=>toast('Couldn’t copy. Scan the code instead.')); break;
     case 'stop-collab': store.updatePlaylist(el.dataset.id,x=>{delete x.collab;},{remote:true}); closeSheet(); toast('Stopped sharing on this device'); route({keepScroll:true}); break;
+    case 'gen-run': runGenerator(!!el.dataset.again); break;
+    case 'gen-set': {const raw=el.dataset.value;genOpts[el.dataset.key]=/^\d+$/.test(raw)?Number(raw):raw;saveGen();route({keepScroll:true});break;}
+    case 'gen-vibe': {const v=el.dataset.vibe;genOpts.vibes=genOpts.vibes.includes(v)?genOpts.vibes.filter(x=>x!==v):[...genOpts.vibes,v];saveGen();route({keepScroll:true});break;}
+    case 'gen-genre': {const id=Number(el.dataset.id);genOpts.genres=genOpts.genres.some(g=>g.id===id)?genOpts.genres.filter(g=>g.id!==id):[...genOpts.genres,{id,name:el.dataset.name}];saveGen();route({keepScroll:true});break;}
+    case 'gen-add': {const item=genFound[el.dataset.type]?.[+el.dataset.i];if(item){const list=genOpts[el.dataset.type];if(!list.some(x=>String(x.id)===String(item.id)))list.push(el.dataset.type==='songs'?{id:item.id,title:item.title,artist:item.artist,artistId:item.artistId,cover:item.cover,duration:item.duration}:el.dataset.type==='artists'?{id:item.id,name:item.name,picture:item.picture}:{id:item.id,name:item.name});saveGen();}route({keepScroll:true});break;}
+    case 'gen-remove': {genOpts[el.dataset.type].splice(+el.dataset.i,1);saveGen();route({keepScroll:true});break;}
+    case 'gen-save': {if(!genResult)break;const p=store.createPlaylist(genResult.name,genResult.tracks);toast(`Saved “${genResult.name}”`);go('#/my/'+p.id);break;}
+    case 'changelog': whatsNew(CHANGELOG_ALL); break;
     case 'np-more': { const t = player.current(); if (t) trackSheet(t); break; }
     case 'np-tab': setNPMode(el.dataset.mode); break;
     case 'canvas-cover': canvasPreference=false;setCanvasEnabled(false);setNPMode('art');break;
@@ -1266,7 +1353,7 @@ function modelStatusHtml(){const s=dj.localModel.status;return `<p class="settin
 function syncVoices(){syncDJVoice();}
 
 
-function createMenu(){openSheet({head:'<div class="sheet-title">Create</div>',items:[{icon:I.plus,label:'Create a playlist',sub:'Collect your favorite tracks',fn:()=>handleAct('new-playlist',{})},{icon:I.folder,label:'Create a folder',sub:'Organize playlists in your library',fn:()=>handleAct('new-folder',{})},{icon:I.library,label:'Spotify account & collections',sub:'Connect your account or explore playlists',fn:()=>go('#/spotify')},{icon:I.import,label:'Import a Deezer playlist',fn:()=>handleAct('import-playlist',{})},{icon:I.note,label:'Add local audio files',sub:'From this phone or computer',fn:()=>$('#localFilesInput').click()},{icon:I.dj,label:'Start a DJ session',fn:()=>go('#/dj')},{icon:I.jam,label:'Start a Jam',sub:'Listen together in real time',fn:()=>go('#/jam')}]});}
+function createMenu(){openSheet({head:'<div class="sheet-title">Create</div>',items:[{icon:I.shuffle,label:'Generate a playlist',sub:'Pick artists, genres and a vibe. Spot+ builds it.',fn:()=>go('#/generate')},{icon:I.plus,label:'Create a playlist',sub:'Collect your favorite tracks',fn:()=>handleAct('new-playlist',{})},{icon:I.folder,label:'Create a folder',sub:'Organize playlists in your library',fn:()=>handleAct('new-folder',{})},{icon:I.library,label:'Spotify account & collections',sub:'Connect your account or explore playlists',fn:()=>go('#/spotify')},{icon:I.import,label:'Import a Deezer playlist',fn:()=>handleAct('import-playlist',{})},{icon:I.note,label:'Add local audio files',sub:'From this phone or computer',fn:()=>$('#localFilesInput').click()},{icon:I.dj,label:'Start a DJ session',fn:()=>go('#/dj')},{icon:I.jam,label:'Start a Jam',sub:'Listen together in real time',fn:()=>go('#/jam')}]});}
 function profileMenu(){openSheet({head:`<div class="sheet-title">${esc(store.getSettings().displayName)}</div>`,items:[{icon:I.person,label:'Profile',sub:'Your library on this device',fn:()=>go('#/profile')},{icon:I.history,label:'Your Rewind',sub:'Your listening, all year round',fn:()=>go('#/rewind')},{icon:I.history,label:'Listening history',fn:()=>go('#/recent')},{icon:I.settings,label:'Theme Studio',sub:'Make Spot+ yours',fn:()=>go('#/themes')},{icon:I.library,label:'Spotify account',fn:()=>go('#/spotify-account')},{icon:I.settings,label:'Settings',fn:()=>go('#/settings')},{icon:I.dj,label:'Spot+ DJ',fn:()=>go('#/dj')}]});}
 function deviceMenu(){openSheet({head:'<div class="sheet-title">Connect</div>',body:`<button class="jam-entry" data-act="jam-open">${I.jam}<div><b>${jam.active?'Jam · '+esc(jam.code):'Start a Jam'}</b><small>${jam.active?jam.members.length+' listening':'Listen together with friends, live'}</small></div>${I.arrow}</button><div class="device-card">${I.device}<div><b>This browser</b><small>Current audio output</small></div></div><p class="sheet-note">Use your phone or computer’s audio controls for Bluetooth or AirPlay. Spotify Connect is not available through these music sources.</p>`,items:typeof player.el.setSinkId==='function' && navigator.mediaDevices?.selectAudioOutput?[{icon:I.device,label:'Choose audio output',fn:async()=>{try{const d=await navigator.mediaDevices.selectAudioOutput();await player.el.setSinkId(d.deviceId);toast('Audio output changed');}catch(e){toast(e.name==='NotAllowedError'?'Audio output selection was cancelled.':e.message);}}}]:[]});}
 /* ---------------- Sound effects ---------------- */

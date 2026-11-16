@@ -94,6 +94,7 @@ export function normTrack(t, album) {
     duration: t.duration || 0,
     explicit: !!t.explicit_lyrics,
     preview: t.preview || '',
+    rank: t.rank || 0,
   };
 }
 const normAlbum = (a) => ({
@@ -655,4 +656,17 @@ export async function artistReleases(id) {
 export async function findArtist(name) {
   const hit = data(await jsonp('/search/artist', {q: name, limit: 1}))[0];
   return hit ? normArtist(hit) : null;
+}
+
+/* ----- Playlist generator helpers ----- */
+export async function artistTop(id, limit = 40) { return data(await jsonp(`/artist/${id}/top`, {limit})).map(t => normTrack(t)); }
+let genreList = null;
+export async function genres() { genreList ||= data(await jsonp('/genre')).filter(g => g.id > 0).map(g => ({id: g.id, name: g.name, picture: g.picture_medium || ''})); return genreList; }
+export async function genreArtists(id) { return data(await jsonp(`/genre/${id}/artists`, {limit: 12})).map(normArtist); }
+export async function searchArtists(q, limit = 6) { return data(await jsonp('/search/artist', {q, limit})).map(normArtist); }
+/** Songs from the best-matching public playlists for a phrase like "chill hip hop". */
+export async function vibeTracks(q, playlists = 2) {
+  const found = data(await jsonp('/search/playlist', {q, limit: playlists})).slice(0, playlists);
+  const lists = await Promise.allSettled(found.map(p => jsonp(`/playlist/${p.id}/tracks`, {limit: 100})));
+  return lists.flatMap(r => r.status === 'fulfilled' ? data(r.value).map(t => normTrack(t)) : []);
 }

@@ -1,3 +1,4 @@
+import {devProfile} from './dev-profile.js';
 import {liveStats, InstallCounter} from './installs.js';
 export {InstallCounter};
 import {youtubeMatch} from './youtube-match.js';
@@ -73,9 +74,10 @@ export async function handle(request, {fetcher=fetch,cache,waitUntil=()=>{},env}
     return liveStats(request, env, async text => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('spotplus:' + text)))].slice(0, 8).map(b => b.toString(16).padStart(2, '0')).join(''));
   if (request.method !== 'GET') return json({error:'Use GET'},405);
   if (url.pathname === '/spotify-stats') return spotifyStats(request,{fetcher,cache,waitUntil});
+  if (url.pathname === '/dev') return devProfile(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/match') return youtubeMatch(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/spotify-public') return spotifyPublic(request,{fetcher,cache,waitUntil});
-  if (url.pathname === '/health') return json({service:'Spot+ Canvas bridge',status:'ok',lyrics:true,spotifyPublic:true,match:true,stats:true});
+  if (url.pathname === '/health') return json({service:'Spot+ Canvas bridge',status:'ok',lyrics:true,spotifyPublic:true,match:true,stats:true,dev:true});
   if (url.pathname === '/lyrics-search') return lyricsSearch(url,{fetcher,cache,waitUntil});
   if (url.pathname !== '/canvas') return json({error:'Not found'},404);
   const query = queryFor(url.searchParams);
