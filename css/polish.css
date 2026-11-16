@@ -342,3 +342,10 @@ details.settings-more{padding:16px 0}details.settings-more>summary,.connection-h
 @media (max-width:767px){.links-paste{flex-wrap:wrap}.links-paste textarea{flex-basis:100%}.links-paste .btn{flex:1}}
 .toast{display:flex;align-items:center;gap:12px}.toast-action{margin-left:auto;font-weight:800;color:var(--accent);background:none;border:0;padding:4px 2px;flex:none;cursor:pointer}
 .toast:has(.toast-action){pointer-events:auto}.toast-action{pointer-events:auto}
+
+/* Sound effects */
+.np-fx svg{width:22px;height:22px;fill:currentColor}.np-fx.on{color:var(--accent)}.np-fx.on svg{filter:drop-shadow(0 0 6px var(--accent))}
+.fx{padding:4px 4px 8px}.fx-presets{display:flex;gap:8px;overflow-x:auto;padding:4px 0 14px;scrollbar-width:none;margin:0 -4px}.fx-presets::-webkit-scrollbar{display:none}.fx-presets .chip{flex:none}
+.fx-slider{display:block;margin:10px 0}.fx-slider span{display:flex;justify-content:space-between;font-weight:700;font-size:14px;margin-bottom:6px}.fx-slider b{color:var(--text);font-variant-numeric:tabular-nums}
+.fx-slider input{width:100%;accent-color:var(--accent);height:28px}
+.fx-row{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 10px}

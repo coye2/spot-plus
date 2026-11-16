@@ -9,6 +9,7 @@ import {fetchSnapshot,newSyncKey,validSyncKey} from './relay-sync.js';
 // app.js — Spot+ UI: router, views, player bar, now-playing screen.
 import * as api from './api.js';
 import * as notify from './notify.js';
+import * as fx from './fx.js';
 import * as store from './store.js';
 await store.ready(); // Load the Spotify account copy from IndexedDB before the first render.
 import * as player from './player.js';
@@ -700,6 +701,10 @@ async function handleAct(act, el) {
     case 'like-current': { const t = player.current(); if (t) toast(store.toggleLike(t) ? 'Added to Liked Songs' : 'Removed from Liked Songs'); break; }
     case 'np-open': openNP(); break;
     case 'np-close': closeNP(); break;
+    case 'np-fx': fxSheet(); break;
+    case 'fx-preset': fx.usePreset(el.dataset.preset); fxSheet(true); break;
+    case 'fx-room': fx.set({room:el.dataset.room}); fxSheet(true); break;
+    case 'fx-toggle': fx.set({[el.dataset.key]:!fx.get()[el.dataset.key]}); fxSheet(true); break;
     case 'np-more': { const t = player.current(); if (t) trackSheet(t); break; }
     case 'np-tab': setNPMode(el.dataset.mode); break;
     case 'canvas-cover': canvasPreference=false;setCanvasEnabled(false);setNPMode('art');break;
@@ -1118,6 +1123,30 @@ function syncVoices(){syncDJVoice();}
 function createMenu(){openSheet({head:'<div class="sheet-title">Create</div>',items:[{icon:I.plus,label:'Create a playlist',sub:'Collect your favorite tracks',fn:()=>handleAct('new-playlist',{})},{icon:I.folder,label:'Create a folder',sub:'Organize playlists in your library',fn:()=>handleAct('new-folder',{})},{icon:I.library,label:'Spotify account & collections',sub:'Connect your account or explore playlists',fn:()=>go('#/spotify')},{icon:I.import,label:'Import a Deezer playlist',fn:()=>handleAct('import-playlist',{})},{icon:I.note,label:'Add local audio files',sub:'From this phone or computer',fn:()=>$('#localFilesInput').click()},{icon:I.dj,label:'Start a DJ session',fn:()=>go('#/dj')},{icon:I.jam,label:'Start a Jam',sub:'Listen together in real time',fn:()=>go('#/jam')}]});}
 function profileMenu(){openSheet({head:`<div class="sheet-title">${esc(store.getSettings().displayName)}</div>`,items:[{icon:I.person,label:'Profile',sub:'Your library on this device',fn:()=>go('#/profile')},{icon:I.history,label:'Your Rewind',sub:'Your listening, all year round',fn:()=>go('#/rewind')},{icon:I.history,label:'Listening history',fn:()=>go('#/recent')},{icon:I.settings,label:'Theme Studio',sub:'Make Spot+ yours',fn:()=>go('#/themes')},{icon:I.library,label:'Spotify account',fn:()=>go('#/spotify-account')},{icon:I.settings,label:'Settings',fn:()=>go('#/settings')},{icon:I.dj,label:'Spot+ DJ',fn:()=>go('#/dj')}]});}
 function deviceMenu(){openSheet({head:'<div class="sheet-title">Connect</div>',body:`<button class="jam-entry" data-act="jam-open">${I.jam}<div><b>${jam.active?'Jam · '+esc(jam.code):'Start a Jam'}</b><small>${jam.active?jam.members.length+' listening':'Listen together with friends, live'}</small></div>${I.arrow}</button><div class="device-card">${I.device}<div><b>This browser</b><small>Current audio output</small></div></div><p class="sheet-note">Use your phone or computer’s audio controls for Bluetooth or AirPlay. Spotify Connect is not available through these music sources.</p>`,items:typeof player.el.setSinkId==='function' && navigator.mediaDevices?.selectAudioOutput?[{icon:I.device,label:'Choose audio output',fn:async()=>{try{const d=await navigator.mediaDevices.selectAudioOutput();await player.el.setSinkId(d.deviceId);toast('Audio output changed');}catch(e){toast(e.name==='NotAllowedError'?'Audio output selection was cancelled.':e.message);}}}]:[]});}
+/* ---------------- Sound effects ---------------- */
+const fxFmt={speed:v=>Number(v).toFixed(2).replace(/0$/,'')+'×',pitch:v=>(v>0?'+':'')+v+' st',reverb:v=>Math.round(v*100)+'%',bass:v=>(v>0?'+':'')+v+' dB'};
+function fxSheet(refresh=false){
+  const s=fx.get(),slider=(key,label,min,max,step)=>`<label class="fx-slider"><span>${label}<b id="fxv-${key}">${fxFmt[key](s[key])}</b></span><input type="range" data-fx="${key}" min="${min}" max="${max}" step="${step}" value="${s[key]}" aria-label="${label}"></label>`;
+  const chip=(act,attr,label,on)=>`<button class="chip${on?' on':''}" data-act="${act}" ${attr}>${esc(label)}</button>`;
+  const body=`<div class="fx">
+    <div class="fx-presets">${Object.entries(fx.PRESETS).map(([k,p])=>chip('fx-preset',`data-preset="${k}"`,p.label,s.preset===k)).join('')}</div>
+    ${slider('speed','Speed',0.5,1.5,0.01)}
+    ${slider('pitch','Pitch',-12,12,1)}
+    <div class="fx-row">${chip('fx-toggle','data-key="keepPitch"',s.keepPitch?'Speed keeps pitch':'Speed changes pitch (vinyl)',!s.keepPitch)}</div>
+    ${slider('reverb','Reverb',0,1,0.01)}
+    <div class="fx-row">${Object.entries(fx.ROOMS).map(([k,room])=>chip('fx-room',`data-room="${k}"`,room.label,s.room===k)).join('')}</div>
+    ${slider('bass','Bass',-6,12,1)}
+    <div class="fx-row">${chip('fx-toggle','data-key="eightD"','8D audio',s.eightD)}${chip('fx-toggle','data-key="lofi"','Lo-fi',s.lofi)}</div>
+    <p class="settings-note">Effects stay on for every song until you choose Off. Headphones recommended for 8D.</p></div>`;
+  if(refresh&&!sheet.hidden&&$('#sheetPanel .fx')){$('#sheetPanel .fx').outerHTML=body;return;}
+  openSheet({head:'<div class="sheet-title">Sound effects</div>',body});
+}
+document.addEventListener('input',e=>{const key=e.target.dataset?.fx;if(!key)return;const v=Number(e.target.value);fx.set({[key]:v});const label=$('#fxv-'+key);if(label)label.textContent=fxFmt[key](v);$$('.fx-presets .chip').forEach(c=>c.classList.remove('on'));});
+let fxEl=null;
+const fxBind=()=>{if(player.el!==fxEl){fxEl=player.el;fx.bind(player.el,player.mediaElements().filter(m=>m!==player.el));}};
+const fxBadge=()=>$('.np-fx')?.classList.toggle('on',fx.isActive(fx.get()));
+player.on('state',fxBind);fx.onChange(fxBadge);fxBadge();
+addEventListener('spotplus:music-play',fx.resume);document.addEventListener('visibilitychange',()=>{if(!document.hidden)fx.resume();});
 function sleepMenu(){openSheet({head:'<div class="sheet-title">Sleep timer</div>',items:[...[5,15,30,60].map(minutes=>({icon:I.history,label:`${minutes} minutes`,fn:()=>{clearTimeout(sleepTimer);sleepTimer=setTimeout(()=>{player.el.pause();dj.stop();toast('Sleep timer ended');},minutes*60000);toast(`Playback will pause in ${minutes} minutes`);}})),{icon:I.close,label:'Turn off timer',fn:()=>{clearTimeout(sleepTimer);sleepTimer=null;toast('Sleep timer off');}}]});}
 function trapFocus(e,root){if(e.key!=='Tab')return;const focusable=$$('button:not(:disabled),a[href],input:not(:disabled),select,textarea,[tabindex="0"]',root).filter(el=>el.getClientRects().length);if(!focusable.length)return;const first=focusable[0],last=focusable.at(-1);if(e.shiftKey&&(document.activeElement===first||!root.contains(document.activeElement))){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}
 document.addEventListener('keydown',e=>{if(!sheet.hidden)trapFocus(e,sheet);else if(npOpen&&matchMedia(MOBILE_QUERY).matches)trapFocus(e,np);if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();go('#/search');}if(!e.target.closest('input,textarea,select,button')&&e.altKey){if(e.key==='ArrowRight'){e.preventDefault();player.next();}if(e.key==='ArrowLeft'){e.preventDefault();player.prev();}}});

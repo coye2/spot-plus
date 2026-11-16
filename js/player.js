@@ -11,6 +11,8 @@ export let el = audio;
 
 const listeners = { state: new Set(), time: new Set(), error: new Set() };
 export const on = (ev, fn) => listeners[ev].add(fn);
+/** Every media element the player uses (current + preloaded next). */
+export const mediaElements = () => [audio, nextBuffer.spare];
 const emit = (ev, d) => listeners[ev].forEach((fn) => { try { fn(d); } catch (e) { console.error(e); } });
 
 export const state = { queue: [], index: -1, original: null, shuffle: false, repeat: 'off', loading: false, source: null, offline: false };
