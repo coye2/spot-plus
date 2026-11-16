@@ -60,13 +60,14 @@ export async function rewindView(){
   const records=cachedHistory()||await readHistory().catch(()=>[]);
   const synced=await pickStats(),m=rewindModel(records,synced);
   if(m.empty)return `<div class="rw"><header class="rw-head"><p class="kicker">Rewind</p><h1>Your music, all year</h1></header>
-  <section class="rw-empty"><div class="rw-empty-orb" aria-hidden="true"></div><h2>Your Rewind fills itself in</h2><p>Paste your Spotify profile and On Repeat links once. No login, nothing to install. Spot+ follows your listening from every device from then on, and everything you play in Spot+ counts too.</p><a class="btn primary" href="#/spotify-account">Link Spotify</a></section>${optionalTools()}</div>`;
+  <section class="rw-empty"><div class="rw-empty-orb" aria-hidden="true"></div><h2>Your Rewind fills itself in</h2><p>Every song you play in Spot+ counts. Connect Spotify to add your listening from every other device too — it takes a minute, with no login.</p><div class="rw-empty-actions"><a class="btn primary" href="#/spotify-account">Connect Spotify</a><a class="btn" href="#/home">Start listening</a></div></section>${optionalTools()}</div>`;
   const chip=(value,label)=>`<button class="stat-chip" data-act="rewind-range" data-value="${value}" aria-pressed="${filters.range===value}">${label}</button>`;
   const tiles=[[m.minutes,'minutes listened'],[m.plays,'songs played'],[m.artistCount,'artists'],[m.streak,'day streak']].filter(([v])=>v>0);
   const maxHour=Math.max(...m.clock.hours,1);
   return `<div class="rw">
   <header class="rw-head"><p class="kicker">${m.syncedAt?(m.viaLinks?'From your Spotify playlists · ':'Synced from Spotify · ')+ago(m.syncedAt):'Automatic'}</p><h1>Rewind</h1>
   <div class="stat-chips" role="group" aria-label="Time range">${Object.entries(SPOTIFY_RANGES).map(([v,l])=>chip(v,l)).join('')}</div></header>
+  ${m.syncedAt?'':`<a class="link-cta rw-connect" href="#/spotify-account"><span>${ICON_OPEN}</span><div><b>Add your Spotify listening</b><small>This Rewind only counts Spot+ so far. Connect Spotify in a minute.</small></div></a>`}
   <button class="rw-cta" data-act="rewind-story"><span class="rw-cta-art" aria-hidden="true">${m.artists.slice(0,3).map((a,i)=>art(a.cover,'rw-cta-face','data-artist="'+esc(a.name)+'" style="--i:'+i+'"')).join('')}</span><span><b>Play your Rewind</b><small>${esc(m.label)}, as a story you can share</small></span><span class="rw-cta-play" aria-hidden="true">${ICON_PLAY}</span></button>
   ${tiles.length?`<div class="rw-tiles">${tiles.map(([v,l])=>`<div><b>${number(v)}</b><span>${l}</span></div>`).join('')}</div>`:''}
   ${m.artists.length?`<section><h2>Top artists</h2><div class="rw-artists">${m.artists.slice(0,10).map((a,i)=>`<a class="rw-artist" ${a.id?`href="https://open.spotify.com/artist/${esc(a.id)}" target="_blank" rel="noopener"`:''}><span class="rw-rank">${i+1}</span>${art(a.cover,'rw-face','data-artist="'+esc(a.name)+'"')}<b>${esc(a.name)}</b>${movement(a.change)}</a>`).join('')}</div></section>`:''}

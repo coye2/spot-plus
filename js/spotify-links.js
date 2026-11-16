@@ -32,7 +32,8 @@ export function playlistRole(name, id = '') {
 export async function fetchPublic(query, {fetcher = fetch, signal} = {}) {
   const response = await fetcher(BRIDGE + '?' + new URLSearchParams(query), {signal, credentials: 'omit'});
   const data = await response.json().catch(() => null);
-  if (!response.ok || !data || data.error) throw new Error(data?.error || 'Spotify couldn’t be reached.');
+  if (response.status === 404 && !data?.error) throw new Error('Spotify linking isn’t available right now. Try again later.');
+  if (!response.ok || !data || data.error) throw new Error(data?.error || 'Spotify couldn’t be reached. Check your connection and try again.');
   return data;
 }
 

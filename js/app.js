@@ -351,6 +351,7 @@ async function viewSettings() {
   const toggle=(key,label,detail='')=>`<label class="field"><span>${label}<small>${detail}</small></span><input type="checkbox" role="switch" data-setting="${key}" ${s[key]?'checked':''}></label>`;
   return `<h1 class="settings-top">Settings</h1>
   <section class="box"><h2>Your profile</h2><label class="field"><span>Display name<small>Shown on your profile and in Jams.</small></span><input maxlength="60" data-setting="displayName" value="${esc(s.displayName)}"></label><a class="btn small" href="#/profile">View profile</a></section>
+  <section class="box"><h2>Spotify</h2><p class="settings-note">${spotifyAccount||cachedLinks()?'Connected. Rewind and your profile update by themselves.':'Connect once to get Rewind, your profile picture and Made For You.'}</p><a class="btn primary" href="#/spotify-account">${spotifyAccount||cachedLinks()?'Manage Spotify':'Connect Spotify'}</a></section>
   <section class="box"><h2>Appearance</h2>${themeModeSwitch(s)}<p class="settings-note">Light, dark or automatic, with 19 color themes.</p><a class="btn" href="#/themes">Themes</a><label class="field"><span>Library and track spacing</span>${sel('density',[['comfortable','Comfortable'],['compact','Compact']])}</label><label class="field"><span>Text size</span>${sel('textSize',[['normal','Default'],['large','Larger']])}</label><label class="field"><span>Motion</span>${sel('motion',[['system','Follow system'],['reduced','Reduced']])}</label></section>
   <section class="box"><h2>Playback</h2>
     <label class="field"><span>Audio source<small>Full tracks depend on reachable audio servers. Preview mode plays short samples only.</small></span>${sel('source', [['auto', 'Automatic'], ['piped', 'Piped'], ['invidious', 'Invidious'],['audius','Audius public releases'],['preview','Deezer previews (30 sec)']])}</label>
@@ -358,12 +359,13 @@ async function viewSettings() {
     ${toggle('preloadNext','Prepare the next song','Buffers the beginning of the next song after your current music has enough buffered audio. Skipped on data-saving connections.')}
     ${toggle('showExplicit','Allow explicit content','When off, explicit tracks are excluded from discovery and new playback queues.')}
     <button class="btn small" data-act="sleep-timer">Sleep timer</button>
+    <details class="connection-help"><summary>Advanced audio options</summary>
     <label class="field col"><span>Your own Piped API servers <small>(one per line, tried first)</small></span><textarea data-setting="customPiped" rows="2" placeholder="https://pipedapi.example.com">${esc(s.customPiped)}</textarea></label>
     <label class="field col"><span>Your own Invidious servers</span><textarea data-setting="customInvidious" rows="2" placeholder="https://invidious.example.com">${esc(s.customInvidious)}</textarea></label>
     <div class="row-btns"><button class="btn small" data-act="test-sources">Test audio servers</button><button class="btn small" data-act="clear-matches">Reset song matches</button></div>
-    <div id="testOut"></div>
+    <div id="testOut"></div></details>
   </section>
-  <section class="box"><h2>Spotify account</h2><p class="settings-note">${spotifyAccount?`${esc(spotifyAccount.account.name)} · Library copy saved ${esc(new Date(spotifyAccount.capturedAt).toLocaleString())}. Refresh from Spotify to get changes.`:'Bring your liked songs, playlists and stats from your free Spotify account.'}</p><a class="btn primary" href="#/spotify-account">${spotifyAccount?'Manage Spotify library':'Set up account connection'}</a><a class="btn" href="#/spotify">Spotify collections & import</a></section>
+
   <section class="box"><h2>Your data</h2>
     <p class="muted">Your local music library, preferences, saved themes and Spotify library copy are saved in this browser. Export a backup to move them to another device. Audio files and the downloaded AI model are stored separately.</p>
     <div class="row-btns"><button class="btn small" data-act="export">Export backup</button>
@@ -379,11 +381,12 @@ async function viewSettings() {
     <p class="muted">Android/desktop Chrome: use the install button or the browser menu → Install app. iPhone: Safari → Share → Add to Home Screen.</p>
   </section>
   <section class="box"><h2>DJ</h2>${toggle('djVoice','DJ voice','Choose your host in DJ preferences.')}<a class="btn small" href="#/dj">Open DJ</a><p class="settings-note">Turn on live conversation from the DJ screen (one-time 600 MB download).</p><button class="btn small" data-act="dj-live-remove">Remove DJ downloads</button></section>
-  <section class="box"><h2>Connections & availability</h2><div class="capability"><span>Music discovery<small>Deezer public catalog</small></span><span>Available</span></div><div class="capability"><span>Audio playback<small>Piped / Invidious, previews, or local files</small></span><span>Source dependent</span></div><div class="capability"><span>Spotify library & stats<small>Browser helper · Refresh anytime</small></span><span>${spotifyAccount?'Library copy saved':'Not set up'}</span></div><div class="capability"><span>Jam<small>Listen together in real time</small></span><span>Spot+ Jam</span></div><div class="capability"><span>Spotify Connect & Blend</span><span class="unavailable">Not supported</span></div><div class="capability"><span>DJ</span><span>Spot+ DJ</span></div><div class="capability"><span>Podcasts & audiobooks</span><span class="unavailable">Not available</span></div><p class="settings-note">Spot+ is independent of Spotify. The browser helper copies your library and stats; Spotify’s own audio and Premium features aren’t included.</p></section>
+  <details class="box settings-more"><summary>About, shortcuts and what’s supported</summary>
+  <section class="box"><h2>What’s supported</h2><div class="capability"><span>Music discovery<small>Deezer public catalog</small></span><span>Available</span></div><div class="capability"><span>Audio playback<small>Piped / Invidious, previews, or local files</small></span><span>Source dependent</span></div><div class="capability"><span>Spotify stats & profile<small>Updates by itself once connected</small></span><span>${spotifyAccount||cachedLinks()?'Connected':'Not connected'}</span></div><div class="capability"><span>Jam<small>Listen together in real time</small></span><span>Spot+ Jam</span></div><div class="capability"><span>Spotify Connect & Blend</span><span class="unavailable">Not supported</span></div><div class="capability"><span>DJ</span><span>Spot+ DJ</span></div><div class="capability"><span>Podcasts & audiobooks</span><span class="unavailable">Not available</span></div><p class="settings-note">Spot+ is independent of Spotify. It reads your public Spotify playlists and profile; Spotify’s own audio and Premium features aren’t included.</p></section>
   <section class="box"><h2>Keyboard shortcuts</h2><p class="settings-note">Space: play/pause · Alt + Right/Left: next/previous · Ctrl/⌘ + K: search · Escape: close overlay. Use Tab and arrow keys for controls.</p></section>
   <section class="box"><h2>About Spot+</h2>
     <p class="muted">Song info comes from Deezer, audio is matched on YouTube through public Piped and Invidious servers, and lyrics come from LRCLIB. Everything runs on your device.</p>
-  </section>`;
+  </section></details>`;
 }
 
 /* ---------------- Router ---------------- */
@@ -682,6 +685,7 @@ async function handleAct(act, el) {
     case 'jam-share': {const url=jamLink(jam.code);if(navigator.share)navigator.share({title:'Join my Jam on Spot+',text:'Listen along with me: code '+jam.code,url}).catch(()=>{});else navigator.clipboard?.writeText(url).then(()=>toast('Jam link copied'));break;}
     case 'links-add': {const field=$('#spotifyLinksField'),status=$('#linksStatus');if(!field?.value.trim())return toast('Paste a Spotify link first.');el.disabled=true;status.textContent='Reading from Spotify…';
       try{const added=await addLinks(field.value);field.value='';toast('Linked: '+added.join(', '));await route({keepScroll:true});syncAvatars();}catch(e){status.textContent=e.message;}finally{el.disabled=false;}break;}
+    case 'links-paste': {const field=$('#spotifyLinksField');try{const text=await navigator.clipboard.readText();if(!/spotify/i.test(text))return toast('Copy a Spotify link first, then tap Paste.');field.value=(field.value.trim()+'\n'+text).trim();$('[data-act="links-add"]')?.click();}catch{toast('Long-press the box and choose Paste.');field.focus();}break;}
     case 'links-clear': if(await confirmBox('Remove Spotify links?','Rewind keeps the history it already saved.','Remove')){await clearLinks();route({keepScroll:true});}break;
     case 'jam-open': closeSheet();go('#/jam');break;
     case 'jam-react': jam.react(el.dataset.emoji);break;
@@ -1255,21 +1259,23 @@ function viewSpotifyHelper(){return `<div class="helper-page"><a class="link hel
 /* ---------------- Spotify links: no login, no install ---------------- */
 function linksSetupHtml(){
   const state=cachedLinks(),lists=state?Object.values(state.playlists):[],has=role=>lists.some(p=>p.role===role);
-  const chip=(on,label)=>`<span class="link-chip${on?' on':''}">${on?'✓ ':''}${label}</span>`;
-  return `<section class="box links-setup"><span class="account-badge">No login · Nothing to install</span><h2>${state?'Spotify linked':'Link your Spotify'}</h2>
-  <p class="settings-note">Spotify keeps playlists of your listening on every device. Share them with Spot+ once and Rewind, your profile and Made For You update by themselves.</p>
-  <ol class="links-steps"><li>In the Spotify app, tap your <b>profile picture</b> → <b>View profile</b> → <b>⋯</b> → <b>Share</b> → <b>Copy link</b>.</li><li>Open <b>On Repeat</b> (Search → “On Repeat”, or Your Library) → <b>⋯</b> → <b>Share</b> → <b>Copy link</b>.</li><li>Optional: do the same for <b>Your Top Songs</b>, <b>daylist</b> and <b>Discover Weekly</b>.</li></ol>
-  <div class="links-paste"><textarea id="spotifyLinksField" rows="2" placeholder="Paste Spotify links here" aria-label="Spotify links" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea><button class="btn primary" data-act="links-add">Add</button></div>
+  const chip=(on,label)=>`<span class="link-chip${on?' on':''}">${label}</span>`;
+  const canPaste=!!navigator.clipboard?.readText;
+  return `<section class="box links-setup"><span class="account-badge">No login · Nothing to install</span><h2>${state?'Spotify is connected':'Two links, one minute'}</h2>
+  <p class="settings-note">${state?'Rewind, your profile and Made For You update by themselves. Add more links anytime.':'Copy two links from the Spotify app and paste them here. That’s it — Rewind, your profile and Made For You then update by themselves.'}</p>
+  <ol class="links-steps"><li><b>Your profile:</b> in Spotify, tap your picture → <b>View profile</b> → <b>⋯</b> → <b>Copy link</b>.</li><li><b>On Repeat:</b> search “On Repeat” in Spotify → <b>⋯</b> → <b>Share</b> → <b>Copy link</b>.</li></ol>
+  <p class="settings-note">Want more? Do the same for Your Top Songs, daylist or Discover Weekly.</p>
+  <div class="links-paste"><textarea id="spotifyLinksField" rows="2" placeholder="Paste Spotify links here" aria-label="Spotify links" spellcheck="false" autocapitalize="off" autocorrect="off"></textarea>${canPaste?`<button class="btn" data-act="links-paste">Paste</button>`:''}<button class="btn primary" data-act="links-add">Add</button></div>
   <p class="connection-feedback" id="linksStatus" role="status"></p>
   <div class="link-chips">${chip(!!state?.profile,'Profile')}${chip(has('onRepeat'),'On Repeat')}${chip(has('topSongs'),'Your Top Songs')}${chip(has('daylist'),'daylist')}${chip(has('discoverWeekly'),'Discover Weekly')}</div>
-  ${state?`<button class="link" data-act="links-clear">Remove Spotify links</button>`:''}</section>`;
+  ${state?`<button class="link" data-act="links-clear">Disconnect Spotify</button>`:''}</section>`;
 }
 async function viewLinked(id){
   const state=await loadLinks();
   let p=state?.playlists?.[id];
   if(!p){
     let data=null;try{data=await fetchPublic({playlist:id});}catch{ /* Bridge not updated yet: use Spotify's own player. */ }
-    if(!data)return (await viewSpotifyCollection('playlist',id))+'<p class="settings-note">Song lists for Spotify playlists appear here once the Spot+ bridge is updated.</p>';
+    if(!data)return (await viewSpotifyCollection('playlist',id))+'<p class="settings-note">Showing Spotify’s player because the song list couldn’t load right now.</p>';
     const known=spotify.collections.find(c=>c.id===id);
     p={id,name:data.name,cover:known?.cover||data.cover,tracks:data.tracks};
   }
@@ -1279,17 +1285,17 @@ async function viewLinked(id){
 }
 function viewSpotifyAccount(){
  const account=store.getSpotifyAccount();
- return `<div class="connect-heading"><span class="account-badge">Your music, together</span><h1>${account?'Your Spotify':'Connect Spotify'}</h1><p>${account?'Your profile and music, saved on this device.':'Bring your liked songs and playlists into Spot+.'}</p></div>
+ return `<div class="connect-heading"><span class="account-badge">Your music, together</span><h1>${account||cachedLinks()?'Your Spotify':'Connect Spotify'}</h1><p>${account?'Your profile and music, saved on this device.':'Your top music, profile and Rewind, kept up to date for you.'}</p></div>
   ${account?`<section class="box"><div class="kicker">Library saved on this device</div>${spotifyProfileHtml(account.account)}<p class="muted">Last read from Spotify: ${esc(new Date(account.capturedAt).toLocaleString())}</p><div class="account-stats">${[['Liked songs',account.likes.length],['Playlists',account.playlists.length],['Albums',account.albums.length],['Artists',account.artists.length]].map(([label,n])=>`<div class="account-stat"><b>${n}</b><span>${label}</span></div>`).join('')}</div><div class="account-actions"><a class="btn primary" href="#/spotify-account/likes">${I.heartFill}Spotify Liked Songs</a><button class="btn" data-act="account-connect">Refresh from Spotify</button>${accountDevice==='iphone'?'<button class="btn" data-act="account-paste">Paste from Spotify</button>':''}<button class="btn" data-act="account-disconnect">Remove connection</button></div><p class="settings-note">This is your last saved library copy. Refresh while Spotify is open to get changes. Edits in Spot+ stay in Spot+.</p>${accountReadNotice(account)?`<p class="account-status">${esc(accountReadNotice(account))}</p>`:''}${account.skipped?`<p class="settings-note">${account.skipped} unsupported or unavailable items were skipped. The companion currently reads music tracks.</p>`:''}</section>`:''}
 
  ${linksSetupHtml()}
- <details class="connection-help helper-optional" ${account?'open':''}><summary>Also bring your Liked Songs (optional helper)</summary><div id="accountSetup">${setupHtml(accountDevice)}</div></details>
+ <details class="connection-help helper-optional"><summary>More ways to connect (optional)</summary><p class="settings-note">Most people don’t need these. They copy your Liked Songs and saved playlists too.</p><details class="connection-help" ${account?'open':''}><summary>Browser helper — best on a computer</summary><div id="accountSetup">${setupHtml(accountDevice)}</div></details><details class="connection-help"><summary>Spotify data download — one-time copy</summary><p class="settings-note">Request <b>Account data</b> on <a href="https://www.spotify.com/account/privacy/" target="_blank" rel="noopener">Spotify’s privacy page</a>. When Spotify emails the ZIP, choose it here.</p><button class="btn" data-act="spotify-import">${I.import}Choose Spotify ZIP</button></details></details>
   ${account?.playlists.length?`<section><h2>Your Spotify playlists</h2><div class="account-cards">${account.playlists.map(p=>`<a class="card" href="#/spotify-account/playlist/${p.id}">${img(p.cover)}<div class="ctitle">${esc(p.title)}</div><div class="csub">${p.status==='unavailable'&&!p.tracks.length?'Tracks unavailable':p.tracks.length+' songs'}${p.status==='unavailable'&&p.tracks.length?' · Saved copy':p.status==='partial'?' · Incomplete read':''}</div></a>`).join('')}</div></section>`:''}
 
  `;
 }
 function viewSpotifyAccountList(id){
-  const account=store.getSpotifyAccount();if(!account)return emptyState('Connect your Spotify library','Set up the browser companion to bring your saved music into Spot+.','Spotify account','#/spotify-account');
+  const account=store.getSpotifyAccount();if(!account)return emptyState('Connect your Spotify library','Connect Spotify to see your saved music here.','Spotify account','#/spotify-account');
   const p=id==='likes'?{title:'Spotify Liked Songs',tracks:account.likes,status:account.likesUnreadable?'partial':'ready',unreadable:account.likesUnreadable}:account.playlists.find(x=>x.id===id);
   if(!p)return emptyState('Playlist not in this copy','Refresh your Spotify library to check for changes.','Spotify account','#/spotify-account');
   const tracks=visibleTracks(p.tracks,store.getSettings()),key=reg(tracks,{name:p.title});
@@ -1302,11 +1308,10 @@ async function viewEssentials(id){const d=await api.artist(id),tracks=visibleTra
 async function viewSpotify(){
   const linked=cachedLinks(),groups=['Charts','Editorial','Moods','Decades','This Is'];
   return `<div class="spotify-heading"><div><div class="kicker">Spotify</div><h1>Spotify collections</h1><p class="muted">Spotify’s playlists, playable in Spot+. No login needed.</p></div></div>
-  ${linked?'':`<a class="link-cta" href="#/spotify-account"><span>${I.library}</span><div><b>Link your Spotify</b><small>Your top music, profile and Made For You, updated automatically</small></div>${I.arrow}</a>`}
+  ${linked?'':`<a class="link-cta" href="#/spotify-account"><span>${I.library}</span><div><b>Connect Spotify</b><small>Takes a minute. No login, nothing to install.</small></div>${I.arrow}</a>`}
   <form id="spotifyLinkForm" class="dj-request"><label class="sr-only" for="spotifyLink">Spotify playlist, artist, album or track link</label><input id="spotifyLink" type="url" required placeholder="Paste any Spotify playlist link"><button class="btn primary">Open</button></form>
   ${groups.map(g=>shelf(g,spotify.collections.filter(p=>p.category===g).map(spotifyCard))).join('')}
-  ${store.getSpotifyLinks().length?shelf('Saved links',store.getSpotifyLinks().map(spotifyCard)):''}
-  <details class="box rewind-data"><summary>Bring your whole Spotify library</summary><p>To copy your saved songs and playlists into Spot+ for good, request <b>Account data</b> on <a href="https://www.spotify.com/account/privacy/" target="_blank" rel="noopener">Spotify’s privacy page</a>, then choose the ZIP here. It runs on this device and keeps your existing Spot+ music.</p><button class="btn" data-act="spotify-import">${I.import}Choose Spotify export</button></details>`;
+  ${store.getSpotifyLinks().length?shelf('Saved links',store.getSpotifyLinks().map(spotifyCard)):''}`;
 }
 async function viewSpotifyCollection(type,id){const known=spotify.collections.find(p=>p.id===id)||store.getSpotifyLinks().find(p=>p.id===id);let p;try{p=await spotify.metadata({type,id,...known});}catch{p={type,id,title:known?.title||'Spotify '+type,cover:known?.cover||''};}return header({cover:p.cover,kicker:'Spotify · '+type,title:p.title,sub:'Official Spotify player · Content and playback are provided by Spotify.'})+(type==='artist'?'<p class="spotify-counter" data-counter="artist" data-spotify-artist-id="'+id+'">Loading Spotify listeners…</p>':'')+`<div class="actions"><button class="btn white spotify-open" data-act="spotify-open-player" data-type="${type}" data-id="${id}">${I.play}Open Spotify player</button><button class="btn" data-act="spotify-save" data-type="${type}" data-id="${id}">${I.plus}Save link</button><a class="btn" href="${spotify.urlFor({type,id})}" target="_blank" rel="noopener">Open in Spotify ${I.arrow}</a></div><div id="spotifyPlayer"></div><p class="settings-note">Spotify’s player has its own queue. To bring your own playlist tracks into the Spot+ player, import your Spotify data from <a href="#/spotify">Spotify collections</a>.</p>`;}
 function themeSettings(s){const p=themes.palette(s);return {themePreset:s.themePreset||'pine',themeCustom:{accent:p.accent,surface:p.surface,raised:p.raised},amoled:s.amoled!==false,cornerRadius:p.radius,coverStyle:s.coverStyle||'square',density:s.density,textSize:s.textSize,motion:s.motion};}

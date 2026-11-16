@@ -333,3 +333,10 @@ html{background-color:var(--edge,var(--canvas))!important}
 .actions>.btn.spotify-open{width:auto;height:40px;padding:0 18px;display:inline-flex;align-items:center;gap:8px}.actions>.btn.spotify-open svg{width:18px;height:18px;fill:currentColor}
 details.rewind-data summary{cursor:pointer;font-weight:700;padding:6px 0}
 #spotifyLinkForm{display:flex;flex-wrap:nowrap!important;gap:8px}#spotifyLinkForm input{flex:1 1 auto!important;min-width:0;width:auto!important}#spotifyLinkForm .btn{flex:none}
+
+.rw-empty-actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}.rw-connect{margin:0 0 16px}
+.links-paste{display:flex;gap:8px;align-items:stretch}.links-paste textarea{flex:1;min-width:0}
+.links-steps li{margin:6px 0;line-height:1.5}
+details.settings-more{padding:16px 0}details.settings-more>summary,.connection-help>summary{cursor:pointer;font-weight:700;padding:8px 0}details.settings-more>.box{border-bottom:0;padding:12px 0}
+.helper-optional .connection-help{margin-left:4px}
+@media (max-width:767px){.links-paste{flex-wrap:wrap}.links-paste textarea{flex-basis:100%}.links-paste .btn{flex:1}}
