@@ -243,12 +243,26 @@ function markGood(kind, base) { const g = lastGood(); g[kind] = base; try { loca
 export function reportPlaybackSource(source, ok = true) {
   if (!source?.instance || !['piped','invidious'].includes(source.kind)) return;
   if (ok) { failedInstances.delete(source.instance); markGood(source.kind,source.instance); }
-  else { failedInstances.set(source.instance,Date.now()+60000); for (const [key,value] of streamCache) if (value.stream.instance===source.instance) streamCache.delete(key); }
+  else { failedInstances.set(source.instance,Date.now()+60000); for (const [key,value] of streamCache) if (value.stream.instance===source.instance) forget(key); }
 }
 
+// Each server's typical answer time (moving average), so the fastest ones are asked first.
+const SPEED_KEY='spotplus.instanceSpeed';
+let speeds=null;
+function speedTable(){if(!speeds){try{speeds=JSON.parse(localStorage.getItem(SPEED_KEY)||'{}');}catch{speeds={};}}return speeds;}
+export function recordSpeed(base,ms,ok){
+  const table=speedTable(),old=table[base];const sample=ok?ms:Math.max(ms,6000)+4000;
+  table[base]=Math.round(old?old*.6+sample*.4:sample);
+  clearTimeout(recordSpeed.t);recordSpeed.t=setTimeout(()=>{try{localStorage.setItem(SPEED_KEY,JSON.stringify(Object.fromEntries(Object.entries(table).sort((a,b)=>a[1]-b[1]).slice(0,80))));}catch{}},1500);
+}
+export function rankBySpeed(list,{custom=[],failed=()=>false,table=speedTable()}={}){
+  const cost=base=>failed(base)?1e9:custom.includes(base)?-1:(table[base]??2500);
+  return list.map((base,i)=>({base,i,c:cost(base)})).sort((a,b)=>a.c-b.c||a.i-b.i).map(x=>x.base);
+}
 function orderedInstances(kind, inst, set) {
   const custom = (kind === 'piped' ? set.customPiped : set.customInvidious).split(/[\s,]+/).filter((x) => /^https?:\/\//.test(x)).map(clean);
-  return uniq([...custom, lastGood()[kind], ...(kind==='invidious'?INV_FALLBACK.slice(0,1):[]), ...(inst[kind] || [])]).sort((a,b)=>Number((failedInstances.get(a)||0)>Date.now())-Number((failedInstances.get(b)||0)>Date.now()));
+  const list = uniq([...custom, lastGood()[kind], ...(kind==='invidious'?INV_FALLBACK.slice(0,1):[]), ...(inst[kind] || [])]);
+  return rankBySpeed(list,{custom,failed:base=>(failedInstances.get(base)||0)>Date.now()});
 }
 
 const best = rankAudioMatches;
@@ -256,7 +270,7 @@ const query = (t) => `${t.artist} ${t.title}`.trim();
 
 async function pipedSearch(base, t, signal) {
   for (const filter of ['music_songs', 'videos']) {
-    const d = await fetchJSON(`${base}/search?q=${encodeURIComponent(query(t))}&filter=${filter}`, 7000, signal);
+    const d = await fetchJSON(`${base}/search?q=${encodeURIComponent(query(t))}&filter=${filter}`, 4500, signal);
     const items = (d.items || [])
       .filter((x) => x && typeof x.url === 'string' && x.url.includes('v='))
       .map((x) => ({ id: new URL(x.url, 'https://youtube.com').searchParams.get('v'), title: x.title, duration: x.duration, channel: x.uploaderName }));
@@ -265,7 +279,7 @@ async function pipedSearch(base, t, signal) {
   throw new Error('no results');
 }
 async function invSearch(base, t, signal) {
-  const d = await fetchJSON(`${base}/api/v1/search?q=${encodeURIComponent(query(t))}&type=video&fields=videoId,title,lengthSeconds,author`, 7000, signal);
+  const d = await fetchJSON(`${base}/api/v1/search?q=${encodeURIComponent(query(t))}&type=video&fields=videoId,title,lengthSeconds,author`, 4500, signal);
   const items = (Array.isArray(d) ? d : []).filter((x) => x.videoId).map((x) => ({ id: x.videoId, title: x.title, duration: x.lengthSeconds, channel: x.author }));
   if (!items.length) throw new Error('no results');
   const matches=best(items,t);if(!matches.length)throw new Error('No matching recording');return matches;
@@ -281,14 +295,14 @@ function pickFormat(list) {
   return {...picked,alternatives};
 }
 async function pipedStream(base, id, signal, track) {
-  const d = await fetchJSON(`${base}/streams/${id}`, 7000, signal);
+  const d = await fetchJSON(`${base}/streams/${id}`, 4500, signal);
   if(d.livestream || (track&&d.title&&!best([{title:d.title,channel:d.uploader,duration:d.duration}],track).length))throw new Error('Recording did not match');
   const list = (d.audioStreams || []).filter((s) => s.url && s.videoOnly!==true).map((s) => ({ url: s.url, mime: s.mimeType || '', codec:s.codec||'', bitrate: Number(s.bitrate) || parseFloat(s.quality)*1000 || 0 }));
   if (!list.length) throw new Error(d.error || d.message || 'no audio streams');
   return pickFormat(list);
 }
 async function invStream(base, id, signal, track) {
-  const d = await fetchJSON(`${base}/api/v1/videos/${id}?fields=adaptiveFormats,error,title,author,lengthSeconds,liveNow`, 7000, signal);
+  const d = await fetchJSON(`${base}/api/v1/videos/${id}?fields=adaptiveFormats,error,title,author,lengthSeconds,liveNow`, 4500, signal);
   if(d.liveNow || (track&&d.title&&!best([{title:d.title,channel:d.author,duration:d.lengthSeconds}],track).length))throw new Error('Recording did not match');
   const list = (d.adaptiveFormats || [])
     .filter((f) => (f.type || '').startsWith('audio/'))
@@ -370,12 +384,17 @@ async function resolveUncached(t, { skip = [], signal } = {}, _retry = false) {
     const result=await raceAudioSources(sources,async({kind,base})=>{
       combined.throwIfAborted();
       if(kind==='audius')return audiusStream(t,combined);
+      const began=performance.now();
+      try{const value=await attemptServer(kind,base);recordSpeed(base,performance.now()-began,true);return value;}
+      catch(error){if(!combined.aborted)recordSpeed(base,performance.now()-began,false);throw error;}
+    },{signal:combined,quality:set.quality,concurrency:6,qualityWait:450});
+    async function attemptServer(kind,base){
       const choices=cached?[cached]:(await ENGINES[kind].search(base,t,combined)).slice(0,3);
       for(const choice of choices){
         try {const stream=await ENGINES[kind].stream(base,choice.id,combined,cached?.manual?null:t);combined.throwIfAborted();return {...stream,videoId:choice.id,instance:base,kind};}
         catch(error){combined.throwIfAborted();if(choice===choices.at(-1))throw error;}
       }
-    },{signal:combined,quality:set.quality,concurrency:4});
+    }
     combined.throwIfAborted();
     if(result.videoId)setVideoCache(t.id,{id:result.videoId,manual:!!cached?.manual,matchVersion:2});
     return result;
@@ -390,7 +409,28 @@ async function resolveUncached(t, { skip = [], signal } = {}, _retry = false) {
 // starts, so skip/next usually does not wait for a fresh provider search.
 const streamCache=new Map(),warmups=new Map(),warmControllers=new Map();
 export const streamKey=(t,s=getSettings(),videoId=getVideoCache(t.id)?.id||'')=>[t.id,s.source,s.quality,s.customPiped,s.customInvidious,videoId].join('|');
-function remember(key,stream){streamCache.set(key,{time:Date.now(),stream});if(streamCache.size>6)streamCache.delete(streamCache.keys().next().value);}
+const STREAMS_KEY='spotplus.streams';
+export function streamExpiry(url,now=Date.now()){
+  const exp=Number(String(url||'').match(/[?&]expire=(\d{9,11})/)?.[1]||0)*1000;
+  return Math.min(exp?exp-10*60e3:now+45*60e3,now+3*3600e3);
+}
+function persisted(){try{return JSON.parse(localStorage.getItem(STREAMS_KEY)||'{}');}catch{return {};}}
+function remember(key,stream){
+  const until=streamExpiry(stream.url);
+  streamCache.set(key,{time:Date.now(),until,stream});if(streamCache.size>40)streamCache.delete(streamCache.keys().next().value);
+  if(stream.preview||/^blob:/.test(stream.url))return;
+  const all=persisted(),now=Date.now();all[key]={until,stream};
+  const kept=Object.entries(all).filter(([,v])=>v.until>now).sort((a,b)=>b[1].until-a[1].until).slice(0,60);
+  try{localStorage.setItem(STREAMS_KEY,JSON.stringify(Object.fromEntries(kept)));}catch{}
+}
+function cachedStream(key){
+  const now=Date.now(),hit=streamCache.get(key);
+  if(hit&&(hit.until||hit.time+120000)>now)return hit.stream;
+  const saved=persisted()[key];
+  if(saved?.until>now&&!((failedInstances.get(saved.stream.instance)||0)>now)){streamCache.set(key,{time:now,until:saved.until,stream:saved.stream});return saved.stream;}
+  return null;
+}
+function forget(key){streamCache.delete(key);const all=persisted();if(all[key]){delete all[key];try{localStorage.setItem(STREAMS_KEY,JSON.stringify(all));}catch{}}}
 export function clearStreamCache(){streamCache.clear();for(const c of warmControllers.values())c.abort();warmups.clear();warmControllers.clear();}
 export function cancelPrewarm(except) {
   const keep = except && streamKey(except);
@@ -414,9 +454,9 @@ function preconnect(url) {
   const link=document.createElement('link');link.rel='preconnect';link.href=origin;link.crossOrigin='anonymous';document.head.append(link);
 }
 export async function resolve(t,options={}) {
-  const settings=getSettings(),key=streamKey(t,settings),hit=streamCache.get(key);
-  if(!options.skip?.length && hit && Date.now()-hit.time<120000){options.signal?.throwIfAborted();return hit.stream;}
-  if(options.skip?.length)streamCache.delete(key);
+  const settings=getSettings(),key=streamKey(t,settings),hit=!options.skip?.length&&cachedStream(key);
+  if(hit){options.signal?.throwIfAborted();return hit;}
+  if(options.skip?.length)forget(key);
   const warm=warmups.get(key);
   if(warm&&!options.skip?.length){try {const stream=await abortable(warm,options.signal);options.signal?.throwIfAborted();return stream;}catch {options.signal?.throwIfAborted();}}
   const stream=await resolveUncached(t,options);
@@ -427,7 +467,7 @@ export async function resolve(t,options={}) {
 export function prewarm(t){
   if(!t||t.local||navigator.connection?.saveData||/2g/.test(navigator.connection?.effectiveType||''))return;
   const settings=getSettings(),key=streamKey(t,settings);if(warmups.has(key))return warmups.get(key);
-  const hit=streamCache.get(key);if(hit&&Date.now()-hit.time<120000)return Promise.resolve(hit.stream);
+  const hit=cachedStream(key);if(hit)return Promise.resolve(hit);
   for (const base of Object.values(lastGood())) preconnect(base);
   if(warmControllers.size>=2){const oldest=warmControllers.keys().next().value;warmControllers.get(oldest).abort();warmControllers.delete(oldest);warmups.delete(oldest);}
   const controller=new AbortController();warmControllers.set(key,controller);
