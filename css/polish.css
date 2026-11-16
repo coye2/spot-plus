@@ -419,3 +419,13 @@ details.settings-more{padding:16px 0}details.settings-more>summary,.connection-h
 .np.spoken .np-canvas-status,.np.spoken [data-role=canvas-status]{display:none!important}.spoken-desc{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
 .np.spoken #npCanvasStatus,.np.spoken [data-np-mode="canvas"],.np.spoken #npLoopsButton{display:none!important}
 .np.spoken #npCanvasButton{display:none!important}
+
+/* Loops: fuller crop for music videos (hides letterbox bars), living cover fallback */
+.np.has-canvas[data-visual-kind=music-video][data-mode=art] .np-canvas video{transform:scale(1.18) translateZ(0)!important}
+.np.living .np-canvas{opacity:1}
+.np.living .np-canvas::before{content:'';position:absolute;inset:-14%;background:var(--np-cover) center/cover no-repeat;filter:saturate(1.2);animation:livingDrift 26s ease-in-out infinite alternate;will-change:transform}
+.np.living .np-canvas::after{content:'';position:absolute;inset:0;background:radial-gradient(120% 70% at 50% 30%,transparent 30%,color-mix(in srgb,var(--song-deep,#06150f) 70%,transparent));animation:livingGlow 9s ease-in-out infinite alternate}
+@keyframes livingDrift{0%{transform:scale(1.02) translate3d(-2%,-1%,0) rotate(-.6deg)}50%{transform:scale(1.12) translate3d(2%,1.5%,0) rotate(.4deg)}100%{transform:scale(1.06) translate3d(-1%,2%,0) rotate(-.2deg)}}
+@keyframes livingGlow{from{opacity:.75}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){.np.living .np-canvas::before,.np.living .np-canvas::after{animation:none}}
+.np.living .np-canvas-status,.np.living #npCanvasStatus{visibility:hidden}

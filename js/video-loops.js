@@ -34,9 +34,10 @@ export function chooseLoopFormat(formats, target = 720) {
     .sort((a,b)=>b.height-a.height || Number(a.bitrate)-Number(b.bitrate))[0] || null;
 }
 export function loopWindow(duration) {
-  if (!Number.isFinite(duration) || duration <= 0) return {start:0,end:8};
-  const start = duration <= 12 ? 0 : Math.min(45,Math.floor(duration*.2),duration-8);
-  return {start,end:Math.min(duration,start+8)};
+  // 10 seconds from about a third of the way in: past the intro, usually near the first chorus.
+  if (!Number.isFinite(duration) || duration <= 0) return {start:0,end:10};
+  const start = duration <= 14 ? 0 : Math.min(70,Math.floor(duration*.32),duration-10);
+  return {start,end:Math.min(duration,start+10)};
 }
 export function musicVideoLoop(value) {
   if (value?.kind !== 'music-video' || !/^[\w-]{11}$/.test(value.videoId || '') || !publicMediaURL(value.url) || !publicMediaURL(value.instance)) return null;

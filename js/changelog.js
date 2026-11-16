@@ -1,6 +1,13 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.0', date: '2026-11-16', title: 'Faster, sharper loops for every song', items: [
+    'Loops load much faster: one shared, cached search finds the official music video, which then plays straight from an audio server that works for you.',
+    'The next song’s loop is found while the current one plays, so it starts instantly.',
+    'Music-video loops are cropped tighter to fill the screen and hide black bars, in up to 1080p on fast connections.',
+    'Loops last 10 seconds and come from about a third of the way in, past the intro and near the first chorus.',
+    'Every song now has visuals: when there’s no loop, the album art fills the screen and slowly drifts.',
+  ]},
   {version: '1.8.1', date: '2026-11-16', title: 'Even faster song starts', items: [
     'Songs start right away when Spot+ already knows the recording: it plays straight from the last audio server that worked for you, instead of asking a server for the audio links first.',
     'If that server is slow, Spot+ moves on after 3.5 seconds instead of 6.',

@@ -11,3 +11,13 @@ test('known recording + a server that worked = play right away, no extra server 
   assert.equal(s.fast,true);
   assert.ok(!calls.some(u=>u.includes('/api/v1/videos')||u.includes('/streams/')),'no audio-links request');
 });
+test('loops: one cached search finds the official video and plays it straight from a working server',async()=>{
+  localStorage.setItem('spotplus.goodInstance',JSON.stringify({invidious:'https://inv.example'}));
+  globalThis.fetch=async url=>{url=String(url);
+    if(url.includes('/match')&&url.includes('type=video'))return new Response(JSON.stringify({items:[{id:'4NRXx6U8ABQ',title:'The Weeknd - Blinding Lights (Official Video)',channel:'The Weeknd',duration:263,verified:true}]}));
+    return new Response('[]');};
+  const api=await import('../js/api.js');
+  const loop=await api.fastVideoLoop({id:'908604612',title:'Blinding Lights',artist:'The Weeknd',duration:200},{target:1080});
+  assert.match(loop.url,/^https:\/\/inv\.example\/latest_version\?id=4NRXx6U8ABQ&itag=137&local=true$/);
+  assert.equal(loop.height,1080);assert.equal(loop.start,70);
+});

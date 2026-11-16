@@ -32,16 +32,17 @@ export async function youtubeMatch(request, {fetcher = fetch, cache, waitUntil =
   const url = new URL(request.url);
   const q = (url.searchParams.get('q') || '').replace(/\s+/g,' ').trim();
   if (q.length < 2 || q.length > 200) return reply({error:'Provide a song and artist'},400);
-  const key = new Request(url.origin + '/match?q=' + encodeURIComponent(q.toLowerCase()));
+  const video = url.searchParams.get('type') === 'video';
+  const key = new Request(url.origin + '/match?q=' + encodeURIComponent(q.toLowerCase()) + (video ? '&type=video' : ''));
   const cached = await cache?.match(key); if (cached) return cached;
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 4000);
   try {
     const response = await fetcher(SEARCH, {method:'POST',signal:controller.signal,redirect:'manual',headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({context:{client:{clientName:'WEB',clientVersion:'2.20251110.01.00',hl:'en',gl:'US'}},query:q + ' audio'})});
+      body: JSON.stringify({context:{client:{clientName:'WEB',clientVersion:'2.20251110.01.00',hl:'en',gl:'US'}},query:q + (video ? ' official music video' : ' audio')})});
     if (!response.ok) return reply({error:'Search unavailable'},503);
     const text = await response.text();
     if (text.length > 3_000_000) return reply({error:'Search unavailable'},502);
-    const items = parseSearch(JSON.parse(text));
+    const items = parseSearch(JSON.parse(text), video ? 10 : 8);
     const result = reply({items}, 200, items.length ? 7 * 86400 : 3600);
     if (cache) waitUntil(cache.put(key, result.clone()).catch(() => {}));
     return result;

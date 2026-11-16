@@ -2,6 +2,15 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.0 — Faster, sharper loops for every song
+_2026-11-16_
+
+- Loops load much faster: one shared, cached search finds the official music video, which then plays straight from an audio server that works for you.
+- The next song’s loop is found while the current one plays, so it starts instantly.
+- Music-video loops are cropped tighter to fill the screen and hide black bars, in up to 1080p on fast connections.
+- Loops last 10 seconds and come from about a third of the way in, past the intro and near the first chorus.
+- Every song now has visuals: when there’s no loop, the album art fills the screen and slowly drifts.
+
 ## 1.8.1 — Even faster song starts
 _2026-11-16_
 

@@ -20,7 +20,7 @@ test('Video loops choose small H264 streams and reject unsafe or unrelated sourc
  assert.ok(musicVideoLoop({...clip,url:'https://rr1.googlevideo.com/videoplayback?itag=136'}));assert.equal(musicVideoLoop({...clip,url:'https://googlevideo.com.attacker.example/videoplayback?itag=136'}),null);
  assert.equal(musicVideoLoop({...clip,url:'https://127.0.0.1/latest_version?id=4NRXx6U8ABQ&itag=134'}),null);
  assert.equal(musicVideoLoop({...clip,url:clip.url.replace('4NRXx6U8ABQ','aaaaaaaaaaa')}),null);
- assert.deepEqual(loopWindow(263),{start:45,end:53});assert.deepEqual(loopWindow(6),{start:0,end:6});
+ assert.deepEqual(loopWindow(263),{start:70,end:80});assert.deepEqual(loopWindow(200),{start:64,end:74});assert.deepEqual(loopWindow(6),{start:0,end:6});
 });
 test('Canvas has priority, with matching video fallback for missing clips and outages',async()=>{
  let calls=0;const videoLookup=async()=>{calls++;return clip;};
@@ -35,11 +35,11 @@ class Video extends EventTarget {
  getAttribute(name){return this[name]||null;}removeAttribute(name){this[name]='';}load(){}pause(){this.paused=true;}
  async play(){this.paused=false;this.dispatchEvent(new Event('playing'));}
 }
-test('Fallback repeats an eight-second section without touching the song player',async()=>{
+test('Fallback repeats a ten-second section without touching the song player',async()=>{
  const video=new Video(),player=new CanvasPlayer(video,{lookup:async()=>clip});
  player.sync(track,{visible:true,enabled:true,playing:true});await tick();
- video.dispatchEvent(new Event('loadedmetadata'));assert.equal(video.currentTime,45);
- video.currentTime=53.1;video.dispatchEvent(new Event('timeupdate'));assert.equal(video.currentTime,45);
+ video.dispatchEvent(new Event('loadedmetadata'));assert.equal(video.currentTime,70);
+ video.currentTime=80.1;video.dispatchEvent(new Event('timeupdate'));assert.equal(video.currentTime,70);
  assert.equal(video.muted,true);assert.equal(player.state,'ready');
  player.sync(track,{visible:false,enabled:true,playing:true});assert.equal(video.src,'');assert.equal(video.paused,true);
 });

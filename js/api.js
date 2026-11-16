@@ -343,6 +343,8 @@ export async function resolveVideoLoop(track, {signal, source, skip = []} = {}) 
   const key = JSON.stringify([track.searchTitle || track.title, track.artist,target]);
   const cached = videoLoopCache.get(key);
   if (cached?.expires > Date.now() && !skip.includes(cached.value.instance)) return cached.value;
+  const fast = await fastVideoLoop(track,{signal,skip,target});
+  if (fast) { videoLoopCache.set(key,{value:fast,expires:Date.now()+10*60e3}); return fast; }
   const list = await instances(), settings = getSettings(), controller = new AbortController();
   const cancel = () => controller.abort();
   signal?.addEventListener('abort',cancel,{once:true}); if (signal?.aborted) cancel();
@@ -436,6 +438,22 @@ async function resolveUncached(t, { skip = [], signal, cors = false } = {}, _ret
 }
 
 export const FAST_ITAGS={opus:251,aac:140};
+// H.264 video itags by height: plays everywhere, including iPhone.
+export const VIDEO_ITAGS={1080:137,720:136,480:135,360:134};
+/** Loops, fast path: one cached search for the official video, then a fixed address on a server that works for you. */
+export async function fastVideoLoop(track,{signal,skip=[],target=720}={}){
+  const base=lastGood().invidious;
+  if(!base||skip.includes(base)||(failedInstances.get(base)||0)>Date.now()||matchDown>Date.now())return null;
+  const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),1800);
+  try{
+    const r=await fetch(MATCH_ENDPOINT+'?type=video&q='+encodeURIComponent(query(track)),{signal:signal?AbortSignal.any([signal,ctl.signal]):ctl.signal,credentials:'omit'});
+    if(!r.ok)return null;
+    const match=matchMusicVideo((await r.json()).items||[],track);
+    if(!match)return null;
+    const height=[1080,720,480,360].find(h=>h<=target)||360;
+    return musicVideoLoop({kind:'music-video',engine:'invidious',instance:base,url:`${base}/latest_version?id=${match.id}&itag=${VIDEO_ITAGS[height]}&local=true`,videoId:match.id,title:match.title,duration:match.duration,height,fast:true});
+  }catch{return null;}finally{clearTimeout(timer);}
+}
 async function fastStream(t,{cached,shared,set,cors,skip,signal}){
   if(['piped','audius','preview'].includes(set.source))return null;
   const base=lastGood().invidious||(set.customInvidious||'').split(/[\s,]+/).map(clean).find(x=>/^https:\/\//.test(x));

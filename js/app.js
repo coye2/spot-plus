@@ -1193,9 +1193,13 @@ function syncNP() {
 }
 let canvasPreference=canvasEnabled({reducedMotion:matchMedia('(prefers-reduced-motion:reduce)').matches||document.body.dataset.motion==='reduced',saveData:navigator.connection?.saveData});
 const canvasPlayer=new CanvasPlayer($('#npCanvas'),{media:clipSource,lookup:(track,signal,options)=>findVisualLoop(track,signal,{...options,source:player.state.source}),onState:(state,clip)=>{
-  np.classList.toggle('has-canvas',state==='ready');
+  // No loop for this song: show a living cover instead (slowly moving artwork), so every song has visuals.
+  const living=canvasPreference&&npMode==='art'&&['missing','error'].includes(state)&&!!player.current()?.cover&&!spoken.isSpoken(player.current());
+  np.classList.toggle('has-canvas',state==='ready'||living);
+  np.classList.toggle('living',living);
+  if(living)np.style.setProperty('--np-cover',`url("${String(player.current().coverXl||player.current().cover).replace(/["\\]/g,'')}")`);
   np.dataset.canvasState=state;
-  np.dataset.visualKind=clip?.kind || '';
+  np.dataset.visualKind=living?'living':clip?.kind || '';
   const status=$('#npCanvasStatus');
   status.textContent=({loading:'Finding a loop…',fallback:'Finding a matching video…',deferred:player.isPlaying()?'Starting your music first…':'Loops play with your music',waiting:'Loop ready · Press play',ready:clip?.kind==='music-video'?`${clip.height?clip.height+'p · ':''}Music video loop · `:'Spotify Canvas',missing:'No matching clip found · Cover shown',error:'Clips unavailable right now · Cover shown',blocked:'Tap Loops to start the clip'})[state]||'';
   if(state==='ready'&&clip?.kind==='music-video'){const link=document.createElement('a');link.href=clip.sourceURL;link.target='_blank';link.rel='noopener';link.textContent='Watch video';status.append(link);}
@@ -1209,6 +1213,15 @@ function syncCanvas(retry=false){
   canvasPlayer.sync(player.current(),{visible:npOpen&&inCover&&!document.hidden,enabled:canvasPreference&&!spoken.isSpoken(player.current()),playing:player.isPlaying()&&!player.state.loading,networkReady:hasLocalClip(player.current())||(!player.state.loading&&audioHasHeadroom(player.el)),retry});
 }
 player.on('state',()=>syncCanvas());
+// Look up the next song's loop while this one plays, so it starts instantly.
+let loopPrefetched='';
+player.on('state',()=>{
+  if(!canvasPreference||!player.isPlaying())return;
+  const next=player.state.queue[player.state.index+1];
+  if(!next||spoken.isSpoken(next)||next.id===loopPrefetched)return;
+  loopPrefetched=next.id;
+  setTimeout(()=>findVisualLoop(next,undefined,{source:player.state.source}).catch(()=>{}),4000);
+});
 // Download Canvas clips for this song and the next two while music plays, so opening
 // the player (or skipping ahead) shows the loop immediately.
 let prefetchedFor='';
