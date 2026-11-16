@@ -338,7 +338,14 @@ let genFound={artists:[],songs:[],genres:[]};
 let devCache=(()=>{try{return JSON.parse(localStorage.getItem('spotplus.dev')||'null');}catch{return null;}})(),devFetched=0;
 async function refreshDev(){
   if(Date.now()-devFetched<600000)return;devFetched=Date.now();
-  try{const r=await fetch(live.STATS_URL+'/dev',{credentials:'omit'});if(!r.ok)return;const d=await r.json();if(!d?.name)return;
+  try{
+    // Discord answers the Spot+ site directly (it blocks Cloudflare's servers); the bridge is the backup.
+    let d=null;
+    try{const r=await fetch('https://discord.com/api/v10/invites/DbhTQD7jW?with_counts=true',{credentials:'omit'});if(r.ok){const x=await r.json(),u=x.inviter||{};
+      const avatar=/^(a_)?[a-f0-9]{32}$/.test(u.avatar||'')&&/^\d{5,25}$/.test(u.id||'')?`https://cdn.discordapp.com/avatars/${u.id}/${u.avatar}.${u.avatar.startsWith('a_')?'gif':'png'}?size=256`:'';
+      d={name:String(u.global_name||u.username||'').slice(0,60),username:String(u.username||'').slice(0,40),avatar,members:Number(x.approximate_member_count)||0,online:Number(x.approximate_presence_count)||0,invite:'https://discord.gg/DbhTQD7jW'};}}catch{ /* try the bridge */ }
+    if(!d?.name){const r=await fetch(live.STATS_URL+'/dev',{credentials:'omit'});if(!r.ok)return;d=await r.json();}
+    if(!d?.name)return;
     devCache=d;try{localStorage.setItem('spotplus.dev',JSON.stringify(d));}catch{}
     const box=$('#devCredits');if(box){if(d.avatar)box.querySelector('.credit-pfp').src=d.avatar;box.querySelector('.credit-name').textContent=d.name;box.querySelector('.credit-user').textContent=d.username?'@'+d.username:'';box.querySelector('.credit-count').textContent=d.members?` · ${live.formatCount(d.members)} members`:'';}
   }catch{ /* offline: keep the last copy */ }

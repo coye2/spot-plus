@@ -2,6 +2,11 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.1 — Developer profile fix
+_2026-11-16_
+
+- The “Made by” section now loads the developer’s Discord picture reliably.
+
 ## 1.9.0 — Faster, sharper loops for every song
 _2026-11-16_
 
