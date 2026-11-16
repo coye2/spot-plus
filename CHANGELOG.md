@@ -2,6 +2,13 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.8.1 — Even faster song starts
+_2026-11-16_
+
+- Songs start right away when Spot+ already knows the recording: it plays straight from the last audio server that worked for you, instead of asking a server for the audio links first.
+- If that server is slow, Spot+ moves on after 3.5 seconds instead of 6.
+- On computers, hovering over a song starts finding it before you click.
+
 ## 1.8.0 — Podcasts and audiobooks
 _2026-11-16_
 

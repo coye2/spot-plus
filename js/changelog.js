@@ -1,6 +1,11 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.8.1', date: '2026-11-16', title: 'Even faster song starts', items: [
+    'Songs start right away when Spot+ already knows the recording: it plays straight from the last audio server that worked for you, instead of asking a server for the audio links first.',
+    'If that server is slow, Spot+ moves on after 3.5 seconds instead of 6.',
+    'On computers, hovering over a song starts finding it before you click.',
+  ]},
   {version: '1.8.0', date: '2026-11-16', title: 'Podcasts and audiobooks', items: [
     'Podcasts: browse the top shows or search any public podcast, follow shows, and play episodes right in Spot+.',
     'Audiobooks: thousands of free classic books read by LibriVox volunteers, from Sherlock Holmes to The Art of War.',

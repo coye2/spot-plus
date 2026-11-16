@@ -46,7 +46,7 @@ let prefetchTimer = 0, warmGeneration = 0, startedAt = 0;
 let volumeLevel = 1;
 let stallTimer;
 function clearStall(){clearTimeout(stallTimer);stallTimer=null;}
-function watchStall(){clearStall();const generation=token;stallTimer=setTimeout(()=>{if(generation===token&&pendingPlay&&isRealSrc())recoverMedia();},6000);stallTimer.unref?.();}
+function watchStall(){clearStall();const generation=token;stallTimer=setTimeout(()=>{if(generation===token&&pendingPlay&&isRealSrc())recoverMedia();},state.source?.fast?3500:6000);stallTimer.unref?.();}
 function recoverMedia(){
   clearStall();if(!isRealSrc()||!current())return;
   const alternatives=state.source?.alternatives||[];

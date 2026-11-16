@@ -397,6 +397,15 @@ async function resolveUncached(t, { skip = [], signal, cors = false } = {}, _ret
   const combined=signal?AbortSignal.any([signal,control.signal]):control.signal;
   // Ask the shared lookup once; every server below can skip its own search when it answers first.
   const shared=cached?null:bridgeMatches(t,combined);shared?.catch(()=>{});
+  // Fast path: Invidious servers have a fixed audio address for every recording. With the recording
+  // known (saved, or from the shared lookup) and a server that worked for you recently, start playing
+  // right away instead of asking a server for the audio links first. Failures fall back to the full search.
+  if(!_retry&&!skip.length){
+    try{
+      const fast=await fastStream(t,{cached,shared,set,cors,skip,signal:combined});
+      if(fast){clearTimeout(deadline);return fast;}
+    }catch{ /* use the full search */ }
+  }
   try {
     const groups=kinds(set.source).map(kind=>kind==='audius'?[{kind,base:'https://api.audius.co'}]:orderedInstances(kind,inst,set).slice(0,10).map(base=>({kind,base})));
     const sources=[];for(let i=0;i<10;i++)for(const group of groups)if(group[i]&&!skip.includes(group[i].base))sources.push(group[i]);
@@ -424,6 +433,24 @@ async function resolveUncached(t, { skip = [], signal, cors = false } = {}, _ret
     if(cached&&!cached.manual&&!_retry){setVideoCache(t.id,null);return resolveUncached(t,{skip,signal,cors},true);}
     throw new Error('No audio server answered. Try another source in Settings, a 30-second preview, or a local audio file.');
   } finally {clearTimeout(deadline);control.abort();}
+}
+
+export const FAST_ITAGS={opus:251,aac:140};
+async function fastStream(t,{cached,shared,set,cors,skip,signal}){
+  if(['piped','audius','preview'].includes(set.source))return null;
+  const base=lastGood().invidious||(set.customInvidious||'').split(/[\s,]+/).map(clean).find(x=>/^https:\/\//.test(x));
+  if(!base||skip.includes(base)||(failedInstances.get(base)||0)>Date.now())return null;
+  let id=cached?.id;
+  if(!id&&shared)id=(await Promise.race([shared,new Promise((_,reject)=>setTimeout(()=>reject(new Error('slow')),1500))]))[0]?.id;
+  if(!id||!/^[\w-]{11}$/.test(id))return null;
+  signal?.throwIfAborted();
+  const opus=set.quality!=='low'&&!!probe?.canPlayType('audio/webm; codecs="opus"');
+  const make=itag=>`${base}/latest_version?id=${id}&itag=${itag}&local=true`;
+  const url=make(opus?FAST_ITAGS.opus:FAST_ITAGS.aac);
+  if(cors&&!(await corsOK(url)))return null;
+  if(!cached?.id)setVideoCache(t.id,{id,manual:false,matchVersion:2});
+  // No alternatives: if this server stalls, skip it and run the full search instead of retrying it.
+  return {url,mime:opus?'audio/webm; codecs="opus"':'audio/mp4',bitrate:opus?160000:128000,kind:'invidious',instance:base,videoId:id,fast:true,alternatives:[]};
 }
 
 // Keep short-lived results in memory. Resolve the next queued song after playback
