@@ -2,6 +2,11 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.5.1 — Cleaner launch screen
+_2026-11-16_
+
+- The launch screen now shows just the Spot+ logo.
+
 ## 1.5.0 — Live counters
 _2026-11-16_
 

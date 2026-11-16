@@ -1,6 +1,7 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.5.1', date: '2026-11-16', title: 'Cleaner launch screen', items: ['The launch screen now shows just the Spot+ logo.']},
   {version: '1.5.0', date: '2026-11-16', title: 'Live counters', items: [
     'See how many people are listening to Spot+ right now, and how many have installed it, live on Home and the download page.',
     'Counts are anonymous: each device is a random code, nothing about you or your music is sent.',
