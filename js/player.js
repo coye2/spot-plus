@@ -69,6 +69,8 @@ function unlock() {
 }
 window.addEventListener('pointerdown', unlock, { once: true, capture: true });
 const isRealSrc = () => audio.src && !audio.src.startsWith('data:');
+/** Stop every Spot+ sound when the app is closed for good (iOS can keep a closed web app's audio alive). */
+window.addEventListener('pagehide', (e) => { if (!e.persisted) { audio.pause(); nextBuffer.spare.pause(); } });
 
 /* ---------- Loading a track ---------- */
 async function load(opts = {}) {
@@ -170,6 +172,8 @@ function bindAudio(media) {
 if (boundAudio.has(media)) return;
 boundAudio.add(media);
 const listen = (event,fn) => media.addEventListener(event,() => { if (media === audio) fn(); });
+// Only the current track may make sound: a spare/preloaded element that starts on its own is stopped at once.
+media.addEventListener('play',() => { if (media !== audio && media.src && !media.src.startsWith('data:')) media.pause(); else if (media === audio) window.dispatchEvent?.(new Event('spotplus:music-play')); });
 listen('playing', () => { clearStall();if (state.startupMs == null && startedAt && isRealSrc()) state.startupMs = Math.round(performance.now() - startedAt); state.loading = false; api.reportPlaybackSource(state.source); emit('state'); prefetch(); });
 listen('play', () => { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'; emit('state'); });
 listen('pause', () => { clearStall();if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'; emit('state'); save(); ++warmGeneration; clearTimeout(prefetchTimer); if(nextBuffer.entry)nextBuffer.clear(); });
@@ -190,6 +194,7 @@ listen('ended', () => {
 listen('error',recoverMedia);
 }
 bindAudio(audio);
+bindAudio(nextBuffer.spare);
 
 /* ---------- Controls ---------- */
 function shuffled(a) {

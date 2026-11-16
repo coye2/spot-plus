@@ -119,6 +119,10 @@ export async function openRewindStory({icons={},canPlayPreview=()=>true}={}){
   // The #1 song's 30-second preview plays softly underneath, if nothing else is playing.
   let audio=null;
   if(songArt?.preview&&canPlayPreview()){audio=new Audio(songArt.preview);audio.volume=0;audio.loop=true;audio.play().then(()=>{let v=0;const fade=setInterval(()=>{v=Math.min(.55,v+.05);audio.volume=v;if(v>=.55)clearInterval(fade);},120);}).catch(()=>{audio=null;});}
+  // The preview must never outlive the story: stop it on close, navigation, backgrounding or when real music starts.
+  const stopPreview=()=>{if(!audio)return;const a=audio;audio=null;a.pause();a.removeAttribute('src');a.load();removeEventListener('hashchange',stopPreview);removeEventListener('spotplus:music-play',stopPreview);removeEventListener('pagehide',stopPreview);document.removeEventListener('visibilitychange',onHidden);};
+  const onHidden=()=>{if(document.hidden)stopPreview();};
+  if(audio){addEventListener('hashchange',stopPreview);addEventListener('spotplus:music-play',stopPreview);addEventListener('pagehide',stopPreview);document.addEventListener('visibilitychange',onHidden);}
   const show=i=>{
     index=Math.max(0,Math.min(slides.length-1,i));
     secs.forEach((s,j)=>s.classList.toggle('on',j===index));
@@ -128,7 +132,7 @@ export async function openRewindStory({icons={},canPlayPreview=()=>true}={}){
     requestAnimationFrame(()=>requestAnimationFrame(()=>{bars[index].style.transition=`width ${DURATION}ms linear`;bars[index].style.width='100%';}));
     started=Date.now();remaining=DURATION;timer=setTimeout(()=>show(index+1),DURATION);
   };
-  const close=()=>{clearTimeout(timer);if(audio){const a=audio;let v=a.volume;const fade=setInterval(()=>{v-=.08;if(v<=0){clearInterval(fade);a.pause();}else a.volume=v;},60);}root.classList.add('leaving');setTimeout(()=>root.remove(),250);document.removeEventListener('keydown',keys);};
+  const close=()=>{clearTimeout(timer);stopPreview();root.classList.add('leaving');setTimeout(()=>root.remove(),250);document.removeEventListener('keydown',keys);};
   const keys=e=>{if(e.key==='Escape')close();else if(e.key==='ArrowRight')show(index+1);else if(e.key==='ArrowLeft')show(index-1);};
   document.addEventListener('keydown',keys);
   const hold=on=>{if(slides[index].card)return;if(on&&!paused){paused=true;clearTimeout(timer);remaining-=Date.now()-started;const w=getComputedStyle(bars[index]).width;bars[index].style.transition='none';bars[index].style.width=w;}else if(!on&&paused){paused=false;started=Date.now();bars[index].style.transition=`width ${remaining}ms linear`;bars[index].style.width='100%';timer=setTimeout(()=>show(index+1),remaining);}};
