@@ -475,6 +475,8 @@ function preconnect(url) {
   const link=document.createElement('link');link.rel='preconnect';link.href=origin;link.crossOrigin='anonymous';document.head.append(link);
 }
 export async function resolve(t,options={}) {
+  // Podcasts and audiobooks come with their own direct audio link.
+  if(t?.direct){options.signal?.throwIfAborted();return {url:t.direct,mime:t.mime||'audio/mpeg',bitrate:128000,kind:'direct',instance:host(t.direct)};}
   const settings=getSettings(),key=streamKey(t,settings),hit=!options.skip?.length&&cachedStream(key);
   if(hit&&(!options.cors||await corsOK(hit.url))){options.signal?.throwIfAborted();return hit;}
   if(options.skip?.length)forget(key);
@@ -489,7 +491,7 @@ export async function resolve(t,options={}) {
   return stream;
 }
 export function prewarm(t){
-  if(!t||t.local||navigator.connection?.saveData||/2g/.test(navigator.connection?.effectiveType||''))return;
+  if(!t||t.local||t.direct||navigator.connection?.saveData||/2g/.test(navigator.connection?.effectiveType||''))return;
   const settings=getSettings(),key=streamKey(t,settings);if(warmups.has(key))return warmups.get(key);
   const hit=cachedStream(key);if(hit)return Promise.resolve(hit);
   for (const base of Object.values(lastGood())) preconnect(base);

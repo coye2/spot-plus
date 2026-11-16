@@ -402,3 +402,20 @@ details.settings-more{padding:16px 0}details.settings-more>summary,.connection-h
 /* Dev credits */
 .credit-card{display:flex;align-items:center;gap:14px;margin:6px 0 12px}.credit-pfp{width:64px;height:64px;border-radius:50%;object-fit:cover;box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 60%,transparent)}
 .credit-card b{display:block;font-size:17px}.credit-card small{color:var(--muted)}.credit-links{display:flex;gap:10px;flex-wrap:wrap}
+
+/* Podcasts & audiobooks */
+.spoken-head{padding:18px 0 4px}.spoken-head h1{margin:6px 0}.spoken-search{max-width:640px;margin:10px 0 18px}.spoken-desc{max-width:760px;line-height:1.55;margin:4px 0 16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.ep-list{display:flex;flex-direction:column}.ep-row{display:flex;align-items:center;gap:8px;border-bottom:1px solid color-mix(in srgb,var(--text) 9%,transparent)}
+.ep-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;text-align:left;background:none;border:0;color:var(--text);padding:14px 0;cursor:pointer}
+.ep-title{font-weight:700;font-size:15px;line-height:1.35}.ep-row.playing .ep-title{color:var(--accent)}.ep-meta{font-size:13px;color:var(--muted)}
+.ep-notes{font-size:13px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ep-bar{height:3px;border-radius:2px;background:color-mix(in srgb,var(--text) 15%,transparent);max-width:220px}.ep-bar i{display:block;height:100%;border-radius:2px;background:var(--accent)}
+.ep-play{flex:none;width:40px;height:40px;border-radius:50%;background:color-mix(in srgb,var(--text) 10%,transparent)}.ep-play svg{width:18px;height:18px}
+.ph-cover.grad3{background:linear-gradient(135deg,#7b2ff7,#f107a3)}.ph-cover.grad4{background:linear-gradient(135deg,#f7971e,#d4145a)}
+.skip-btn{display:none;position:relative}.skip-btn svg{width:30px;height:30px;fill:currentColor}.skip-btn span{position:absolute;inset:0;display:grid;place-items:center;font-size:9px;font-weight:800;padding-top:3px}
+.np.spoken .skip-btn{display:inline-grid;place-items:center}.np.spoken [data-role=shuffle],.np.spoken [data-role=repeat]{display:none}
+.ly-plain h3{margin:0 0 10px}
+.np.spoken .np-canvas-status,.np.spoken [data-role=canvas-status]{display:none!important}.spoken-desc{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.np.spoken #npCanvasStatus,.np.spoken [data-np-mode="canvas"],.np.spoken #npLoopsButton{display:none!important}
+.np.spoken #npCanvasButton{display:none!important}

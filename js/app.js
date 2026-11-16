@@ -14,6 +14,7 @@ import * as live from './live-stats.js';
 import * as mixes from './mixes.js';
 import * as libsync from './library-sync.js';
 import * as gen from './generator.js';
+import * as spoken from './spoken.js';
 import {unseen as unseenReleases,markSeen as markReleasesSeen,APP_VERSION,CHANGELOG as CHANGELOG_ALL} from './changelog.js';
 import * as store from './store.js';
 await store.ready(); // Load the Spotify account copy from IndexedDB before the first render.
@@ -212,8 +213,9 @@ async function viewMix(id){
 }
 player.setQueueHooks({
   continueQueue:queue=>store.getSettings().smartRadio===false?null:mixes.radioAfter(queue,{artistRadio:api.artistRadio,findArtist:api.findArtist}),
-  onSkip:(t,sec)=>mixes.recordSkip(t,sec),
-  onFinish:t=>mixes.recordFinish(t),
+  onSkip:(t,sec)=>{if(!spoken.isSpoken(t))mixes.recordSkip(t,sec);},
+  onFinish:t=>{if(!spoken.isSpoken(t))mixes.recordFinish(t);},
+  resumeAt:t=>spoken.resumeAt(t),
 });
 player.setAutoMix(store.getSettings().automix||0);
 
@@ -342,11 +344,64 @@ async function refreshDev(){
   }catch{ /* offline: keep the last copy */ }
 }
 
+/* ---------------- Podcasts & audiobooks ---------------- */
+const fmtLong=s=>{s=Math.round(s||0);const h=Math.floor(s/3600),m=Math.round(s%3600/60);return h?`${h} hr ${m} min`:`${m} min`;};
+const fmtDate=ms=>ms?new Date(ms).toLocaleDateString(undefined,{month:'short',day:'numeric',year:new Date(ms).getFullYear()===new Date().getFullYear()?undefined:'numeric'}):'';
+const showHref=s=>'#/show/'+encodeURIComponent(s.feed);
+const showCard=s=>`<a class="card" href="${showHref(s)}">${img(s.image)}<div class="ctitle">${esc(s.title)}</div><div class="csub">${esc(s.author||'Podcast')}</div></a>`;
+const bookCard=b=>`<a class="card" href="#/book/${esc(b.id)}">${img(b.image)}<div class="ctitle">${esc(b.title)}</div><div class="csub">${esc(b.author||'Audiobook')}</div></a>`;
+function spokenRows(tracks,key){
+  return `<div class="ep-list">${tracks.map((t,i)=>{const p=spoken.progress(t.id),pct=p?Math.min(100,Math.round(p.pos/(p.dur||t.duration||1)*100)):0;
+    return `<div class="ep-row${player.current()?.id===t.id?' playing':''}" data-id="${esc(t.id)}"><button class="ep-main" data-act="track-play" data-key="${key}" data-i="${i}">
+      <span class="ep-title">${esc(t.title)}</span><span class="ep-meta">${[t.kind==='episode'?fmtDate(t.date):'',t.duration?fmtLong(t.duration):'',p?.done?'Played':p&&pct>1?`${fmtLong((p.dur||t.duration)-p.pos)} left`:''].filter(Boolean).join(' · ')}</span>
+      ${t.notes&&t.kind==='episode'?`<span class="ep-notes">${esc(t.notes.slice(0,160))}</span>`:''}${pct>1&&!p?.done?`<span class="ep-bar"><i style="width:${pct}%"></i></span>`:''}</button>
+      <button class="icon ep-play" data-act="track-play" data-key="${key}" data-i="${i}" aria-label="Play ${esc(t.title)}">${I.play}</button></div>`;}).join('')}</div>`;
+}
+function spokenSearch(kind,q){return `<form class="dj-request spoken-search" data-spoken-search="${kind}"><input type="search" name="q" value="${esc(q||'')}" placeholder="${kind==='podcasts'?'Search podcasts':'Search audiobooks by title or author'}" aria-label="Search ${kind}"><button class="btn primary">Search</button></form>`;}
+async function viewPodcasts(q=''){
+  q=decodeURIComponent(q||'');
+  const cont=spoken.continueListening(),ck=reg(cont.map(p=>p.track),{name:'Continue listening'});
+  const shows=await spoken.searchShows(q).catch(e=>{toast(e.message);return [];});
+  return `<div class="spoken-head"><div class="kicker">Listen</div><h1>Podcasts</h1><p class="muted">Every public podcast, free. Spotify-only shows aren’t available outside Spotify.</p></div>${spokenSearch('podcasts',q)}
+    ${!q&&cont.length?`<section><h2>Continue listening</h2>${spokenRows(cont.map(p=>p.track),ck)}</section>`:''}
+    ${!q&&spoken.followed().length?shelf('Your shows',spoken.followed().map(showCard)):''}
+    ${shows.length?`<section><h2>${q?'Results':'Top podcasts'}</h2><div class="grid">${shows.map(showCard).join('')}</div></section>`:q?'<p class="muted">No podcasts found.</p>':''}
+    <p class="settings-note"><a href="#/audiobooks">Looking for audiobooks? →</a></p>`;
+}
+async function viewShow(feed){
+  feed=decodeURIComponent(feed);
+  const s=await spoken.show(feed);
+  const tracks=s.episodes.map(ep=>spoken.episodeTrack(ep,{...s,feed})),k=reg(tracks,{name:s.title});
+  const following=spoken.isFollowing(feed);
+  return header({cover:s.image,kicker:'Podcast',title:s.title,sub:`${esc(s.author||'')}${s.episodes.length?` · ${plural(s.episodes.length,'episode')}`:''}`})
+    +`<div class="actions"><button class="btn primary" data-act="track-play" data-key="${k}" data-i="0">${I.play}<span>Latest episode</span></button><button class="btn" data-act="follow-show" data-feed="${esc(feed)}" aria-pressed="${following}">${following?I.check:I.plus}<span>${following?'Following':'Follow'}</span></button></div>
+    ${s.description?`<p class="muted spoken-desc">${esc(s.description)}</p>`:''}${spokenRows(tracks,k)}`;
+}
+async function viewAudiobooks(q=''){
+  q=decodeURIComponent(q||'');
+  const books=await spoken.searchBooks(q).catch(e=>{toast(e.message);return [];});
+  return `<div class="spoken-head"><div class="kicker">Listen</div><h1>Audiobooks</h1><p class="muted">Thousands of classic books, read by LibriVox volunteers and free to keep. Spotify’s paid audiobooks aren’t available outside Spotify.</p></div>${spokenSearch('audiobooks',q)}
+    ${books.length?`<section><h2>${q?'Results':'Most popular'}</h2><div class="grid">${books.map(bookCard).join('')}</div></section>`:q?'<p class="muted">No audiobooks found.</p>':''}`;
+}
+async function viewBook(id){
+  const b=await spoken.book(id);
+  if(!b?.chapters?.length)return '<div class="empty"><h2>This audiobook isn’t available</h2><a class="btn" href="#/audiobooks">Back to audiobooks</a></div>';
+  const tracks=b.chapters.map(ch=>spoken.chapterTrack(ch,b)),k=reg(tracks,{name:b.title});
+  const resume=tracks.findIndex(t=>{const p=spoken.progress(t.id);return p&&!p.done;}),start=resume>=0?resume:0;
+  return header({cover:b.image,kicker:'Audiobook',title:b.title,sub:`${esc(b.author||'')} · ${plural(tracks.length,'chapter')}${tracks.some(t=>t.duration)?' · '+fmtLong(tracks.reduce((n,t)=>n+t.duration,0)):''}`})
+    +`<div class="actions"><button class="btn primary" data-act="track-play" data-key="${k}" data-i="${start}">${I.play}<span>${resume>=0?'Resume':'Start listening'}</span></button></div>${b.description?`<p class="muted spoken-desc">${esc(b.description)}</p>`:''}${spokenRows(tracks,k)}`;
+}
+document.addEventListener('submit',e=>{const kind=e.target.dataset?.spokenSearch;if(!kind)return;e.preventDefault();const q=e.target.q.value.trim();go(q?`#/${kind}/search/${encodeURIComponent(q)}`:`#/${kind}`);});
+// Remember where you are in every episode and chapter.
+let lastProgress=0;
+player.on('time',()=>{const t=player.current();if(!spoken.isSpoken(t)||Date.now()-lastProgress<5000)return;lastProgress=Date.now();spoken.saveProgress(t,player.el.currentTime||0,player.duration());});
+player.on('state',()=>{const t=player.current();$('#np')?.classList.toggle('spoken',spoken.isSpoken(t));if(spoken.isSpoken(t)&&player.el.paused)spoken.saveProgress(t,player.el.currentTime||0,player.duration());});
+
 /* ---------------- Views ---------------- */
 async function viewHome() {
   const recent = store.getRecent();
   const rk = reg(recent);
-  const shortcuts = `<div class="quick-grid"><a class="quick-item" href="#/spotify"><div class="ph-cover grad2">${I.library}</div><b>Spotify collections</b></a><a class="quick-item" href="#/liked"><div class="ph-cover grad">${I.heartFill}</div><b>Liked Songs</b></a><a class="quick-item" href="#/dj"><div class="ph-cover dj-tile">${I.dj}</div><b>Spot+ DJ</b></a>${store.getPlaylists().slice(0,4).map(p=>`<a class="quick-item" href="#/my/${p.id}">${p.tracks[0]?.cover?img(p.tracks[0].cover):`<div class="ph-cover">${I.note}</div>`}<b>${esc(p.name)}</b></a>`).join('')}${recent.slice(0,Math.max(0,5-Math.min(4,store.getPlaylists().length))).map((t,i)=>`<button class="quick-item" data-act="track-play" data-key="${rk}" data-i="${i}">${img(t.cover)}<b>${esc(t.title)}</b></button>`).join('')}</div>`;
+  const shortcuts = `<div class="quick-grid"><a class="quick-item" href="#/spotify"><div class="ph-cover grad2">${I.library}</div><b>Spotify collections</b></a><a class="quick-item" href="#/podcasts"><div class="ph-cover grad3">${I.mic}</div><b>Podcasts</b></a><a class="quick-item" href="#/audiobooks"><div class="ph-cover grad4">${I.library}</div><b>Audiobooks</b></a><a class="quick-item" href="#/liked"><div class="ph-cover grad">${I.heartFill}</div><b>Liked Songs</b></a><a class="quick-item" href="#/dj"><div class="ph-cover dj-tile">${I.dj}</div><b>Spot+ DJ</b></a>${store.getPlaylists().slice(0,4).map(p=>`<a class="quick-item" href="#/my/${p.id}">${p.tracks[0]?.cover?img(p.tracks[0].cover):`<div class="ph-cover">${I.note}</div>`}<b>${esc(p.name)}</b></a>`).join('')}${recent.slice(0,Math.max(0,5-Math.min(4,store.getPlaylists().length))).map((t,i)=>`<button class="quick-item" data-act="track-play" data-key="${rk}" data-i="${i}">${img(t.cover)}<b>${esc(t.title)}</b></button>`).join('')}</div>`;
   const toolbar = `<div class="view-toolbar"><button class="avatar home-profile" data-act="profile" aria-label="Profile and settings">${esc((store.getSettings().displayName[0]||'S').toUpperCase())}</button><button class="chip on" data-act="home-filter" data-filter="all" aria-pressed="true">All</button><button class="chip" data-act="home-filter" data-filter="music" aria-pressed="false">Music</button><a class="chip" href="#/dj">DJ</a><span class="spacer"></span><span class="source-note">Music discovery · Deezer</span></div>`;
   const requestBar = homeDJ()+'<div class="live-pill" data-live-box hidden><i></i><b data-live="listening">0</b> listening now · <b data-live="installs">0</b> installs</div><a class="rewind-link" href="#/rewind"><div><b>Your Rewind</b><small>Your top music, updated automatically</small></div><span class="rewind-link-icon">'+I.arrowUpRight+'</span></a>';
   if(document.body.dataset.page==='home')view.innerHTML=toolbar+shortcuts+requestBar+shelf('Jump back in',recent.slice(0,12).map((t,i)=>trackCard(t,rk,i)))+loadingHtml;
@@ -576,6 +631,10 @@ const routes = [
   [/^#\/rewind$/, rewindView],
   [/^#\/mix\/(\d)$/, viewMix],
   [/^#\/generate$/, viewGenerate],
+  [/^#\/podcasts(?:\/search\/(.*))?$/, viewPodcasts],
+  [/^#\/show\/(.+)$/, viewShow],
+  [/^#\/audiobooks(?:\/search\/(.*))?$/, viewAudiobooks],
+  [/^#\/book\/([\w.-]+)$/, viewBook],
   [/^#\/pair\/([a-f0-9]{64})$/, viewPair],
   [/^#\/collab\/([a-z2-9]{12})$/, viewCollab],
   [/^#\/local$/, viewLocal],
@@ -921,6 +980,9 @@ async function handleAct(act, el) {
     case 'gen-remove': {genOpts[el.dataset.type].splice(+el.dataset.i,1);saveGen();route({keepScroll:true});break;}
     case 'gen-save': {if(!genResult)break;const p=store.createPlaylist(genResult.name,genResult.tracks);toast(`Saved “${genResult.name}”`);go('#/my/'+p.id);break;}
     case 'changelog': whatsNew(CHANGELOG_ALL); break;
+    case 'follow-show': {const s=await spoken.show(el.dataset.feed).catch(()=>null);if(s){const on=spoken.toggleFollow({...s,feed:el.dataset.feed});toast(on?'Following':'Unfollowed');route({keepScroll:true});}break;}
+    case 'skip-back': player.seek((player.el.currentTime||0)-15); break;
+    case 'skip-fwd': player.seek((player.el.currentTime||0)+30); break;
     case 'np-more': { const t = player.current(); if (t) trackSheet(t); break; }
     case 'np-tab': setNPMode(el.dataset.mode); break;
     case 'canvas-cover': canvasPreference=false;setCanvasEnabled(false);setNPMode('art');break;
@@ -1067,7 +1129,7 @@ const playerColors=new PlayerColors(p=>{
   syncStatusColor();
 });
 const listeningMeter=new ListeningMeter(record=>saveHistory([record]).catch(()=>{}));
-const trackListening=()=>listeningMeter.tick(player.current(),{sessionKey:player.current()?.id+':'+player.state.playbackId,time:player.el.currentTime||0,playing:player.isPlaying()&&!player.state.loading});
+const trackListening=()=>spoken.isSpoken(player.current())?null:listeningMeter.tick(player.current(),{sessionKey:player.current()?.id+':'+player.state.playbackId,time:player.el.currentTime||0,playing:player.isPlaying()&&!player.state.loading});
 player.on('time',trackListening);player.on('state',trackListening);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)listeningMeter.flush();});
 window.addEventListener('pagehide',()=>listeningMeter.flush());
@@ -1144,7 +1206,7 @@ function syncCanvas(retry=false){
   $('#npCoverButton').setAttribute('aria-pressed',String(inCover&&!canvasPreference));
   $('#npCanvasButton').classList.toggle('on',inCover&&canvasPreference);
   $('#npCanvasButton').setAttribute('aria-pressed',String(inCover&&canvasPreference));
-  canvasPlayer.sync(player.current(),{visible:npOpen&&inCover&&!document.hidden,enabled:canvasPreference,playing:player.isPlaying()&&!player.state.loading,networkReady:hasLocalClip(player.current())||(!player.state.loading&&audioHasHeadroom(player.el)),retry});
+  canvasPlayer.sync(player.current(),{visible:npOpen&&inCover&&!document.hidden,enabled:canvasPreference&&!spoken.isSpoken(player.current()),playing:player.isPlaying()&&!player.state.loading,networkReady:hasLocalClip(player.current())||(!player.state.loading&&audioHasHeadroom(player.el)),retry});
 }
 player.on('state',()=>syncCanvas());
 // Download Canvas clips for this song and the next two while music plays, so opening
@@ -1182,6 +1244,7 @@ async function loadLyrics() {
   if (!t || !npOpen || lyr.id === t.id) return;
   lyr = { id: t.id, lines: null, active: -1 };
   const box = $('#npLyrics');
+  if (spoken.isSpoken(t)) { box.innerHTML = `<div class="ly-plain"><h3>${t.kind==='episode'?'Episode notes':'About this book'}</h3>${esc(t.notes||'No notes for this one.')}</div>`; return; }
   box.innerHTML = '<p class="muted pad center">Loading lyrics…</p>';
   const r = await api.lyrics(t).catch(() => null);
   if (lyr.id !== t.id) return;

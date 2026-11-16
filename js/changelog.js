@@ -1,6 +1,13 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.8.0', date: '2026-11-16', title: 'Podcasts and audiobooks', items: [
+    'Podcasts: browse the top shows or search any public podcast, follow shows, and play episodes right in Spot+.',
+    'Audiobooks: thousands of free classic books read by LibriVox volunteers, from Sherlock Holmes to The Art of War.',
+    'Spot+ remembers where you stopped in every episode and chapter, with a Continue listening row.',
+    'Skip back 15 seconds or forward 30 in Now Playing, and episode notes in the Lyrics tab.',
+    'Shows that are only on Spotify, and Spotify’s paid audiobooks, can’t be played outside Spotify.',
+  ]},
   {version: '1.7.0', date: '2026-11-16', title: 'Playlist generator', items: [
     'New playlist generator (Create › Generate a playlist): start from your taste, artists, songs or genres, pick vibes, then tune familiar ↔ new, deep cuts ↔ big hits, length, songs per artist, order and clean-only. Preview it, regenerate, play or save.',
     'The full changelog is now in Settings.',

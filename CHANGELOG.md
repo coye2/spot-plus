@@ -2,6 +2,15 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.8.0 — Podcasts and audiobooks
+_2026-11-16_
+
+- Podcasts: browse the top shows or search any public podcast, follow shows, and play episodes right in Spot+.
+- Audiobooks: thousands of free classic books read by LibriVox volunteers, from Sherlock Holmes to The Art of War.
+- Spot+ remembers where you stopped in every episode and chapter, with a Continue listening row.
+- Skip back 15 seconds or forward 30 in Now Playing, and episode notes in the Lyrics tab.
+- Shows that are only on Spotify, and Spotify’s paid audiobooks, can’t be played outside Spotify.
+
 ## 1.7.0 — Playlist generator
 _2026-11-16_
 

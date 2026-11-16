@@ -20,6 +20,8 @@ export const slim = (t) => ({
   cover: t.cover || '', coverXl: t.coverXl || t.cover || '', duration: t.duration || 0, explicit: !!t.explicit,
   preview: t.preview || '', local: !!t.local,
   spotifyId:t.spotifyId||'',provider:t.provider||'',externalUrl:t.externalUrl||'',
+  // Podcasts and audiobooks
+  ...(t.direct?{direct:String(t.direct),mime:t.mime||'audio/mpeg',kind:t.kind||'episode',date:t.date||0,feed:t.feed||'',bookId:t.bookId||'',notes:String(t.notes||'').slice(0,500)}:{}),
 });
 
 /* ---------- Liked songs ---------- */

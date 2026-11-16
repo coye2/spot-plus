@@ -20,8 +20,8 @@ export function setEffectsHooks(hooks) { ({effectsOn, isCaptured, prepareElement
 // server doesn't allow effects. A routed element would play them silently.
 let plainSpare = null;
 /* Smart Radio + learning hooks (set by the app). */
-let continueQueue = null, onSkip = () => {}, onFinish = () => {};
-export function setQueueHooks(hooks) { ({continueQueue = continueQueue, onSkip = onSkip, onFinish = onFinish} = hooks); }
+let continueQueue = null, onSkip = () => {}, onFinish = () => {}, resumeAt = () => 0;
+export function setQueueHooks(hooks) { ({continueQueue = continueQueue, onSkip = onSkip, onFinish = onFinish, resumeAt = resumeAt} = hooks); }
 /* AutoMix: crossfade into the next song. Needs adjustable element volume (not on iPhone) and effects off. */
 let mixSeconds = 0, mixing = false;
 export const crossfadeSupported = (() => { try { const a = new Audio(); a.volume = 0.5; return a.volume === 0.5; } catch { return false; } })();
@@ -137,6 +137,7 @@ async function load(opts = {}) {
     nextBuffer.clear(); audio.removeAttribute('src'); audio.load();
   }
   state.error = null;
+  if (opts.startAt == null) { const resume = resumeAt(t); if (resume) opts = {...opts, startAt: resume}; }
   restorePos = opts.startAt || 0;
   if (!opts.keepSkip) skipList = [];
   state.loading = true; state.source = null; state.offline = false;
@@ -293,7 +294,7 @@ export function next(fromUser = true) {
   if (fromUser && current() && isRealSrc()) onSkip(current(), audio.currentTime || 0);
   if (state.index < state.queue.length - 1) state.index++;
   else if (state.repeat === 'all' && state.queue.length) state.index = 0;
-  else if (continueQueue) { radioContinue(); return; }
+  else if (continueQueue && !current()?.direct) { radioContinue(); return; }
   else { audio.pause(); emit('state'); return; }
   errRetries = 0;
   load();

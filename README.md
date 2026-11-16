@@ -36,6 +36,7 @@ See what changed in each update: **[Changelog](CHANGELOG.md)**
 | 📊 **Rewind** | Your top songs, artists, genres and listening clock, plus a shareable story. Connect Spotify by pasting two links; it then stays up to date without a login. |
 | 🎲 **Daily Mixes & Smart Radio** | Fresh mixes every day from what you play and skip, and music that keeps going when your queue ends. |
 | 🔗 **Your devices & shared playlists** | Keep your library in sync across phone and computer, and edit playlists live with friends. Encrypted, no accounts. |
+| 🎙️ **Podcasts & audiobooks** | Any public podcast and thousands of free classic audiobooks, with resume and 15/30s skips. |
 | 🧪 **Playlist generator** | Build a playlist from your taste, artists, songs, genres and vibes, with sliders for discovery and popularity. |
 | 🎤 **Sing-along** | Turn the vocals down and follow lyrics that fill in as you sing. |
 | 👥 **Jam** | Listen together in sync on separate phones. Share a code or QR. No accounts, no servers, end-to-end encrypted. |
