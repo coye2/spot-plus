@@ -12,6 +12,8 @@
 ![PWA](https://img.shields.io/badge/PWA-installable-1B5E46)
 ![No accounts](https://img.shields.io/badge/accounts-none%20needed-1B5E46)
 ![License](https://img.shields.io/badge/license-all%20rights%20reserved-555)
+![Installs](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fspot-plus-canvas.pwr97pnmkn.workers.dev%2Fstats&query=%24.installs&label=installs&color=1B5E46&cacheSeconds=300)
+![Listening now](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fspot-plus-canvas.pwr97pnmkn.workers.dev%2Fstats&query=%24.listening&label=listening%20now&color=2fd395&cacheSeconds=300)
 ![Tests](https://img.shields.io/badge/tests-157%20passing-1B5E46)
 
 <img src="docs/screenshots/overview.png" alt="Spot+ home, a Spotify playlist, Jam and Connect Spotify screens" width="100%">

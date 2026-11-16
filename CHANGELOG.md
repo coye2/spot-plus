@@ -2,6 +2,12 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.5.0 — Live counters
+_2026-11-16_
+
+- See how many people are listening to Spot+ right now, and how many have installed it, live on Home and the download page.
+- Counts are anonymous: each device is a random code, nothing about you or your music is sent.
+
 ## 1.4.0 — Download playlists, smoother effects
 _2026-11-16_
 

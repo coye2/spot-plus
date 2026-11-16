@@ -1,6 +1,10 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.5.0', date: '2026-11-16', title: 'Live counters', items: [
+    'See how many people are listening to Spot+ right now, and how many have installed it, live on Home and the download page.',
+    'Counts are anonymous: each device is a random code, nothing about you or your music is sent.',
+  ]},
   {version: '1.4.0', date: '2026-11-16', title: 'Download playlists, smoother effects', items: [
     'Download whole playlists and Liked Songs with one tap, just like Spotify. The button fills up as it goes, turns green when done, and tapping it again stops or removes the download.',
     'Downloaded playlists stay downloaded: songs you add later download by themselves.',

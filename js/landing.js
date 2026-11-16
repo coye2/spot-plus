@@ -65,7 +65,7 @@ function guide(plan) {
 }
 
 /** Render the page. Resolves when the person continues into the app. */
-export function showLanding({qr = () => '', getPrompt = () => null, usedPrompt = () => {}, standalone = false} = {}) {
+export function showLanding({qr = () => '', getPrompt = () => null, usedPrompt = () => {}, standalone = false, onShow = () => {}} = {}) {
   return new Promise(resolve => {
     let plan = installPlan(navigator.userAgent, {touchPoints: navigator.maxTouchPoints || 0, hasPrompt: !!getPrompt(), standalone});
     const desktop = !/iPhone|iPad|Android/.test(plan.device) && plan.device !== 'app';
@@ -85,6 +85,7 @@ export function showLanding({qr = () => '', getPrompt = () => null, usedPrompt =
             <button class="lp-install" data-lp="install"><span class="lp-install-glow" aria-hidden="true"></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 3h2v9.2l3.3-3.3 1.4 1.4L12 16 6.3 10.3l1.4-1.4L11 12.2zM5 18h14v2H5z"/></svg><span class="lp-install-label">${esc(installLabel(plan))}</span></button>
             <button class="lp-web" data-lp="web">Continue in browser</button>
           </div>
+          <p class="lp-live" data-live-box hidden><i></i><b data-live="listening">0</b> listening right now · <b data-live="installs">0</b> installs</p>
           <p class="lp-fine">No app store, no download wait. Under 2 MB, works offline, updates itself.</p>
           <ul class="lp-feats"><li>🎧 Full player</li><li>📊 Rewind</li><li>👥 Jam</li><li>🎙️ AI DJ</li><li>🎨 19 themes</li></ul>
         </div>
@@ -103,6 +104,7 @@ export function showLanding({qr = () => '', getPrompt = () => null, usedPrompt =
     document.body.append(el);
     document.documentElement.classList.add('lp-open');
     requestAnimationFrame(() => el.classList.add('in'));
+    onShow(el);
 
     // Parallax: phones follow the pointer or the phone's tilt.
     const phones = el.querySelector('.lp-phones');

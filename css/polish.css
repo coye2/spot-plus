@@ -359,3 +359,10 @@ details.settings-more{padding:16px 0}details.settings-more>summary,.connection-h
 /* What's new */
 .whats-new{padding:0 4px 12px;max-height:60vh;overflow:auto}.whats-new h3{font-size:17px;margin:14px 0 6px}.whats-new h3 small{color:var(--muted);font-weight:600;font-size:12px;margin-left:6px}
 .whats-new ul{margin:0;padding-left:20px}.whats-new li{margin:6px 0;line-height:1.45;color:var(--text)}.whats-new .link{display:inline-block;margin-top:12px;color:var(--accent);font-weight:700}
+/* Live counters */
+.live-pill,.lp-live{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--muted);margin:2px 0 10px}
+.lp-live{color:#bfe9d6;margin:14px 0 0}
+.live-pill[hidden],.lp-live[hidden]{display:none}
+.live-pill b,.lp-live b{color:var(--text);font-variant-numeric:tabular-nums}.lp-live b{color:#fff}
+.live-pill i,.lp-live i{width:8px;height:8px;border-radius:50%;background:#2fd395;box-shadow:0 0 0 0 #2fd39599;animation:livePulse 1.8s ease-out infinite}
+@keyframes livePulse{70%{box-shadow:0 0 0 7px #2fd39500}100%{box-shadow:0 0 0 0 #2fd39500}}

@@ -5,5 +5,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "upload_source_maps": true,
+  "durable_objects": {"bindings": [{"name": "INSTALLS", "class_name": "InstallCounter"}]},
+  "migrations": [{"tag": "v1", "new_sqlite_classes": ["InstallCounter"]}],
   "observability": {"enabled": true, "head_sampling_rate": 0.01}
 }

@@ -10,6 +10,7 @@ import {fetchSnapshot,newSyncKey,validSyncKey} from './relay-sync.js';
 import * as api from './api.js';
 import * as notify from './notify.js';
 import * as fx from './fx.js';
+import * as live from './live-stats.js';
 import {unseen as unseenReleases,markSeen as markReleasesSeen,APP_VERSION} from './changelog.js';
 import * as store from './store.js';
 await store.ready(); // Load the Spotify account copy from IndexedDB before the first render.
@@ -192,7 +193,7 @@ async function viewHome() {
   const rk = reg(recent);
   const shortcuts = `<div class="quick-grid"><a class="quick-item" href="#/spotify"><div class="ph-cover grad2">${I.library}</div><b>Spotify collections</b></a><a class="quick-item" href="#/liked"><div class="ph-cover grad">${I.heartFill}</div><b>Liked Songs</b></a><a class="quick-item" href="#/dj"><div class="ph-cover dj-tile">${I.dj}</div><b>Spot+ DJ</b></a>${store.getPlaylists().slice(0,4).map(p=>`<a class="quick-item" href="#/my/${p.id}">${p.tracks[0]?.cover?img(p.tracks[0].cover):`<div class="ph-cover">${I.note}</div>`}<b>${esc(p.name)}</b></a>`).join('')}${recent.slice(0,Math.max(0,5-Math.min(4,store.getPlaylists().length))).map((t,i)=>`<button class="quick-item" data-act="track-play" data-key="${rk}" data-i="${i}">${img(t.cover)}<b>${esc(t.title)}</b></button>`).join('')}</div>`;
   const toolbar = `<div class="view-toolbar"><button class="avatar home-profile" data-act="profile" aria-label="Profile and settings">${esc((store.getSettings().displayName[0]||'S').toUpperCase())}</button><button class="chip on" data-act="home-filter" data-filter="all" aria-pressed="true">All</button><button class="chip" data-act="home-filter" data-filter="music" aria-pressed="false">Music</button><a class="chip" href="#/dj">DJ</a><span class="spacer"></span><span class="source-note">Music discovery · Deezer</span></div>`;
-  const requestBar = homeDJ()+'<a class="rewind-link" href="#/rewind"><div><b>Your Rewind</b><small>Your top music, updated automatically</small></div><span class="rewind-link-icon">'+I.arrowUpRight+'</span></a>';
+  const requestBar = homeDJ()+'<div class="live-pill" data-live-box hidden><i></i><b data-live="listening">0</b> listening now · <b data-live="installs">0</b> installs</div><a class="rewind-link" href="#/rewind"><div><b>Your Rewind</b><small>Your top music, updated automatically</small></div><span class="rewind-link-icon">'+I.arrowUpRight+'</span></a>';
   if(document.body.dataset.page==='home')view.innerHTML=toolbar+shortcuts+requestBar+shelf('Jump back in',recent.slice(0,12).map((t,i)=>trackCard(t,rk,i)))+loadingHtml;
   let d;
   try { d = await api.home(); } catch (e) {
@@ -449,7 +450,7 @@ async function route({ keepScroll = false } = {}) {
       if (my !== routeTok) return;
       lists.forEach((_, k) => { if (+k.slice(1) <= startSeq) lists.delete(k); });
       view.innerHTML = html;
-      hydrateStatistics(view);syncAvatars();if(location.hash==='#/rewind')hydrateRewind(view);
+      hydrateStatistics(view);syncAvatars();if(view.querySelector('[data-live]'))refreshLive();if(location.hash==='#/rewind')hydrateRewind(view);
       syncVoices();
       view.setAttribute('aria-busy','false');
       renderSidebar();
@@ -726,7 +727,7 @@ async function handleAct(act, el) {
       try{const added=await addLinks(field.value);field.value='';toast('Linked: '+added.join(', '));await route({keepScroll:true});syncAvatars();}catch(e){status.textContent=e.message;}finally{el.disabled=false;}break;}
     case 'links-paste': {const field=$('#spotifyLinksField');try{const text=await navigator.clipboard.readText();if(!/spotify/i.test(text))return toast('Copy a Spotify link first, then tap Paste.');field.value=(field.value.trim()+'\n'+text).trim();$('[data-act="links-add"]')?.click();}catch{toast('Long-press the box and choose Paste.');field.focus();}break;}
     case 'notify-enable': {const p=await Notification.requestPermission().catch(()=>'denied');toast(p==='granted'?'Notifications are on.':'Notifications stay off. You can allow them later in your settings.');if(p==='granted')notify.show({title:'Notifications are on',body:'You’ll hear about new releases and your weekly recap.'},'welcome');route({keepScroll:true});break;}
-    case 'open-landing': showLanding({qr:landingQR,getPrompt:()=>installEvt,usedPrompt:()=>{installEvt=null;},standalone:isStandalone()});break;
+    case 'open-landing': showLanding({qr:landingQR,getPrompt:()=>installEvt,usedPrompt:()=>{installEvt=null;},standalone:isStandalone(),onShow:()=>refreshLive()});break;
     case 'links-clear': if(await confirmBox('Remove Spotify links?','Rewind keeps the history it already saved.','Remove')){await clearLinks();route({keepScroll:true});}break;
     case 'jam-open': closeSheet();go('#/jam');break;
     case 'jam-react': jam.react(el.dataset.emoji);break;
@@ -1577,12 +1578,19 @@ function dismissWelcome(){try{localStorage.setItem('spotplus.welcome','1');}catc
 {
   const standalone=isStandalone(),device=connectionDevice(navigator.userAgent,navigator.platform,navigator.maxTouchPoints);
   const deepLink=/spotify-account|#\/jam\//.test(location.hash);
-  const landing=shouldShowLanding({standalone,hash:location.hash})?showLanding({qr:landingQR,getPrompt:()=>installEvt,usedPrompt:()=>{installEvt=null;},standalone}):Promise.resolve();
+  const landing=shouldShowLanding({standalone,hash:location.hash})?showLanding({qr:landingQR,getPrompt:()=>installEvt,usedPrompt:()=>{installEvt=null;},standalone,onShow:()=>refreshLive()}):Promise.resolve();
   if(!deepLink&&shouldOnboard({standalone}))landing.then(()=>setTimeout(()=>showOnboarding({icons:I,standalone,platform:device,currentMode:store.getSettings().themeMode||'dark',
     canInstall:()=>!!installEvt,install:async()=>{if(!installEvt)return;installEvt.prompt();await installEvt.userChoice.catch(()=>{});installEvt=null;},
     onTheme:patch=>store.setSettings(patch),onConnect:()=>go('#/spotify-account'),onRestore:()=>$('#welcomeBackup').click()}),400));
 }
 window.dispatchEvent(new Event('spotplus-ready'));
+/* ---------------- Live counters ---------------- */
+live.countInstall({standalone:isStandalone()});
+window.addEventListener('appinstalled',()=>live.countInstall({standalone:true}));
+const beat=()=>live.heartbeat(player.isPlaying());
+player.on('state',beat);setInterval(beat,95000);addEventListener('pagehide',()=>live.heartbeat(false));
+async function refreshLive(){const data=await live.stats();if(!data)return;$$('[data-live="listening"]').forEach(el=>{el.textContent=live.formatCount(data.listening);el.closest('[data-live-box]')?.removeAttribute('hidden');});$$('[data-live="installs"]').forEach(el=>{el.textContent=live.formatCount(data.installs);el.closest('[data-live-box]')?.removeAttribute('hidden');});}
+setInterval(()=>{if(!document.hidden&&$('[data-live]'))refreshLive();},30000);
 /* ---------------- What's new ---------------- */
 function whatsNew(releases){
   const body=`<div class="whats-new">${releases.map(r=>`<section><h3>${esc(r.title)} <small>${esc(r.version)}</small></h3><ul>${r.items.map(i=>`<li>${esc(i)}</li>`).join('')}</ul></section>`).join('')}<a class="link" href="https://github.com/coye2/spot-plus/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Full changelog</a></div>`;

@@ -1,9 +1,11 @@
+import {liveStats, InstallCounter} from './installs.js';
+export {InstallCounter};
 import {youtubeMatch} from './youtube-match.js';
 // A narrow public-metadata adapter, never an arbitrary URL or credential proxy.
 import {spotifyStats} from './spotify-stats.js';
 import {spotifyPublic} from './spotify-public.js';
 const SOURCE = 'https://canvas.auramusic.site/api/canvas';
-const CORS = {'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, OPTIONS','Content-Type':'application/json; charset=utf-8','X-Content-Type-Options':'nosniff'};
+const CORS = {'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Content-Type':'application/json; charset=utf-8','X-Content-Type-Options':'nosniff'};
 // Lyrics search: Genius's public lyric search, reduced to title, artist and the matching line.
 export function lyricHits(data) {
   const hits = (data?.response?.sections || []).flatMap(section => section?.hits || []);
@@ -66,12 +68,14 @@ export async function boundedJSON(response, limit = 65536) {
 const json = (data,status=200,maxAge=0) => new Response(JSON.stringify(data), {status,headers:{...CORS,'Cache-Control':maxAge ? 'public, max-age='+maxAge : 'no-store'}});
 export async function handle(request, {fetcher=fetch,cache,waitUntil=()=>{},env} = {}) {
   if (request.method === 'OPTIONS') return new Response(null,{status:204,headers:CORS});
-  if (request.method !== 'GET') return json({error:'Use GET'},405);
   const url = new URL(request.url);
+  if (['/stats','/installs','/listening'].includes(url.pathname) && (request.method === 'GET' ? url.pathname === '/stats' : request.method === 'POST' && url.pathname !== '/stats'))
+    return liveStats(request, env, async text => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('spotplus:' + text)))].slice(0, 8).map(b => b.toString(16).padStart(2, '0')).join(''));
+  if (request.method !== 'GET') return json({error:'Use GET'},405);
   if (url.pathname === '/spotify-stats') return spotifyStats(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/match') return youtubeMatch(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/spotify-public') return spotifyPublic(request,{fetcher,cache,waitUntil});
-  if (url.pathname === '/health') return json({service:'Spot+ Canvas bridge',status:'ok',lyrics:true,spotifyPublic:true,match:true});
+  if (url.pathname === '/health') return json({service:'Spot+ Canvas bridge',status:'ok',lyrics:true,spotifyPublic:true,match:true,stats:true});
   if (url.pathname === '/lyrics-search') return lyricsSearch(url,{fetcher,cache,waitUntil});
   if (url.pathname !== '/canvas') return json({error:'Not found'},404);
   const query = queryFor(url.searchParams);
