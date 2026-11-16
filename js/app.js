@@ -1136,14 +1136,17 @@ function fxSheet(refresh=false){
     <div class="fx-row">${Object.entries(fx.ROOMS).map(([k,room])=>chip('fx-room',`data-room="${k}"`,room.label,s.room===k)).join('')}</div>
     ${slider('bass','Bass',-6,12,1)}
     <div class="fx-row">${chip('fx-toggle','data-key="eightD"','8D audio',s.eightD)}${chip('fx-toggle','data-key="lofi"','Lo-fi',s.lofi)}</div>
-    <p class="settings-note">Effects stay on for every song until you choose Off. Headphones recommended for 8D.</p></div>`;
+    <p class="settings-note fx-note">${fx.isBlocked()?'This song’s audio server doesn’t allow reverb, pitch or bass, so it plays normally. Speed still works, and effects come back on the next song that allows them.':'Effects stay on for every song until you choose Off. Headphones recommended for 8D.'}</p></div>`;
   if(refresh&&!sheet.hidden&&$('#sheetPanel .fx')){$('#sheetPanel .fx').outerHTML=body;return;}
   openSheet({head:'<div class="sheet-title">Sound effects</div>',body});
 }
-document.addEventListener('input',e=>{const key=e.target.dataset?.fx;if(!key)return;const v=Number(e.target.value);fx.set({[key]:v});const label=$('#fxv-'+key);if(label)label.textContent=fxFmt[key](v);$$('.fx-presets .chip').forEach(c=>c.classList.remove('on'));});
+let fxFrame=0,fxPending={};
+document.addEventListener('input',e=>{const key=e.target.dataset?.fx;if(!key)return;const v=Number(e.target.value);fxPending[key]=v;if(!fxFrame)fxFrame=requestAnimationFrame(()=>{fxFrame=0;const patch=fxPending;fxPending={};fx.set(patch);});const label=$('#fxv-'+key);if(label)label.textContent=fxFmt[key](v);$$('.fx-presets .chip').forEach(c=>c.classList.remove('on'));});
 let fxEl=null;
-const fxBind=()=>{if(player.el!==fxEl){fxEl=player.el;fx.bind(player.el,player.mediaElements().filter(m=>m!==player.el));}};
-const fxBadge=()=>$('.np-fx')?.classList.toggle('on',fx.isActive(fx.get()));
+const fxBind=()=>{if(player.el!==fxEl){fxEl=player.el;fx.bind(player.el);}};
+player.setEffectsHooks({effectsOn:()=>fx.needsGraph(fx.get()),isCaptured:fx.isCaptured,prepareElement:fx.prepare});
+player.on('time',()=>{if(player.el===fxEl&&!fx.isCaptured(fxEl)&&fx.needsGraph(fx.get()))fx.bind(fxEl);});
+const fxBadge=()=>{$('.np-fx')?.classList.toggle('on',fx.isActive(fx.get()));const note=$('#sheetPanel .fx-note');if(note&&fx.isBlocked())note.textContent='This song’s audio server doesn’t allow reverb, pitch or bass, so it plays normally. Speed still works, and effects come back on the next song that allows them.';};
 $('.np-fx')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();fxSheet();});
 player.on('state',fxBind);fx.onChange(fxBadge);fxBadge();
 addEventListener('spotplus:music-play',fx.resume);document.addEventListener('visibilitychange',()=>{if(!document.hidden)fx.resume();});

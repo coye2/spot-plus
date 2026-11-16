@@ -1,5 +1,6 @@
 // Sound effects: speed, pitch, reverb, room size, bass, lo-fi and 8D, live on the device.
 // Speed works on any song. The rest uses the Web Audio graph below.
+import {corsOK} from './cors-probe.js';
 const KEY = 'spotplus.fx';
 export const DEFAULTS = {preset: 'off', speed: 1, keepPitch: true, pitch: 0, reverb: 0, room: 'hall', bass: 0, lofi: false, eightD: false};
 export const ROOMS = {
@@ -46,7 +47,7 @@ export function impulse(ctx, room) {
   return buffer;
 }
 
-let settings = load(), ctx = null, nodes = null, workletReady = null;
+let settings = load(), ctx = null, nodes = null;
 const sources = new WeakMap();
 let current = null;
 const listeners = new Set();
@@ -63,64 +64,92 @@ function build() {
   lofi.connect(dry).connect(pan); lofi.connect(convolver).connect(wet).connect(pan);
   pan.connect(out).connect(ctx.destination);
   nodes = {input, bass, lofi, dry, wet, convolver, pan, depth, out, room: null, pitch: null};
-  workletReady = ctx.audioWorklet?.addModule(new URL('./pitch-worklet.js', import.meta.url)).then(() => {
+  ctx.audioWorklet?.addModule(new URL('./pitch-worklet.js', import.meta.url)).then(() => {
     nodes.pitch = new AudioWorkletNode(ctx, 'spotplus-pitch', {outputChannelCount: [2]});
     input.disconnect(); input.connect(nodes.pitch).connect(bass);
     applyGraph();
   }).catch(() => {});
 }
 
-function attach(media) {
+function attach(media, reload) {
   if (!media || sources.has(media)) return;
-  if (!media.crossOrigin) {
-    // Web Audio needs CORS. Reload once at the same spot so the sound isn't muted.
+  if (reload) {
+    // Switching on mid-song: reload once at the same spot, now with cross-origin access.
     const at = media.currentTime, playing = !media.paused, src = media.src;
-    media.crossOrigin = 'anonymous';
-    if (src && !src.startsWith('blob:') && !src.startsWith('data:')) { media.src = src; media.currentTime = at; if (playing) media.play().catch(() => {}); }
+    media.crossOrigin = 'anonymous'; media.src = src;
+    const seek = () => { try { media.currentTime = at; } catch { /* not seekable yet */ } };
+    media.addEventListener('loadedmetadata', seek, {once: true});
+    if (playing) media.play().catch(() => {});
   }
   const source = ctx.createMediaElementSource(media);
   source.connect(nodes.input);
   sources.set(media, source);
 }
+export const isCaptured = media => sources.has(media);
+let blocked = false;
+export const isBlocked = () => blocked && needsGraph(settings);
+function setBlocked(value) { if (blocked !== value) { blocked = value; listeners.forEach(fn => fn(get())); } }
+
+/** Called by the player before a new song is loaded. Returns false if this element can't play it. */
+export async function prepare(media, url) {
+  const ok = await corsOK(url);
+  if (sources.has(media)) { setBlocked(!ok); return ok; }
+  if (ok && needsGraph(settings)) media.crossOrigin = 'anonymous'; else media.removeAttribute('crossorigin');
+  setBlocked(!ok && needsGraph(settings));
+  return true;
+}
 
 function applyGraph() {
   if (!nodes) return;
-  const t = ctx.currentTime, s = settings, ramp = (param, value) => param.setTargetAtTime(value, t, 0.05);
+  const t = ctx.currentTime, s = settings, ramp = (param, value) => param.setTargetAtTime(value, t, 0.03);
   ramp(nodes.bass.gain, s.bass);
   ramp(nodes.lofi.frequency, s.lofi ? 3200 : 20000);
   ramp(nodes.wet.gain, s.reverb * 1.1);
   ramp(nodes.dry.gain, 1 - s.reverb * 0.45);
   ramp(nodes.depth.gain, s.eightD ? 0.95 : 0);
   if (nodes.room !== s.room) { nodes.convolver.buffer = impulse(ctx, s.room); nodes.room = s.room; }
-  nodes.pitch?.parameters.get('ratio').setValueAtTime(Math.pow(2, s.pitch / 12), t);
+  nodes.pitch?.parameters.get('ratio').setTargetAtTime(Math.pow(2, s.pitch / 12), t, 0.02);
 }
 
+let appliedRate = 0, appliedKeep = null;
 function applyRate(media) {
   if (!media) return;
   const rate = Math.max(0.5, Math.min(1.5, settings.speed));
-  media.defaultPlaybackRate = rate; media.playbackRate = rate;
-  media.preservesPitch = settings.keepPitch; media.webkitPreservesPitch = settings.keepPitch;
+  if (media.playbackRate !== rate || appliedRate !== rate) { media.defaultPlaybackRate = rate; media.playbackRate = rate; appliedRate = rate; }
+  if (appliedKeep !== settings.keepPitch || media.preservesPitch !== settings.keepPitch) { media.preservesPitch = settings.keepPitch; media.webkitPreservesPitch = settings.keepPitch; appliedKeep = settings.keepPitch; }
 }
 
 /** Point effects at the element that is playing now (the player swaps elements between songs). */
-let others = [];
-export function bind(media, spares = []) {
-  current = media; others = spares;
+export function bind(media) {
+  current = media; appliedRate = 0; appliedKeep = null;
   applyRate(media);
-  if (needsGraph(settings) || sources.size) ensureGraph(media);
+  route(media);
 }
-function ensureGraph(media) {
+let probing = null;
+async function route(media) {
+  if (!media || !needsGraph(settings)) { if (nodes) applyGraph(); return; }
   if (!ctx) build();
-  for (const el of [media, ...others]) { try { attach(el); } catch { /* Already connected or blocked; plain playback continues. */ } }
-  applyGraph();
   if (ctx.state !== 'running') ctx.resume().catch(() => {});
+  if (sources.has(media)) { applyGraph(); return; }
+  const src = media.currentSrc || media.src;
+  if (!src || src.startsWith('data:')) return;
+  if (media.crossOrigin === 'anonymous') { try { attach(media, false); } catch { /* already routed */ } applyGraph(); return; }
+  if (probing === media) return;
+  probing = media;
+  const ok = await corsOK(src);
+  probing = null;
+  if (media !== current) return;
+  setBlocked(!ok);
+  if (ok) { try { attach(media, true); } catch { /* already routed */ } applyGraph(); }
 }
 
+let saveTimer = 0;
 export function set(patch, storage = globalThis.localStorage) {
   settings = {...settings, ...patch};
   if (!('preset' in patch)) settings.preset = 'custom';
-  try { storage.setItem(KEY, JSON.stringify(settings)); } catch { /* Private mode. */ }
-  if (current) { applyRate(current); if (needsGraph(settings) || ctx) ensureGraph(current); }
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { try { storage.setItem(KEY, JSON.stringify(settings)); } catch { /* Private mode. */ } }, 300);
+  if (current) { applyRate(current); route(current); }
   listeners.forEach(fn => fn(get()));
 }
 export const usePreset = name => set(fromPreset(name));

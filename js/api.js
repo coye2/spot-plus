@@ -6,6 +6,7 @@
 import { getSettings, getVideoCache, setVideoCache } from './store.js';
 import {loopQuality} from './playback-policy.js';
 import {rankAudioMatches,chooseAudioFormat,raceAudioSources} from './audio-selection.js';
+import {corsOK} from './cors-probe.js';
 
 const DEEZER = 'https://api.deezer.com';
 const LRCLIB = 'https://lrclib.net/api';
@@ -378,7 +379,7 @@ function kinds(s = getSettings().source) {
 }
 
 /** Find a playable audio URL for a track. Returns { url, mime, bitrate, videoId, instance, kind }. */
-async function resolveUncached(t, { skip = [], signal } = {}, _retry = false) {
+async function resolveUncached(t, { skip = [], signal, cors = false } = {}, _retry = false) {
   const set = getSettings();
   if (t.local) throw new Error('This local file is no longer stored on this device. Import it again.');
   if (set.source === 'preview') {
@@ -402,7 +403,9 @@ async function resolveUncached(t, { skip = [], signal } = {}, _retry = false) {
       combined.throwIfAborted();
       if(kind==='audius')return audiusStream(t,combined);
       const began=performance.now();
-      try{const value=await attemptServer(kind,base);recordSpeed(base,performance.now()-began,true);return value;}
+      try{let value=await attemptServer(kind,base);recordSpeed(base,performance.now()-began,true);
+        if(cors&&!(await corsOK(value.url))){const alt=(value.alternatives||[]).find(x=>x.url);if(alt&&await corsOK(alt.url))value={...value,...alt,alternatives:[]};else throw new Error('Effects not supported by this server');}
+        return value;}
       catch(error){if(!combined.aborted)recordSpeed(base,performance.now()-began,false);throw error;}
     },{signal:combined,quality:set.quality,concurrency:6,qualityWait:450});
     async function attemptServer(kind,base){
@@ -417,7 +420,7 @@ async function resolveUncached(t, { skip = [], signal } = {}, _retry = false) {
     return result;
   } catch {
     if(signal?.aborted)throw new DOMException('Playback cancelled','AbortError');
-    if(cached&&!cached.manual&&!_retry){setVideoCache(t.id,null);return resolveUncached(t,{skip,signal},true);}
+    if(cached&&!cached.manual&&!_retry){setVideoCache(t.id,null);return resolveUncached(t,{skip,signal,cors},true);}
     throw new Error('No audio server answered. Try another source in Settings, a 30-second preview, or a local audio file.');
   } finally {clearTimeout(deadline);control.abort();}
 }
@@ -472,11 +475,14 @@ function preconnect(url) {
 }
 export async function resolve(t,options={}) {
   const settings=getSettings(),key=streamKey(t,settings),hit=!options.skip?.length&&cachedStream(key);
-  if(hit){options.signal?.throwIfAborted();return hit;}
+  if(hit&&(!options.cors||await corsOK(hit.url))){options.signal?.throwIfAborted();return hit;}
   if(options.skip?.length)forget(key);
   const warm=warmups.get(key);
-  if(warm&&!options.skip?.length){try {const stream=await abortable(warm,options.signal);options.signal?.throwIfAborted();return stream;}catch {options.signal?.throwIfAborted();}}
-  const stream=await resolveUncached(t,options);
+  if(warm&&!options.skip?.length){try {const stream=await abortable(warm,options.signal);options.signal?.throwIfAborted();if(!options.cors||await corsOK(stream.url))return stream;}catch {options.signal?.throwIfAborted();}}
+  // With effects on, prefer servers that allow them; if none do, play the song normally.
+  let stream;
+  if(options.cors){try{stream=await resolveUncached(t,options);}catch(e){if(options.signal?.aborted)throw e;stream=await resolveUncached(t,{...options,cors:false});}}
+  else stream=await resolveUncached(t,options);
   options.signal?.throwIfAborted();
   remember(streamKey(t,settings,stream.videoId||getVideoCache(t.id)?.id||''),stream);
   return stream;

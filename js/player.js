@@ -9,10 +9,16 @@ let audio = new Audio();
 audio.preload = 'auto';
 export let el = audio;
 
-const listeners = { state: new Set(), time: new Set(), error: new Set() };
+const listeners = { state: new Set(), time: new Set(), error: new Set(), 'effects-skipped': new Set() };
 export const on = (ev, fn) => listeners[ev].add(fn);
 /** Every media element the player uses (current + preloaded next). */
 export const mediaElements = () => [audio, nextBuffer.spare];
+/* Effects hooks (set by fx.js): which elements are routed through effects, and whether effects are on. */
+let effectsOn = () => false, isCaptured = () => false, prepareElement = async () => {};
+export function setEffectsHooks(hooks) { ({effectsOn, isCaptured, prepareElement} = {effectsOn, isCaptured, prepareElement, ...hooks}); }
+// A plain element held in reserve (unlocked on the first tap, never routed through effects) for songs whose
+// server doesn't allow effects. A routed element would play them silently.
+let plainSpare = null;
 const emit = (ev, d) => listeners[ev].forEach((fn) => { try { fn(d); } catch (e) { console.error(e); } });
 
 export const state = { queue: [], index: -1, original: null, shuffle: false, repeat: 'off', loading: false, source: null, offline: false };
@@ -65,6 +71,7 @@ export function unlockElement(element) {
 }
 function unlock() {
   unlockElement(nextBuffer.spare);
+  if (!plainSpare) { plainSpare = new Audio(); plainSpare.preload = 'auto'; bindAudio(plainSpare); unlockElement(plainSpare); }
   if (audio.src) return;
   audio.src = SILENT;
   audio.play().then(() => { if (audio.src === SILENT) audio.pause(); }).catch(() => {});
@@ -89,7 +96,7 @@ async function load(opts = {}) {
   pendingPlay = opts.autoplay !== false;
   ++warmGeneration; clearTimeout(prefetchTimer);
   api.cancelPrewarm(t);
-  const warmed = !opts.keepSkip && nextBuffer.take(api.streamKey(t));
+  const warmed = !opts.keepSkip && !effectsOn() && nextBuffer.take(api.streamKey(t));
   audio.pause();
   if (warmed) {
     const previous = audio;
@@ -120,12 +127,24 @@ async function load(opts = {}) {
       state.offline = true;
     } else {
       if (objUrl) { URL.revokeObjectURL(objUrl); objUrl = null; }
-      const r = opts.sourceOverride || await api.resolve(t, { skip: skipList, signal:controller.signal });
+      const r = opts.sourceOverride || await api.resolve(t, { skip: skipList, signal:controller.signal, cors: effectsOn() });
       if (my !== token) return;
       state.source = r;
       src = r.url;
     }
-    if (!warmed) audio.src = src;
+    if (!warmed) {
+      if (isCaptured(audio) && !(await prepareElement(audio, src))) {
+        // This song's server doesn't allow effects: switch to the plain element so it still plays.
+        if (my !== token) return;
+        const plain = plainSpare || new Audio(); plainSpare = null;
+        audio.removeAttribute('src'); audio.load();
+        audio = plain; el = audio; bindAudio(audio); audio.preload = 'auto';
+        audio.volume = volumeLevel * (ducks.size ? .18 : 1);
+        emit('effects-skipped');
+      } else if (!isCaptured(audio) && effectsOn()) await prepareElement(audio, src);
+      if (my !== token) return;
+      audio.src = src;
+    }
     audio.preload = 'auto';
     audio.addEventListener('loadedmetadata', () => { if(my!==token)return;if(opts.startAt)audio.currentTime=Math.min(opts.startAt,duration());restorePos=0; }, { once: true });
     emit('state');
@@ -161,7 +180,7 @@ function prefetch() {
       if (!audioHasHeadroom(audio,12)) { prefetch(); return; }
       const source = await (api.prewarm(next) || api.resolve(next));
       if (generation !== warmGeneration || !isPlaying() || state.loading || !audioHasHeadroom(audio,8)) return;
-      nextBuffer.warm(api.streamKey(next), source);
+      if (!effectsOn()) nextBuffer.warm(api.streamKey(next), source);
     } catch { /* Foreground playback retains its own retry path. */ }
   }, 250);
   prefetchTimer.unref?.();
