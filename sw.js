@@ -1,6 +1,5 @@
 // Spot+ service worker: offline app shell + cached cover art. Audio downloads live in their own cache.
-// v40 includes version 2 account snapshots and incomplete-collection preservation.
-const SHELL_CACHE = 'spotplus-shell-v78';
+const SHELL_CACHE = 'spotplus-shell-v79';
 const IMG_CACHE = 'spotplus-img-v1';
 const KEEP = [SHELL_CACHE, IMG_CACHE, 'spotplus-audio-v1', 'spotplus-live-voice-v1'];
 const SHELL = [
@@ -14,6 +13,9 @@ const SHELL = [
   './', './index.html', './css/style.css', './css/experience.css', './css/themes.css', './css/refinements.css', './css/fonts.css', './fonts/inter-latin-wght-normal.woff2', './js/app.js', './js/api.js', './js/player.js', './js/store.js', './js/library.js', './js/dj.js', './js/local-model.js', './js/model-worker.js', './js/themes.js', './js/spotify.js', './js/spotify-import.js', './js/spotify-import-worker.js', './js/vendor/fflate.js',
   './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png', './icons/apple-touch-icon.png',
 ];
+// Only the known, versioned shell belongs in the shell cache. Other same-origin
+// requests may contain user data, be enormous, or use meaningful query strings.
+const SHELL_PATHS = new Set(SHELL.map(path => new URL(path, self.location.href).pathname));
 
 self.addEventListener('install', (e) => {
   // A new shell must bypass the browser's still-fresh copies from the old release.
@@ -47,12 +49,25 @@ self.addEventListener('fetch', (e) => {
       e.respondWith(fetch(new Request(req,{cache:'no-store'})).catch(() => new Response('The Spot+ helper could not download. Go back to Spot+, check your connection, and try again.',{status:503,headers:{'Content-Type':'text/plain; charset=utf-8'}})));
       return;
     }
+    if (!SHELL_PATHS.has(url.pathname)) {
+      // Never keep arbitrary successful GETs, exports, or query-specific resources.
+      e.respondWith(fetch(req).catch(() => new Response('Offline', {status:503})));
+      return;
+    }
     e.respondWith((async () => {
       const cache = await caches.open(SHELL_CACHE);
       const appDocument = req.mode === 'navigate' && [base.pathname,new URL('index.html',base).pathname].includes(url.pathname);
       const hit = await cache.match(req, { ignoreSearch: true }) || (appDocument ? await cache.match('./index.html') : null);
       if (hit && !(req.mode==='cors' && hit.type==='opaque')) return hit;
-      try {const res=await fetch(req);if(res.ok)await cache.put(req,res.clone());return res;}catch{return new Response('Offline',{status:503});}
+      try {
+        const res = await fetch(req);
+        if (res.ok) {
+          // Storage can be full on iOS; a failed cache write must not hide a
+          // successful network response behind a misleading Offline page.
+          try { await cache.put(req, res.clone()); } catch { /* best effort */ }
+        }
+        return res;
+      } catch { return new Response('Offline', {status:503}); }
     })());
     return;
   }
