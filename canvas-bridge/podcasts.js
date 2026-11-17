@@ -41,7 +41,17 @@ export function parseFeed(xml, feedUrl = '') {
 }
 
 /* ---------------- Directory ---------------- */
-const showFromItunes = r => ({id: String(r.collectionId), title: r.collectionName, author: r.artistName, image: r.artworkUrl600 || r.artworkUrl100 || '', feed: r.feedUrl || '', genre: r.primaryGenreName || '', episodes: r.trackCount || 0});
+const showFromItunes = r => ({id: String(r.collectionId), title: r.collectionName, author: r.artistName, image: r.artworkUrl600 || r.artworkUrl100 || '', feed: httpsUrl(r.feedUrl), genre: r.primaryGenreName || '', episodes: r.trackCount || 0});
+const showFromFyyd = r => ({id: String(r.id), title: r.title || '', author: r.author || '', image: httpsUrl(r.imgURL || r.layoutImageURL || r.thumbImageURL), feed: httpsUrl(r.xmlURL), genre: '', episodes: r.episode_count || 0});
+
+async function fetchJSON(fetcher, url, ms = 6500) {
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), ms);
+  try {
+    const r = await fetcher(url, {signal: ctl.signal, headers: {Accept: 'application/json', 'User-Agent': 'SpotPlus/2.0 (https://coye2.github.io/spot-plus/)'}});
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
+  } finally { clearTimeout(timer); }
+}
 
 async function cached(request, cache, waitUntil, build, maxAge) {
   const key = new Request(request.url);
@@ -58,13 +68,32 @@ export async function podcasts(request, {fetcher = fetch, cache, waitUntil = () 
       if (path === '/podcasts') {
         const q = (url.searchParams.get('q') || '').trim().slice(0, 100);
         if (!q) { // Top shows right now
-          const top = await (await fetcher('https://rss.applemarketingtools.com/api/v2/us/podcasts/top/30/podcasts.json')).json();
-          const ids = (top?.feed?.results || []).map(r => r.id).filter(id => /^\d+$/.test(id)).slice(0, 30);
-          const look = await (await fetcher(`https://itunes.apple.com/lookup?id=${ids.join(',')}&entity=podcast`)).json();
-          return reply({shows: (look.results || []).filter(r => r.feedUrl).map(showFromItunes)}, 200, 6 * 3600);
+          let shows = [];
+          try {
+            const top = await fetchJSON(fetcher, 'https://itunes.apple.com/us/rss/toppodcasts/limit=30/json');
+            const ids = (top?.feed?.entry || []).map(e => e?.id?.attributes?.['im:id']).filter(id => /^\d+$/.test(id)).slice(0, 30);
+            if (ids.length) {
+              const look = await fetchJSON(fetcher, `https://itunes.apple.com/lookup?id=${ids.join(',')}&entity=podcast`);
+              shows = (look.results || []).filter(r => r.feedUrl).map(showFromItunes);
+            }
+          } catch { /* fall back to fyyd */ }
+          if (!shows.length) {
+            const fyyd = await fetchJSON(fetcher, 'https://api.fyyd.de/0.2/feature/podcast/hot?count=30');
+            shows = (fyyd?.data || []).filter(r => r?.xmlURL).map(showFromFyyd);
+          }
+          if (!shows.length) return reply({error: 'Source unavailable'}, 503);
+          return reply({shows}, 200, 6 * 3600);
         }
-        const data = await (await fetcher(`https://itunes.apple.com/search?media=podcast&limit=24&term=${encodeURIComponent(q)}`)).json();
-        return reply({shows: (data.results || []).filter(r => r.feedUrl).map(showFromItunes)}, 200, 3600);
+        let shows = [];
+        try {
+          const data = await fetchJSON(fetcher, `https://itunes.apple.com/search?media=podcast&limit=24&term=${encodeURIComponent(q)}`);
+          shows = (data.results || []).filter(r => r.feedUrl).map(showFromItunes);
+        } catch { /* fall back to fyyd */ }
+        if (!shows.length) {
+          const fyyd = await fetchJSON(fetcher, `https://api.fyyd.de/0.2/search/podcast?count=24&title=${encodeURIComponent(q)}`);
+          shows = (fyyd?.data || []).filter(r => r?.xmlURL).map(showFromFyyd);
+        }
+        return reply({shows}, 200, 3600);
       }
       if (path === '/podcast') {
         const feed = httpsUrl(url.searchParams.get('feed'));

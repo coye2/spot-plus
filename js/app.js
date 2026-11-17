@@ -377,7 +377,8 @@ async function viewPodcasts(q=''){
 }
 async function viewShow(feed){
   feed=decodeURIComponent(feed);
-  const s=await spoken.show(feed);
+  const s=await spoken.show(feed).catch(()=>null);
+  if(!s?.episodes?.length)return '<div class="empty"><h2>This podcast isn’t available right now</h2><a class="btn" href="#/podcasts">Back to podcasts</a></div>';
   const tracks=s.episodes.map(ep=>spoken.episodeTrack(ep,{...s,feed})),k=reg(tracks,{name:s.title});
   const following=spoken.isFollowing(feed);
   return header({cover:s.image,kicker:'Podcast',title:s.title,sub:`${esc(s.author||'')}${s.episodes.length?` · ${plural(s.episodes.length,'episode')}`:''}`})
@@ -613,7 +614,7 @@ async function viewSettings() {
   </section>
   <section class="box"><h2>DJ</h2>${toggle('djVoice','DJ voice','Choose your host in DJ preferences.')}<a class="btn small" href="#/dj">Open DJ</a><p class="settings-note">Turn on live conversation from the DJ screen (one-time 600 MB download).</p><button class="btn small" data-act="dj-live-remove">Remove DJ downloads</button></section>
   <details class="box settings-more"><summary>About, shortcuts and what’s supported</summary>
-  <section class="box"><h2>What’s supported</h2><div class="capability"><span>Music discovery<small>Deezer public catalog</small></span><span>Available</span></div><div class="capability"><span>Audio playback<small>Piped / Invidious, previews, or local files</small></span><span>Source dependent</span></div><div class="capability"><span>Spotify stats & profile<small>Updates by itself once connected</small></span><span>${spotifyAccount||cachedLinks()?'Connected':'Not connected'}</span></div><div class="capability"><span>Jam<small>Listen together in real time</small></span><span>Spot+ Jam</span></div><div class="capability"><span>Spotify Connect & Blend</span><span class="unavailable">Not supported</span></div><div class="capability"><span>DJ</span><span>Spot+ DJ</span></div><div class="capability"><span>Podcasts & audiobooks</span><span class="unavailable">Not available</span></div><p class="settings-note">Spot+ is independent of Spotify. It reads your public Spotify playlists and profile; Spotify’s own audio and Premium features aren’t included.</p></section>
+  <section class="box"><h2>What’s supported</h2><div class="capability"><span>Music discovery<small>Deezer public catalog</small></span><span>Available</span></div><div class="capability"><span>Audio playback<small>Piped / Invidious, previews, or local files</small></span><span>Source dependent</span></div><div class="capability"><span>Spotify stats & profile<small>Updates by itself once connected</small></span><span>${spotifyAccount||cachedLinks()?'Connected':'Not connected'}</span></div><div class="capability"><span>Jam<small>Listen together in real time</small></span><span>Spot+ Jam</span></div><div class="capability"><span>Spotify Connect & Blend</span><span class="unavailable">Not supported</span></div><div class="capability"><span>DJ</span><span>Spot+ DJ</span></div><div class="capability"><span>Podcasts & audiobooks</span><span>Available</span></div><p class="settings-note">Spot+ is independent of Spotify. It reads your public Spotify playlists and profile; Spotify’s own audio and Premium features aren’t included.</p></section>
   <section class="box"><h2>Keyboard shortcuts</h2><p class="settings-note">Space: play/pause · Alt + Right/Left: next/previous · Ctrl/⌘ + K: search · Escape: close overlay. Use Tab and arrow keys for controls.</p></section>
   <section class="box"><h2>About Spot+</h2>
     <p class="muted">Song info comes from Deezer, audio is matched on YouTube through public Piped and Invidious servers, and lyrics come from LRCLIB. Everything runs on your device.</p>

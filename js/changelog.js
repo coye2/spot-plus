@@ -1,6 +1,10 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.5', date: '2026-11-17', title: 'Podcasts fixed, faster song starts', items: [
+    'Podcasts work again: top shows and podcast search now use two public directories with automatic fallback, so shows load even if one directory is down.',
+    'Songs load faster: dead or blocked audio servers are skipped right away instead of retrying, more servers are checked in parallel, and stalled streams switch sooner.',
+  ]},
   {version: '1.9.4', date: '2026-11-16', title: 'More songs play, easy updates', items: [
     'Songs from your Spotify playlists that still couldn’t be found get a second try, using the music catalog’s spelling of the artist (great for local and regional artists).',
     'New “Check for updates” button in Settings › What’s new. Spot+ also checks for updates every time you open it.',

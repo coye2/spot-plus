@@ -33,3 +33,22 @@ test('songs with several artists match (Spotify "A, B" vs YouTube "A & B" or "A 
   const ids=rankAudioMatches(items,{title:'Pleši',artist:'Jala, Buba Corelli',duration:208}).map(x=>x.id);
   assert.ok(ids.includes('t')&&ids.includes('c'),'collab titles with "x" are fine');assert.ok(!ids.includes('r'),'remixes still rejected');
 });
+test('dead servers fail fast on HTTP errors instead of retrying multiple candidates',async()=>{
+  localStorage.clear();
+  localStorage.setItem('spotplus.settings',JSON.stringify({source:'invidious',customInvidious:'https://bad.example,https://good.example'}));
+  const streamCalls=[];
+  const prevFetch=globalThis.fetch;
+  globalThis.fetch=async url=>{
+    url=String(url);
+    if(url.includes('/match'))return new Response(JSON.stringify({items:[{id:'vid11111111',title:'Artist - Track',channel:'Artist',duration:200},{id:'vid22222222',title:'Artist - Track Audio',channel:'Artist',duration:200}]}));
+    if(url.includes('bad.example/api/v1/videos/')){streamCalls.push(url);return new Response('forbidden',{status:403});}
+    if(url.includes('good.example/api/v1/videos/')){streamCalls.push(url);return new Response(JSON.stringify({title:'Artist - Track',author:'Artist',lengthSeconds:200,adaptiveFormats:[{type:'audio/mp4',url:'https://cdn.example/a.m4a',bitrate:128000,itag:140}]}));}
+    return new Response('[]');
+  };
+  try{
+    const api=await import('../js/api.js');
+    const res=await api.resolve({id:'failfast-1',title:'Track',artist:'Artist',duration:200},{skip:['https://unused.example']});
+    assert.equal(res.instance,'https://good.example');
+    assert.equal(streamCalls.filter(u=>u.includes('bad.example')).length,1,'bad server only attempted once');
+  }finally{globalThis.fetch=prevFetch;}
+});

@@ -17,3 +17,21 @@ test('where you left off: resumes a few seconds back, not after finishing',()=>{
   spoken.saveProgress(t,600,3723);assert.equal(spoken.resumeAt(t),595);
   spoken.saveProgress(t,3700,3723);assert.equal(spoken.resumeAt(t),0);
 });
+test('podcast directory falls back to Fyyd when Apple endpoints fail',async()=>{
+  const {podcasts}=await import('../canvas-bridge/podcasts.js');
+  const fetcher=async url=>{
+    if(String(url).includes('apple.com'))return new Response('blocked',{status:403});
+    return new Response(JSON.stringify({data:[{id:42,title:'Fallback Show',author:'Host',imgURL:'https://img.example/p.jpg',xmlURL:'https://feed.example/rss',episode_count:12}]}));
+  };
+  const top=await (await podcasts(new Request('https://bridge.test/podcasts'),{fetcher})).json();
+  assert.equal(top.shows.length,1);assert.equal(top.shows[0].title,'Fallback Show');assert.equal(top.shows[0].feed,'https://feed.example/rss');
+  const prevFetch=globalThis.fetch;
+  globalThis.fetch=async url=>{
+    if(String(url).includes('workers.dev'))return new Response(JSON.stringify({error:'Source unavailable'}),{status:503});
+    return new Response(JSON.stringify({data:[{id:99,title:'Client Fallback',author:'Host',imgURL:'https://img.example/c.jpg',xmlURL:'https://feed.example/c.xml',episode_count:5}]}));
+  };
+  try{
+    const shows=await spoken.searchShows('tech');
+    assert.equal(shows.length,1);assert.equal(shows[0].title,'Client Fallback');
+  }finally{globalThis.fetch=prevFetch;}
+});

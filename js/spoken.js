@@ -1,7 +1,69 @@
 // Podcasts and audiobooks: directory lookups through the Spot+ bridge, plus "where you left off".
 import {STATS_URL} from './live-stats.js';
-const get = async path => { const r = await fetch(STATS_URL + path, {credentials: 'omit'}); if (!r.ok) throw new Error(r.status === 404 ? 'Podcasts need the latest Spot+ bridge. Try again soon.' : 'Couldn’t reach podcasts right now.'); return r.json(); };
-export const searchShows = q => get('/podcasts' + (q ? '?q=' + encodeURIComponent(q) : '')).then(d => d.shows || []);
+const safeUrl = u => { try { const x = new URL(u); return ['https:', 'http:'].includes(x.protocol) ? x.href : ''; } catch { return ''; } };
+const showFromItunes = r => ({id: String(r.collectionId), title: r.collectionName || '', author: r.artistName || '', image: r.artworkUrl600 || r.artworkUrl100 || '', feed: safeUrl(r.feedUrl), genre: r.primaryGenreName || '', episodes: r.trackCount || 0});
+const showFromFyyd = r => ({id: String(r.id), title: r.title || '', author: r.author || '', image: safeUrl(r.imgURL || r.layoutImageURL || r.thumbImageURL), feed: safeUrl(r.xmlURL), genre: '', episodes: r.episode_count || 0});
+
+let cbSeq = 0;
+function itunesJsonp(path, params) {
+  if (typeof document === 'undefined' || !document.head) return Promise.reject(new Error('No DOM'));
+  return new Promise((resolve, reject) => {
+    const cb = `__pod_${Date.now().toString(36)}_${++cbSeq}`;
+    const qs = new URLSearchParams({...params, callback: cb});
+    const s = document.createElement('script');
+    const done = () => { clearTimeout(timer); window[cb] = () => {}; s.remove(); setTimeout(() => { try { delete window[cb]; } catch { /* ignore */ } }, 30000); };
+    const timer = setTimeout(() => { done(); reject(new Error('Timed out')); }, 6000);
+    window[cb] = data => { done(); resolve(data); };
+    s.onerror = () => { done(); reject(new Error('Network error')); };
+    s.src = `https://itunes.apple.com${path}?${qs}`;
+    document.head.appendChild(s);
+  });
+}
+
+async function fetchJSON(url, ms = 6000) {
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), ms);
+  try {
+    const r = await fetch(url, {credentials: 'omit', signal: ctl.signal});
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
+  } finally { clearTimeout(timer); }
+}
+
+const get = async path => {
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 5000);
+  try {
+    const r = await fetch(STATS_URL + path, {credentials: 'omit', signal: ctl.signal});
+    if (!r.ok) throw new Error(r.status === 404 ? 'Podcasts need the latest Spot+ bridge. Try again soon.' : 'Couldn’t reach podcasts right now.');
+    return await r.json();
+  } finally { clearTimeout(timer); }
+};
+
+export async function searchShows(q) {
+  try {
+    const d = await get('/podcasts' + (q ? '?q=' + encodeURIComponent(q) : ''));
+    if (Array.isArray(d?.shows) && (d.shows.length || q)) return d.shows;
+  } catch { /* fall back directly to public directories */ }
+  if (!q) {
+    try {
+      const top = await fetchJSON('https://itunes.apple.com/us/rss/toppodcasts/limit=30/json');
+      const ids = (top?.feed?.entry || []).map(e => e?.id?.attributes?.['im:id']).filter(id => /^\d+$/.test(id)).slice(0, 30);
+      if (ids.length) {
+        const look = await itunesJsonp('/lookup', {id: ids.join(','), entity: 'podcast'});
+        const shows = (look?.results || []).filter(r => r.feedUrl).map(showFromItunes);
+        if (shows.length) return shows;
+      }
+    } catch { /* fall back to fyyd */ }
+    const fyyd = await fetchJSON('https://api.fyyd.de/0.2/feature/podcast/hot?count=30');
+    return (fyyd?.data || []).filter(r => r?.xmlURL).map(showFromFyyd);
+  }
+  try {
+    const data = await itunesJsonp('/search', {media: 'podcast', limit: '24', term: q});
+    const shows = (data?.results || []).filter(r => r.feedUrl).map(showFromItunes);
+    if (shows.length) return shows;
+  } catch { /* fall back to fyyd */ }
+  const fyyd = await fetchJSON(`https://api.fyyd.de/0.2/search/podcast?count=24&title=${encodeURIComponent(q)}`);
+  return (fyyd?.data || []).filter(r => r?.xmlURL).map(showFromFyyd);
+}
 export const show = feed => get('/podcast?feed=' + encodeURIComponent(feed));
 export const searchBooks = q => get('/audiobooks' + (q ? '?q=' + encodeURIComponent(q) : '')).then(d => d.books || []);
 export const book = id => get('/audiobooks?id=' + encodeURIComponent(id)).then(d => d.book);

@@ -219,16 +219,17 @@ export function instances(force = false) {
   }
   if (instancePromise) return force ? instancePromise : Promise.resolve(instanceSnapshot);
   if (!force && Date.now() - instanceSnapshot.t < 6 * 3600e3) return Promise.resolve(instanceSnapshot);
+  const publicOrigin = u => { try { const {protocol, hostname} = new URL(u); return protocol === 'https:' && /\.[a-z]{2,}$/i.test(hostname) && !/(^|\.)(onion|i2p|ygg|loki)$/i.test(hostname); } catch { return false; } };
   instancePromise = (async () => {
     const [p, i] = await Promise.allSettled([
-      fetchJSON('https://piped-instances.kavin.rocks/', 6000),
-      fetchJSON('https://api.invidious.io/instances.json?sort_by=health', 6000),
+      fetchJSON('https://piped-instances.kavin.rocks/', 4000),
+      fetchJSON('https://api.invidious.io/instances.json?sort_by=health', 4000),
     ]);
     const piped = Array.isArray(settled(p))
-      ? p.value.filter((x) => x && x.api_url).sort((a, b) => (b.uptime_24h || 0) - (a.uptime_24h || 0)).map((x) => clean(x.api_url))
+      ? p.value.filter((x) => x && x.api_url).sort((a, b) => (b.uptime_24h || 0) - (a.uptime_24h || 0)).map((x) => clean(x.api_url)).filter(publicOrigin)
       : [];
     const inv = Array.isArray(settled(i))
-      ? i.value.filter(([, d]) => d && d.type === 'https' && d.api !== false && d.cors !== false && d.uri).map(([, d]) => clean(d.uri))
+      ? i.value.filter(([, d]) => d && d.type === 'https' && d.api !== false && d.cors !== false && d.uri).map(([, d]) => clean(d.uri)).filter(publicOrigin)
       : [];
     const out = { t: Date.now(), piped: uniq([...piped, ...PIPED_FALLBACK]), invidious: uniq([...inv, ...INV_FALLBACK]) };
     instanceSnapshot = out;
@@ -287,7 +288,7 @@ const query = (t) => `${t.artist} ${t.title}`.trim();
 
 async function pipedSearch(base, t, signal) {
   for (const filter of ['music_songs', 'videos']) {
-    const d = await fetchJSON(`${base}/search?q=${encodeURIComponent(query(t))}&filter=${filter}`, 4500, signal);
+    const d = await fetchJSON(`${base}/search?q=${encodeURIComponent(query(t))}&filter=${filter}`, 3200, signal);
     const items = (d.items || [])
       .filter((x) => x && typeof x.url === 'string' && x.url.includes('v='))
       .map((x) => ({ id: new URL(x.url, 'https://youtube.com').searchParams.get('v'), title: x.title, duration: x.duration, channel: x.uploaderName }));
@@ -296,7 +297,7 @@ async function pipedSearch(base, t, signal) {
   throw new Error('no results');
 }
 async function invSearch(base, t, signal) {
-  const d = await fetchJSON(`${base}/api/v1/search?q=${encodeURIComponent(query(t))}&type=video&fields=videoId,title,lengthSeconds,author`, 4500, signal);
+  const d = await fetchJSON(`${base}/api/v1/search?q=${encodeURIComponent(query(t))}&type=video&fields=videoId,title,lengthSeconds,author`, 3200, signal);
   const items = (Array.isArray(d) ? d : []).filter((x) => x.videoId).map((x) => ({ id: x.videoId, title: x.title, duration: x.lengthSeconds, channel: x.author }));
   if (!items.length) throw new Error('no results');
   const matches=best(items,t);if(!matches.length)throw new Error('No matching recording');return matches;
@@ -312,14 +313,14 @@ function pickFormat(list) {
   return {...picked,alternatives};
 }
 async function pipedStream(base, id, signal, track) {
-  const d = await fetchJSON(`${base}/streams/${id}`, 4500, signal);
+  const d = await fetchJSON(`${base}/streams/${id}`, 3200, signal);
   if(d.livestream || (track&&d.title&&!best([{title:d.title,channel:d.uploader,duration:d.duration}],track).length))throw new Error('Recording did not match');
   const list = (d.audioStreams || []).filter((s) => s.url && s.videoOnly!==true).map((s) => ({ url: s.url, mime: s.mimeType || '', codec:s.codec||'', bitrate: Number(s.bitrate) || parseFloat(s.quality)*1000 || 0 }));
   if (!list.length) throw new Error(d.error || d.message || 'no audio streams');
   return pickFormat(list);
 }
 async function invStream(base, id, signal, track) {
-  const d = await fetchJSON(`${base}/api/v1/videos/${id}?fields=adaptiveFormats,error,title,author,lengthSeconds,liveNow`, 4500, signal);
+  const d = await fetchJSON(`${base}/api/v1/videos/${id}?fields=adaptiveFormats,error,title,author,lengthSeconds,liveNow`, 3200, signal);
   if(d.liveNow || (track&&d.title&&!best([{title:d.title,channel:d.author,duration:d.lengthSeconds}],track).length))throw new Error('Recording did not match');
   const list = (d.adaptiveFormats || [])
     .filter((f) => (f.type || '').startsWith('audio/'))
@@ -409,8 +410,9 @@ async function resolveUncached(t, { skip = [], signal, cors = false } = {}, _ret
     }catch{ /* use the full search */ }
   }
   try {
-    const groups=kinds(set.source).map(kind=>kind==='audius'?[{kind,base:'https://api.audius.co'}]:orderedInstances(kind,inst,set).slice(0,10).map(base=>({kind,base})));
-    const sources=[];for(let i=0;i<10;i++)for(const group of groups)if(group[i]&&!skip.includes(group[i].base))sources.push(group[i]);
+    const streamGroups=kinds(set.source).filter(k=>k!=='audius').map(kind=>orderedInstances(kind,inst,set).slice(0,10).map(base=>({kind,base})));
+    const sources=[];for(let i=0;i<10;i++)for(const group of streamGroups)if(group[i]&&!skip.includes(group[i].base))sources.push(group[i]);
+    if(kinds(set.source).includes('audius'))sources.push({kind:'audius',base:'https://api.audius.co'});
     const result=await raceAudioSources(sources,async({kind,base})=>{
       combined.throwIfAborted();
       if(kind==='audius')return audiusStream(t,combined);
@@ -419,12 +421,16 @@ async function resolveUncached(t, { skip = [], signal, cors = false } = {}, _ret
         if(cors&&!(await corsOK(value.url))){const alt=(value.alternatives||[]).find(x=>x.url);if(alt&&await corsOK(alt.url))value={...value,...alt,alternatives:[]};else throw new Error('Effects not supported by this server');}
         return value;}
       catch(error){if(!combined.aborted)recordSpeed(base,performance.now()-began,false);throw error;}
-    },{signal:combined,quality:set.quality,concurrency:6,qualityWait:450});
+    },{signal:combined,quality:set.quality,concurrency:8,qualityWait:250});
     async function attemptServer(kind,base){
-      const choices=cached?[cached]:(await Promise.any([shared,ENGINES[kind].search(base,t,combined)].filter(Boolean))).slice(0,3);
+      const choices=cached?[cached]:(await Promise.any([shared,ENGINES[kind].search(base,t,combined)].filter(Boolean))).slice(0,2);
       for(const choice of choices){
         try {const stream=await ENGINES[kind].stream(base,choice.id,combined,cached?.manual?null:t);combined.throwIfAborted();return {...stream,videoId:choice.id,instance:base,kind};}
-        catch(error){combined.throwIfAborted();if(choice===choices.at(-1))throw error;}
+        catch(error){
+          combined.throwIfAborted();
+          const videoError=/Recording did not match|no audio streams|No compatible audio format|HTTP 404/i.test(error?.message||'');
+          if(!videoError||choice===choices.at(-1))throw error;
+        }
       }
     }
     combined.throwIfAborted();
@@ -468,7 +474,7 @@ async function fastStream(t,{cached,shared,set,cors,skip,signal}){
   const base=lastGood().invidious||(set.customInvidious||'').split(/[\s,]+/).map(clean).find(x=>/^https:\/\//.test(x));
   if(!base||skip.includes(base)||(failedInstances.get(base)||0)>Date.now()||(choppy.get(base)||0)>Date.now())return null;
   let id=cached?.id;
-  if(!id&&shared)id=(await Promise.race([shared,new Promise((_,reject)=>setTimeout(()=>reject(new Error('slow')),1500))]))[0]?.id;
+  if(!id&&shared)id=(await Promise.race([shared,new Promise((_,reject)=>setTimeout(()=>reject(new Error('slow')),2200))]))[0]?.id;
   if(!id||!/^[\w-]{11}$/.test(id))return null;
   signal?.throwIfAborted();
   const opus=set.quality!=='low'&&!!probe?.canPlayType('audio/webm; codecs="opus"');
