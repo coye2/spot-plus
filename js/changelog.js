@@ -1,6 +1,10 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.3', date: '2026-11-16', title: 'Songs with several artists play again', items: [
+    'Fixed “No audio server answered” for songs credited to several artists (like “Jala, Buba Corelli”): any of the artists now counts when finding the recording.',
+    'Collab titles like “Artist A x Artist B - Song” are no longer mistaken for mashups.',
+  ]},
   {version: '1.9.2', date: '2026-11-16', title: 'Right song, smooth sound', items: [
     'Fixed songs sometimes playing a mashup or a different recording: mashups, medleys and “song x song” blends are no longer accepted, and every song is re-matched once.',
     'Fixed choppy audio: if an audio server can’t keep up, Spot+ switches to another one mid-song and stops using that server for fast starts.',

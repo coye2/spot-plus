@@ -27,3 +27,9 @@ test('mashups and "song x song" blends never count as the song',async()=>{
   assert.deepEqual(rankAudioMatches(items,{title:'In the End',artist:'Linkin Park',duration:216}).map(x=>x.id),['b']);
   assert.equal(rankAudioMatches([{id:'d',title:'Lil Nas X - Old Town Road',channel:'Lil Nas X',duration:157}],{title:'Old Town Road',artist:'Lil Nas X',duration:157}).length,1,'artists with X in the name still match');
 });
+test('songs with several artists match (Spotify "A, B" vs YouTube "A & B" or "A x B")',async()=>{
+  const {rankAudioMatches}=await import('../js/audio-selection.js');
+  const items=[{id:'r',title:'Jala Brat x Buba Corelli - Plesi (Mr. Hydden Remix)',channel:'Mr. Hydden',duration:195},{id:'t',title:'Pleši',channel:'Jala Brat - Topic',duration:208},{id:'c',title:'Jala Brat x Buba Corelli - Pleši',channel:'Jala Brat',duration:208}];
+  const ids=rankAudioMatches(items,{title:'Pleši',artist:'Jala, Buba Corelli',duration:208}).map(x=>x.id);
+  assert.ok(ids.includes('t')&&ids.includes('c'),'collab titles with "x" are fine');assert.ok(!ids.includes('r'),'remixes still rejected');
+});

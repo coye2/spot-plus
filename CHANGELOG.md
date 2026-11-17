@@ -2,6 +2,12 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.3 — Songs with several artists play again
+_2026-11-16_
+
+- Fixed “No audio server answered” for songs credited to several artists (like “Jala, Buba Corelli”): any of the artists now counts when finding the recording.
+- Collab titles like “Artist A x Artist B - Song” are no longer mistaken for mashups.
+
 ## 1.9.2 — Right song, smooth sound
 _2026-11-16_
 

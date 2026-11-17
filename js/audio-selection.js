@@ -5,16 +5,19 @@ const editions = ['live','remix','acoustic','instrumental','sped up','slowed','n
 export function rankAudioMatches(items,track) {
   const title=baseTitle(track.title),who=artist(track.artist),expected=Number(track.duration)||0;
   if(!title||!who)return [];
+  // Songs with several artists ("Jala, Buba Corelli"): any one of them counts.
+  const crew=[who,...String(track.artist||'').split(/\s*(?:,|&|\band\b|\bfeat\.?|\bft\.?|\bwith\b|\s[x×]\s)\s*/i).map(artist).filter(a=>a&&a.length>1)];
   return items.map(item=>{
     const name=baseTitle(item.title),channel=artist(item.channel),duration=Number(item.duration)||0;
-    const exactArtist=channel===who||channel.replace(/ /g,'')===who.replace(/ /g,'');
-    const artistInTitle=(' '+name+' ').includes(' '+who+' ') || (' '+name+' ').includes(' '+clean(track.artist)+' ');
+    const exactArtist=crew.some(a=>channel===a||channel.replace(/ /g,'')===a.replace(/ /g,'')||channel.startsWith(a+' '));
+    const artistInTitle=crew.some(a=>(' '+name+' ').includes(' '+a+' ')) || (' '+name+' ').includes(' '+clean(track.artist)+' ');
     const titleInName=(' '+name+' ').includes(' '+title+' ');
     const conflicting=editions.some(word=>new RegExp('\\b'+word+'\\b').test(name)!==new RegExp('\\b'+word+'\\b').test(title));
     const delta=expected&&duration?Math.abs(expected-duration):0;
     const wrongLength=duration<20 || (expected&&delta>Math.max(25,expected*.14));
     // Mashups, medleys and "song x song" blends contain the title and artist but are a different recording.
-    const blend=/\b(mashup|mash up|medley|megamix|bootleg|blend|vs|versus)\b/.test(name)||/\s(x|×)\s/.test(` ${String(item.title||'').toLowerCase().split(String(track.artist||'').toLowerCase()).join(' ')} `.replace(/[^\p{L}\p{N}×]+/gu,' '))&&!/\s(x|×)\s/.test(` ${String(track.title||'').toLowerCase()} `);
+    const songPart=String(item.title||'').toLowerCase().split(/\s[-–—]\s/).slice(1).join(' - ')||String(item.title||'').toLowerCase();
+    const blend=/\b(mashup|mash up|medley|megamix|bootleg|blend|vs|versus)\b/.test(name)||(/\s(x|×)\s/.test(` ${songPart.split(String(track.artist||'').toLowerCase()).join(' ')} `)&&!/\s(x|×)\s/.test(` ${String(track.title||'').toLowerCase()} `)&&!crew.some(a=>songPart.includes(a)));
     const unwanted=blend||/\b(reaction|tutorial|bass boosted|tiktok version|1 hour|10 hours|full album)\b/.test(name);
     let core=name.split(/\b(?:official audio|official music video|official video|lyrics?|visuali[sz]er)\b/)[0].trim();
     for(const prefix of [clean(track.artist),who])if(core.startsWith(prefix+' '))core=core.slice(prefix.length+1);
