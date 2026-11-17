@@ -578,7 +578,7 @@ async function viewSettings() {
   <section class="box credits" id="devCredits"><h2>Made by</h2><div class="credit-card"><img class="credit-pfp" src="${esc(devCache?.avatar||'icons/icon-192.png')}" alt="" width="64" height="64"><div><b class="credit-name">${esc(devCache?.name||'Coye | NXInfinity DEV')}</b><small class="credit-user">${devCache?.username?'@'+esc(devCache.username):'Spot+ developer'}</small></div></div>
     <p class="settings-note">Spot+ is a solo project, built with Claude and Takumi. Bugs, ideas or just want to talk music? Come hang out.</p>
     <div class="credit-links"><a class="btn primary small" href="${esc(devCache?.invite||'https://discord.gg/DbhTQD7jW')}" target="_blank" rel="noopener">Join the Discord<span class="credit-count">${devCache?.members?` · ${live.formatCount(devCache.members)} members`:''}</span></a><a class="btn small" href="https://github.com/coye2/spot-plus" target="_blank" rel="noopener">GitHub</a></div></section>
-  <section class="box"><h2>What’s new</h2><p class="settings-note">You’re on Spot+ ${esc(APP_VERSION)}. See what changed in every update.</p><button class="btn small" data-act="changelog">Changelog</button></section>
+  <section class="box"><h2>What’s new</h2><p class="settings-note">You’re on Spot+ ${esc(APP_VERSION)}. See what changed in every update.</p><div class="credit-links"><button class="btn small primary" data-act="check-update">Check for updates</button><button class="btn small" data-act="changelog">Changelog</button></div></section>
   <section class="box"><h2>Your devices</h2><p class="settings-note">${libsync.syncState()?'Your library syncs with your other devices.':'Keep your likes and playlists the same on your phone and computer. No account.'}</p><button class="btn primary small" data-act="link-devices">${libsync.syncState()?'Link another device':'Link a device'}</button></section>
   <section class="box"><h2>Notifications</h2>${notify.permission()==='unsupported'?'<p class="settings-note">This browser can’t show notifications. On iPhone, add Spot+ to your Home Screen first.</p>':notify.permission()==='granted'?'':`<p class="settings-note">${notify.permission()==='denied'?'Notifications are blocked for Spot+. Allow them in your browser or phone settings.':'Get a heads-up about new music and updates. Never more than two a day, and nothing at night.'}</p>${notify.permission()==='default'?'<button class="btn primary small" data-act="notify-enable">Turn on notifications</button>':''}`}
   ${toggle('notifyReleases','New releases','When an artist you follow drops a song or album.')}${toggle('notifyStats','Weekly recap','Sunday evening: your minutes and most-played artist.')}${toggle('notifyUpdates','App updates','When a new version of Spot+ is ready.')}</section>
@@ -987,6 +987,20 @@ async function handleAct(act, el) {
     case 'gen-remove': {genOpts[el.dataset.type].splice(+el.dataset.i,1);saveGen();route({keepScroll:true});break;}
     case 'gen-save': {if(!genResult)break;const p=store.createPlaylist(genResult.name,genResult.tracks);toast(`Saved “${genResult.name}”`);go('#/my/'+p.id);break;}
     case 'changelog': whatsNew(CHANGELOG_ALL); break;
+    case 'check-update': {
+      const t=toast('Checking for updates…',{sticky:true});
+      try{
+        // The newest version number straight from GitHub (the app's own copy may be cached).
+        const latest=await fetch('https://raw.githubusercontent.com/coye2/spot-plus/main/js/changelog.js',{cache:'no-store',credentials:'omit'}).then(r=>r.text()).then(x=>x.match(/version:\s*'([\d.]+)'/)?.[1]).catch(()=>null);
+        const reg=await navigator.serviceWorker?.getRegistration();
+        if(latest&&latest!==APP_VERSION){
+          t.set(`Updating to ${latest}…`);
+          const ready=new Promise(res=>{navigator.serviceWorker?.addEventListener('controllerchange',res,{once:true});setTimeout(res,8000);});
+          await reg?.update().catch(()=>{});await ready;location.reload();
+        }
+        else{t.set(`You’re up to date (${APP_VERSION})`);t.close(2500);}
+      }catch{t.set('Couldn’t check right now. Try again in a moment.');t.close(3000);}
+      break;}
     case 'follow-show': {const s=await spoken.show(el.dataset.feed).catch(()=>null);if(s){const on=spoken.toggleFollow({...s,feed:el.dataset.feed});toast(on?'Following':'Unfollowed');route({keepScroll:true});}break;}
     case 'skip-back': player.seek((player.el.currentTime||0)-15); break;
     case 'skip-fwd': player.seek((player.el.currentTime||0)+30); break;
@@ -1814,6 +1828,8 @@ store.onChange((key) => {
 });
 document.addEventListener('error',event=>{if(event.target instanceof HTMLImageElement&&event.target.closest('.spotify-profile-photo'))event.target.hidden=true;},true);
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; const b = $('#installBtn'); if (b) b.hidden = false; });
+// Look for a new version every time Spot+ comes back to the screen.
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)navigator.serviceWorker?.getRegistration().then(r=>r?.update()).catch(()=>{});});
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'}).catch((e) => console.warn('SW failed', e));
 /* ---------------- Notifications ---------------- */
 let hadController=!!navigator.serviceWorker?.controller,updateShown=false;

@@ -1,6 +1,10 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.4', date: '2026-11-16', title: 'More songs play, easy updates', items: [
+    'Songs from your Spotify playlists that still couldn’t be found get a second try, using the music catalog’s spelling of the artist (great for local and regional artists).',
+    'New “Check for updates” button in Settings › What’s new. Spot+ also checks for updates every time you open it.',
+  ]},
   {version: '1.9.3', date: '2026-11-16', title: 'Songs with several artists play again', items: [
     'Fixed “No audio server answered” for songs credited to several artists (like “Jala, Buba Corelli”): any of the artists now counts when finding the recording.',
     'Collab titles like “Artist A x Artist B - Song” are no longer mistaken for mashups.',

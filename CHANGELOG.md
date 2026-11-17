@@ -2,6 +2,12 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.4 — More songs play, easy updates
+_2026-11-16_
+
+- Songs from your Spotify playlists that still couldn’t be found get a second try, using the music catalog’s spelling of the artist (great for local and regional artists).
+- New “Check for updates” button in Settings › What’s new. Spot+ also checks for updates every time you open it.
+
 ## 1.9.3 — Songs with several artists play again
 _2026-11-16_
 

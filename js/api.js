@@ -433,6 +433,12 @@ async function resolveUncached(t, { skip = [], signal, cors = false } = {}, _ret
   } catch {
     if(signal?.aborted)throw new DOMException('Playback cancelled','AbortError');
     if(cached&&!cached.manual&&!_retry){setVideoCache(t.id,null);return resolveUncached(t,{skip,signal,cors},true);}
+    // Rescue: songs from Spotify can spell artists differently from YouTube ("Jala, Buba Corelli" vs
+    // "Jala Brat & Buba Corelli"). Look the song up in the catalog and try again with its spelling.
+    if(_retry!=='catalog'){
+      const canonical=await canonicalTrack(t).catch(()=>null);
+      if(canonical)return resolveUncached({...t,title:canonical.title,searchTitle:canonical.searchTitle||canonical.title,artist:canonical.artist,duration:t.duration||canonical.duration},{skip,signal,cors},'catalog');
+    }
     throw new Error('No audio server answered. Try another source in Settings, a 30-second preview, or a local audio file.');
   } finally {clearTimeout(deadline);control.abort();}
 }
@@ -548,6 +554,16 @@ export function prewarm(t){
   const promise=resolveUncached(t,{signal:controller.signal}).then(stream=>{controller.signal.throwIfAborted();remember(streamKey(t,settings,stream.videoId||getVideoCache(t.id)?.id||''),stream);preconnect(stream.url);return stream;}).finally(()=>{if(warmControllers.get(key)===controller){warmups.delete(key);warmControllers.delete(key);}});
   warmups.set(key,promise);promise.catch(()=>{});
   return promise;
+}
+/** The catalog's spelling of a song (same title, sharing an artist name), or null. */
+export async function canonicalTrack(t){
+  const first=String(t.artist||'').split(/\s*(?:,|&|\bfeat\.?|\bft\.?|\sx\s)\s*/i)[0].trim();
+  const fold=s=>String(s||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\([^)]*\)/g,'').replace(/[^\p{L}\p{N}]/gu,'');
+  const words=s=>String(s||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w=>w.length>2);
+  const mine=new Set(words(t.artist));
+  const result=data(await jsonp('/search',{q:`${first} ${t.searchTitle||t.title}`,limit:15})).map(x=>normTrack(x));
+  const hit=result.find(x=>fold(x.title)===fold(t.searchTitle||t.title)&&words(x.artist).some(w=>mine.has(w))&&fold(x.artist)!==fold(t.artist));
+  return hit||null;
 }
 export async function matchCatalogTrack(t){
   const result=data(await jsonp('/search',{q:`${t.artist} ${t.title}`,limit:20})).map(x=>normTrack(x));
