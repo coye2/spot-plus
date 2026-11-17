@@ -5,12 +5,12 @@ import {runInNewContext} from 'node:vm';
 
 const source=await readFile(new URL('../sw.js',import.meta.url),'utf8');
 const base='https://coye2.github.io/spot-plus/';
-function worker({offline=false,staleHelper=false}={}){
+function worker({offline=false,staleHelper=false,cacheWriteError=false}={}){
  const listeners={},network=[];
  const entries=new Map([[base+'index.html',new Response('<html>Spot+ shell</html>',{headers:{'Content-Type':'text/html'}})]]);
  if(staleHelper)entries.set(base+'js/spotplus-spotify.user.js',new Response('<html>Wrong old page</html>',{headers:{'Content-Type':'text/html'}}));
  const key=input=>{const u=new URL(typeof input==='string'?input:input.url,base);u.search='';return u.href;};
- const cache={match:async input=>entries.get(key(input))?.clone(),put:async(input,response)=>entries.set(key(input),response)};
+ const cache={match:async input=>entries.get(key(input))?.clone(),put:async(input,response)=>{if(cacheWriteError)throw new Error('QuotaExceededError');entries.set(key(input),response);}};
  class WorkerRequest extends Request{constructor(input,init){super(typeof input==='object'&&!(input instanceof Request)?input.url:input,init);}}
  runInNewContext(source,{
   self:{location:{href:base+'sw.js',origin:new URL(base).origin},addEventListener:(name,fn)=>listeners[name]=fn},
@@ -19,10 +19,12 @@ function worker({offline=false,staleHelper=false}={}){
    network.push(input);if(offline)throw new Error('Offline');
    const url=typeof input==='string'?input:input.url;
    if(/spotplus-spotify\.(user|meta)\.js/.test(url))return new Response('// ==UserScript==\n// @name Spot+',{headers:{'Content-Type':'application/javascript'}});
+   if(url.includes('/exports/backup.json'))return new Response('personal backup',{headers:{'Content-Type':'application/json'}});
+   if(url.includes('/js/app.js'))return new Response('export const app = true;', {headers:{'Content-Type':'application/javascript'}});
    return new Response('Not found',{status:404});
   }
  });
- return {network,request:async(path,mode='navigate')=>{
+ return {network,cacheKeys:()=>[...entries.keys()],request:async(path,mode='navigate')=>{
   let response;
   listeners.fetch({request:{url:new URL(path,base).href,method:'GET',mode},respondWith:promise=>response=promise});
   assert.ok(response,'The same-origin request should be handled');
@@ -57,4 +59,23 @@ test('missing files and non-app paths keep their real 404, not a misleading shel
   const response=await app.request(path);assert.equal(response.status,404);assert.equal(await response.text(),'Not found');
  }
  assert.equal(app.network.length,3);
+});
+
+// Same-origin is not synonymous with app shell: a successful request may be an
+// export, a user document, or another resource with private query parameters.
+test('unlisted same-origin resources always go to the network and never enter shell cache',async()=>{
+ const app=worker();
+ for(const token of ['one','two']){
+  const response=await app.request('exports/backup.json?token='+token,'cors');
+  assert.equal(response.status,200);assert.equal(await response.text(),'personal backup');
+ }
+ assert.equal(app.network.length,2,'a second request must not reuse the first token’s cache entry');
+ assert.deepEqual(app.cacheKeys(),[base+'index.html']);
+});
+test('a full cache cannot turn a successful shell fetch into an Offline error',async()=>{
+ const app=worker({cacheWriteError:true});
+ const response=await app.request('js/app.js','cors');
+ assert.equal(response.status,200);
+ assert.match(await response.text(),/export const app/);
+ assert.equal(app.network.length,1);
 });
