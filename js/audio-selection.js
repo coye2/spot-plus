@@ -19,7 +19,9 @@ export function rankAudioMatches(items,track) {
     const songPart=String(item.title||'').toLowerCase().split(/\s[-–—]\s/).slice(1).join(' - ')||String(item.title||'').toLowerCase();
     const blend=/\b(mashup|mash up|medley|megamix|bootleg|blend|vs|versus)\b/.test(name)||(/\s(x|×)\s/.test(` ${songPart.split(String(track.artist||'').toLowerCase()).join(' ')} `)&&!/\s(x|×)\s/.test(` ${String(track.title||'').toLowerCase()} `)&&!crew.some(a=>songPart.includes(a)));
     const unwanted=blend||/\b(reaction|tutorial|bass boosted|tiktok version|1 hour|10 hours|full album)\b/.test(name);
-    let core=name.split(/\b(?:official audio|official music video|official video|lyrics?|visuali[sz]er)\b/)[0].trim();
+    // The song part of "Artist(s) - Song" titles; otherwise the whole title.
+    const afterDash=String(item.title||'').split(/\s[-–—]\s/).slice(1).join(' ');
+    let core=(afterDash?baseTitle(afterDash):name).split(/\b(?:official audio|official music video|official video|lyrics?|visuali[sz]er)\b/)[0].trim();
     for(const prefix of [clean(track.artist),who])if(core.startsWith(prefix+' '))core=core.slice(prefix.length+1);
     const ambiguous=title.split(' ').length===1&&core!==title;
     const valid=titleInName&&(exactArtist||artistInTitle)&&!conflicting&&!wrongLength&&!unwanted&&!ambiguous;
