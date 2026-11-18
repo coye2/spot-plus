@@ -587,7 +587,7 @@ async function viewSettings() {
   <section class="box"><h2>Your devices</h2><p class="settings-note">${libsync.syncState()?'Your library syncs with your other devices.':'Keep your likes and playlists the same on your phone and computer. No account.'}</p><button class="btn primary small" data-act="link-devices">${libsync.syncState()?'Link another device':'Link a device'}</button></section>
   <section class="box"><h2>Notifications</h2>${notify.permission()==='unsupported'?'<p class="settings-note">This browser can’t show notifications. On iPhone, add Spot+ to your Home Screen first.</p>':notify.permission()==='granted'?'':`<p class="settings-note">${notify.permission()==='denied'?'Notifications are blocked for Spot+. Allow them in your browser or phone settings.':'Get a heads-up about new music and updates. Never more than two a day, and nothing at night.'}</p>${notify.permission()==='default'?'<button class="btn primary small" data-act="notify-enable">Turn on notifications</button>':''}`}
   ${toggle('notifyReleases','New releases','When an artist you follow drops a song or album.')}${toggle('notifyStats','Weekly recap','Sunday evening: your minutes and most-played artist.')}${toggle('notifyUpdates','App updates','When a new version of Spot+ is ready.')}</section>
-  <section class="box"><h2>Appearance</h2>${themeModeSwitch(s)}<p class="settings-note">Light, dark or automatic, with 19 color themes and custom wallpapers.</p><div class="row-btns"><a class="btn" href="#/themes">Themes</a><a class="btn" href="#/backgrounds">Background</a></div><label class="field"><span>Library and track spacing</span>${sel('density',[['comfortable','Comfortable'],['compact','Compact']])}</label><label class="field"><span>Text size</span>${sel('textSize',[['normal','Default'],['large','Larger']])}</label><label class="field"><span>Motion</span>${sel('motion',[['system','Follow system'],['reduced','Reduced']])}</label></section>
+  <section class="box"><h2>Appearance</h2>${themeModeSwitch(s)}<p class="settings-note">Light, dark, automatic, or clear. Clear keeps your wallpaper visible.</p><div class="row-btns"><a class="btn" href="#/themes">Themes</a><a class="btn" href="#/backgrounds">Background</a></div><label class="field"><span>Library and track spacing</span>${sel('density',[['comfortable','Comfortable'],['compact','Compact']])}</label><label class="field"><span>Text size</span>${sel('textSize',[['normal','Default'],['large','Larger']])}</label><label class="field"><span>Motion</span>${sel('motion',[['system','Follow system'],['reduced','Reduced']])}</label></section>
   <section class="box"><h2>Playback</h2>
     <label class="field"><span>Audio source<small>Automatic tries audio servers first, then the YouTube player or a 30-second preview.</small></span>${sel('source', [['auto', 'Automatic'], ['youtube', 'YouTube player'], ['piped', 'Piped'], ['invidious', 'Invidious'],['audius','Audius public releases'],['preview','Deezer previews (30 sec)']])}</label>
     <label class="field"><span>Streaming quality</span>${sel('quality', [['high', 'High'], ['low', 'Data saver']])}</label>
@@ -661,7 +661,7 @@ const routes = [
   [/^#\/spotify-account\/playlist\/([a-zA-Z0-9]{22})$/, viewSpotifyAccountList],
   [/^#\/spotify\/(playlist|album|artist|track)\/([a-zA-Z0-9]{22})$/, viewSpotifyCollection],
   [/^#\/themes$/, viewThemes],
-  [/^#\/backgrounds(?:\/([A-Za-z]+))?$/, viewBackgrounds],
+  [/^#\/backgrounds(?:\/([A-Za-z0-9-]+))?$/, viewBackgrounds],
   [/^#\/linked\/([A-Za-z0-9]{22})$/, viewLinked],
   [/^#\/jam$/, viewJam],
   [/^#\/jam\/([A-Za-z0-9]{6})$/, joinJamFromLink],
@@ -1741,7 +1741,7 @@ function themeSettings(s){const p=themes.palette(s);return {themePreset:s.themeP
 function downloadJson(data,name){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000);}
 function themeModeSwitch(s){
   const mode=themes.MODES.includes(s.themeMode)?s.themeMode:(themes.presets.find(t=>t.id===s.themePreset)?.mode||'dark');
-  return `<div class="mode-switch" role="group" aria-label="Appearance">${[['light','Light'],['dark','Dark'],['system','Auto']].map(([value,label])=>`<button data-act="theme-mode" data-mode="${value}" aria-pressed="${mode===value}">${label}</button>`).join('')}</div>`;
+  return `<div class="mode-switch" role="group" aria-label="Appearance">${[['light','Light'],['dark','Dark'],['system','Auto'],['clear','Clear']].map(([value,label])=>`<button data-act="theme-mode" data-mode="${value}" aria-pressed="${mode===value}">${label}</button>`).join('')}</div>`;
 }
 function themePresetGroups(s,p){
   const groups=[['Signature',t=>!t.material],['Material',t=>t.material&&!t.mode],['Light',t=>t.mode==='light']];

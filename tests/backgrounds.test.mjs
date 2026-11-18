@@ -7,8 +7,9 @@ const phone = {width: 390, height: 844, dpr: 3};
 const desktop = {width: 1920, height: 1080, dpr: 2};
 
 test('Alpha Coders catalog is 4K-class and every image URL is direct', () => {
-  assert.ok(CATALOG.length >= 30);
-  assert.ok(CATEGORIES.includes('Nature') && CATEGORIES.includes('Abstract'));
+  assert.ok(CATALOG.length >= 2000);
+  const names = CATEGORIES.map(item => typeof item === 'string' ? item : item.name);
+  assert.ok(names.includes('Nature') && names.includes('Abstract'));
   for (const item of CATALOG) {
     assert.ok(item.w >= 1920 && item.h >= 1080, item.name);
     const urls = wallpaperURLs(item);

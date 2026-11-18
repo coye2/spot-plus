@@ -277,23 +277,53 @@ function rows(items, scene, kind, esc) {
   }).join('');
 }
 
+const htmlEscape = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+
+function categories() {
+  return CATEGORIES.map(item => typeof item === 'string' ? {slug: item.toLowerCase().replace(/\s+/g, '-'), name: item} : item);
+}
+
+/** All shows a few from each category. A chosen category or a search shows that set. */
+export function wallpaperGroups({category = '', query = ''} = {}) {
+  const cats = categories();
+  const active = cats.find(item => item.slug === category || item.name === category) || null;
+  const q = String(query || '').trim().toLowerCase();
+  let items = active ? CATALOG.filter(item => item.category === active.name) : CATALOG;
+  if (q) items = items.filter(item => `${item.name} ${item.category}`.toLowerCase().includes(q));
+  else if (!active) {
+    const seen = new Map();
+    items = items.filter(item => {
+      const count = seen.get(item.category) || 0;
+      if (count >= 3) return false;
+      seen.set(item.category, count + 1);
+      return true;
+    });
+  }
+  const names = [];
+  const buckets = new Map();
+  for (const item of items) {
+    if (!buckets.has(item.category)) { buckets.set(item.category, []); names.push(item.category); }
+    buckets.get(item.category).push(item);
+  }
+  return {active, groups: names.map(name => [name, buckets.get(name)]), count: items.length};
+}
+
 export function page({category = '', settings = {}, uploads: saved = [], viewport = readViewport(), esc = String} = {}) {
   const scene = normalizeScene(settings.scene);
-  const active = category && CATEGORIES.includes(category) ? category : '';
-  const list = active ? CATALOG.filter(item => item.category === active) : CATALOG;
-  const groups = active ? [[active, list]] : CATEGORIES.map(name => [name, list.filter(item => item.category === name)]);
+  const {active, groups} = wallpaperGroups({category});
+  const cats = categories();
   const picked = scene?.kind === 'catalog' ? findWallpaper(scene.id) : saved.find(item => item.id === scene?.id);
   const tier = deviceTier(viewport);
   const pixels = targetPixels(viewport);
   const frame = viewport.width >= 900 ? 'wide' : 'tall';
-  const chips = [['', 'All'], ...CATEGORIES.map(name => [name, name])].map(([id, label]) => {
-    const on = (id || '') === active;
-    return `<a class="chip${on ? ' on' : ''}" href="#/backgrounds${id ? '/' + id : ''}" aria-pressed="${on}">${esc(label)}</a>`;
+  const chips = [{slug: '', name: 'All'}, ...cats].map(({slug, name}) => {
+    const on = (slug || '') === (active?.slug || '');
+    return `<a class="chip${on ? ' on' : ''}" href="#/backgrounds${slug ? '/' + slug : ''}" aria-pressed="${on}">${esc(name)}</a>`;
   }).join('');
   const preview = stageURL(settings.scene, viewport);
-  const body = groups.map(([name, items]) => items.length ? `<tbody><tr class="bg-group"><th colspan="5">${esc(name)}</th></tr>${rows(items, scene, 'catalog', esc)}</tbody>` : '').join('');
+  const body = tableBody(groups, scene, esc);
   const mine = saved.length ? `<tbody><tr class="bg-group"><th colspan="5">On this device</th></tr>${rows(saved, scene, 'upload', esc)}</tbody>` : '';
-  return `<div class="bg-studio">
+  return `<div class="bg-studio" data-category="${esc(active?.slug || '')}" data-scene-kind="${esc(scene?.kind || '')}" data-scene-id="${esc(scene?.id || '')}">
     <div class="studio-heading"><div><div class="kicker">Appearance</div><h1>Background</h1><p class="muted">Covers the app and your library. The player stays on its own color. Drag the preview to crop. This ${esc(viewport.width >= 900 ? 'screen' : 'phone')} uses a ${tier === '4k' ? '4K' : '1920'} source, painted at ${pixels.width}×${pixels.height}.</p></div>
     <div class="row-btns"><button class="btn" type="button" data-act="bg-upload">Upload</button><button class="btn" type="button" data-act="bg-clear">None</button></div></div>
     <div class="bg-layout ${frame}">
@@ -303,8 +333,9 @@ export function page({category = '', settings = {}, uploads: saved = [], viewpor
       </button>
       <p class="bg-note">${picked ? esc(picked.name) : 'No background'} · ${tier === '4k' ? '4K file, cropped to this device' : '1920 file, cropped to this phone'} · Alpha Coders and your uploads</p>
     </div>
+    <label class="bg-search"><input id="bgSearch" type="search" placeholder="Search wallpapers" aria-label="Search wallpapers" enterkeyhint="search" autocomplete="off"></label>
     <div class="chips bg-filters">${chips}</div>
-    <div class="bg-table-wrap">
+    <div class="bg-table-wrap" id="bgList">
       <table class="bg-table">
         <thead><tr><th>Preview</th><th>Name</th><th class="bg-col-res">Resolution</th><th class="bg-col-source">Source</th><th></th></tr></thead>
         ${body}${mine}
@@ -313,7 +344,49 @@ export function page({category = '', settings = {}, uploads: saved = [], viewpor
   </div>`;
 }
 
+export function fitWallpaperList(root = document) {
+  const wrap = root.querySelector?.('#bgList') || root.querySelector?.('.bg-table-wrap');
+  if (!wrap || !wrap.getBoundingClientRect) return 0;
+  const main = document.querySelector('main');
+  if (main) main.scrollTop = 0;
+  let limit = globalThis.innerHeight || 800;
+  const nav = document.querySelector('.nav');
+  const bar = document.querySelector('.bar');
+  if (nav && getComputedStyle(nav).display !== 'none') limit = Math.min(limit, nav.getBoundingClientRect().top);
+  if (bar && !bar.hidden && getComputedStyle(bar).display !== 'none') {
+    const top = bar.getBoundingClientRect().top;
+    if (top > 100) limit = Math.min(limit, top);
+  }
+  const studio = wrap.closest('.bg-studio');
+  const room = studio ? studio.getBoundingClientRect().bottom : limit;
+  const height = Math.max(160, Math.floor(Math.min(limit, room) - wrap.getBoundingClientRect().top - 8));
+  wrap.style.height = height + 'px';
+  wrap.style.maxHeight = height + 'px';
+  return height;
+}
+
+function tableBody(groups, scene, esc) {
+  return groups.map(([name, items]) => items.length ? `<tbody class="bg-catalog-body"><tr class="bg-group"><th colspan="5">${esc(name)}</th></tr>${rows(items, scene, 'catalog', esc)}</tbody>` : '').join('');
+}
+
 export function mount(root, hooks) {
+  const search = root.querySelector('#bgSearch');
+  if (search && !search.dataset.bound) {
+    search.dataset.bound = '1';
+    search.addEventListener('input', () => {
+      const studio = root.querySelector('.bg-studio') || root;
+      const scene = {kind: studio.dataset.sceneKind, id: studio.dataset.sceneId};
+      const {groups} = wallpaperGroups({category: studio.dataset.category || '', query: search.value});
+      root.querySelectorAll('.bg-catalog-body').forEach(node => node.remove());
+      root.querySelector('.bg-table')?.insertAdjacentHTML('beforeend', tableBody(groups, scene, htmlEscape));
+    });
+  }
+  fitWallpaperList(root);
+  requestAnimationFrame(() => fitWallpaperList(root));
+  if (!root.dataset.fit) {
+    root.dataset.fit = '1';
+    globalThis.addEventListener?.('resize', () => { if (document.body?.dataset.page === 'backgrounds') fitWallpaperList(root); });
+  }
   const stage = root.querySelector('#bgStage');
   if (!stage || stage.dataset.bound) return;
   stage.dataset.bound = '1';
