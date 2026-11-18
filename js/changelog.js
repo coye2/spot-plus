@@ -1,6 +1,11 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.8', date: '2026-11-18', title: 'InstantPlay audio bridge — songs play again', items: [
+    'Fixed “No audio server answered”: Spot+ now resolves audio through its own InstantPlay bridge instead of depending on public Invidious/Piped mirrors that are down or blocked.',
+    'Song starts stay InstantPlay-fast: match the recording, then get a direct audio link from the bridge in one step (AAC on iPhone).',
+    'Dead or blocked mirrors are skipped for longer so retries don’t waste time on servers that keep answering 403.',
+  ]},
   {version: '1.9.7', date: '2026-11-18', title: 'InstantPlay: Spotify-speed starts and skips', items: [
     'Songs start and skip faster: the next two tracks are found while you listen, and the next song’s audio is buffered as soon as the current one has enough headroom.',
     'Skipping stays instant after a short pause — Spot+ keeps the prepared next track ready instead of throwing it away.',

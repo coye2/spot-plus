@@ -2,6 +2,13 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.8 — InstantPlay audio bridge — songs play again
+_2026-11-18_
+
+- Fixed “No audio server answered”: Spot+ now resolves audio through its own InstantPlay bridge instead of depending on public Invidious/Piped mirrors that are down or blocked.
+- Song starts stay InstantPlay-fast: match the recording, then get a direct audio link from the bridge in one step (AAC on iPhone).
+- Dead or blocked mirrors are skipped for longer so retries don’t waste time on servers that keep answering 403.
+
 ## 1.9.7 — InstantPlay: Spotify-speed starts and skips
 _2026-11-18_
 
