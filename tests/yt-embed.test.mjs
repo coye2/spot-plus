@@ -75,7 +75,7 @@ const api = await import('../js/api.js');
 const player = await import('../js/player.js');
 const { YouTubeEmbedPlayer } = await import('../js/yt-embed.js');
 
-test('auto mode never uses youtube-embed and falls back to preview when servers fail; youtube mode uses youtube-embed', async () => {
+test('auto mode uses the full YouTube player before a preview when servers fail; youtube mode uses youtube-embed', async () => {
   localStorage.clear();
   localStorage.setItem('spotplus.settings', JSON.stringify({ source: 'auto' }));
   const prevFetch = globalThis.fetch;
@@ -113,8 +113,13 @@ test('auto mode never uses youtube-embed and falls back to preview when servers 
       { id: 'yt-fb-1', title: 'Blinding Lights', artist: 'The Weeknd', duration: 200 },
       { allowEmbed: true }
     );
-    assert.notEqual(autoRes.kind, 'youtube-embed');
-    assert.equal(autoRes.kind, 'preview');
+    assert.equal(autoRes.kind, 'youtube-embed');
+    // Without the interactive player (downloads, effects), Auto still falls back to the preview.
+    const noEmbed = await api.resolve(
+      { id: 'yt-fb-1b', title: 'Blinding Lights', artist: 'The Weeknd', duration: 200 },
+      { allowEmbed: false }
+    );
+    assert.equal(noEmbed.kind, 'preview');
 
     // Explicit youtube source uses youtube-embed, while download / cors never receives embed
     localStorage.setItem('spotplus.settings', JSON.stringify({ source: 'youtube' }));

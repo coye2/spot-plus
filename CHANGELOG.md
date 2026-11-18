@@ -2,6 +2,14 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.23 — Full songs instead of 30-second previews
+_2026-11-18_
+
+- Automatic playback no longer falls back to a 30-second preview when the free audio servers are busy. If none of them answers within about 2.5 seconds, the full song plays through YouTube’s official player.
+- When the servers have been failing, the next songs go straight to YouTube’s player, so they start almost at once. Spot+ tries the lossless servers again after 10 minutes.
+- Audius is no longer part of Automatic. It often returned fan uploads instead of the real song. You can still pick it in Playback settings.
+- Previews are now the last resort. They only play when effects are on or no full recording can be found.
+
 ## 1.9.22 — The wallpaper list takes the swipe
 _2026-11-18_
 

@@ -1,6 +1,12 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.23', date: '2026-11-18', title: 'Full songs instead of 30-second previews', items: [
+    'Automatic playback no longer falls back to a 30-second preview when the free audio servers are busy. If none of them answers within about 2.5 seconds, the full song plays through YouTube’s official player.',
+    'When the servers have been failing, the next songs go straight to YouTube’s player, so they start almost at once. Spot+ tries the lossless servers again after 10 minutes.',
+    'Audius is no longer part of Automatic. It often returned fan uploads instead of the real song. You can still pick it in Playback settings.',
+    'Previews are now the last resort. They only play when effects are on or no full recording can be found.',
+  ]},
   {version: '1.9.22', date: '2026-11-18', title: 'The wallpaper list takes the swipe', items: [
     'On Background, a finger on the wallpaper database moves that list. The rest of the page stays still, including while you search.',
   ]},

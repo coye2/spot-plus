@@ -693,7 +693,8 @@ async function load(opts = {}) {
     } else {
       if (objUrl) { URL.revokeObjectURL(objUrl); objUrl = null; }
       telemetry.markStage(my, 'resolveStart');
-      const allowEmbed = store.getSettings().source === 'youtube';
+      // Auto may fall back to YouTube's official player (full songs) before a 30-second preview.
+      const allowEmbed = ['youtube', 'auto'].includes(store.getSettings().source) && !effectsOn();
       const r = opts.sourceOverride || await api.resolve(t, { skip: skipList, signal: controller.signal, cors: effectsOn(), allowEmbed });
       if (my !== token) return;
       if (r.kind === 'youtube-embed' && !allowEmbed) {

@@ -317,6 +317,9 @@ export const MATCH_ENDPOINT = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/m
 export const STREAM_ENDPOINT = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/stream';
 let matchDown = 0;
 let streamDown = 0;
+// When every direct server failed recently, Auto goes straight to YouTube's player (instant start).
+let directDown = 0;
+export const EMBED_AFTER_MS = 2500;
 async function bridgeMatches(t, signal) {
   if (matchDown > Date.now()) throw new Error('Match lookup paused');
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 3500);
@@ -682,7 +685,7 @@ function kinds(s = getSettings().source) {
   if (s === 'invidious') return ['invidious'];
   if (s === 'audius') return ['audius'];
   if (s === 'youtube') return ['youtube'];
-  return ['monochrome', 'jiosaavn', 'hifi', 'invidious', 'piped', 'audius'];
+  return ['monochrome', 'jiosaavn', 'hifi', 'invidious', 'piped'];
 }
 
 export async function previewStream(t) {
@@ -813,7 +816,7 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
     for (let i = 0; i < perKind; i++) for (const group of streamGroups) if (group[i] && !skip.includes(group[i].base)) sources.push(group[i]);
     if (activeKinds.includes('audius') && !skip.includes('https://api.audius.co')) sources.push({ kind: 'audius', base: 'https://api.audius.co' });
 
-    const result = await raceAudioSources(sources, async ({ kind, base }) => {
+    const directRace = raceAudioSources(sources, async ({ kind, base }) => {
       raceSignal.throwIfAborted();
       const began = performance.now();
       try {
@@ -836,6 +839,28 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
         throw error;
       }
     }, { signal: raceSignal, quality: set.quality, concurrency: 8, qualityWait: 180 });
+    // Auto: full song through YouTube's official player if no direct server answers quickly.
+    let embedTimer = 0;
+    const embedFallback = isAuto && allowEmbed && !cors && shared !== undefined ? new Promise((resolve, reject) => {
+      const wait = directDown > Date.now() ? 0 : EMBED_AFTER_MS;
+      let fired = false;
+      const fire = async () => {
+        if (fired) return; fired = true; clearTimeout(embedTimer);
+        try {
+          const matches = sharedMatches?.length ? sharedMatches : await (shared || Promise.reject(new Error('no lookup')));
+          const embed = youtubeEmbedStream(matches, t);
+          embed ? resolve(embed) : reject(new Error('no embed'));
+        } catch (e) { reject(e); }
+      };
+      embedTimer = setTimeout(fire, wait);
+      // Every direct server already failed: start YouTube's player now instead of waiting.
+      directRace.catch(() => { directDown = Date.now() + 10 * 60e3; fire(); });
+    }) : null;
+    directRace.then(() => { directDown = 0; }, () => {});
+    let result;
+    try { result = embedFallback ? await Promise.any([directRace, embedFallback]) : await directRace; }
+    finally { clearTimeout(embedTimer); }
+    if (result.kind === 'youtube-embed') { raceControl.abort(); directRace.catch(() => { directDown = Date.now() + 10 * 60e3; }); }
     async function attemptServer(kind, base) {
       router.claimHalfOpen(base);
       const choices = cached ? [cached] : (await Promise.any([shared, ENGINES[kind].search(base, t, raceSignal, reqMs)].filter(Boolean))).slice(0, 2);
@@ -876,6 +901,12 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
     if (!sharedMatches?.length && _retry !== 'catalog') {
       const canonical = await canonicalTrack(t).catch(() => null);
       if (canonical) return resolveUncached({ ...t, title: canonical.title, searchTitle: canonical.searchTitle || canonical.title, artist: canonical.artist, duration: t.duration || canonical.duration }, { skip, signal, cors, allowEmbed, fullOnly }, 'catalog');
+    }
+    if (isAuto && allowEmbed && !cors) {
+      directDown = Date.now() + 10 * 60e3;
+      const matches = sharedMatches?.length ? sharedMatches : await (shared ? Promise.race([shared, new Promise((_, rej) => setTimeout(() => rej(new Error('slow')), 2500))]).catch(() => null) : null);
+      const embed = youtubeEmbedStream(matches, t);
+      if (embed) return embed;
     }
     if (isAuto && !fullOnly) {
       const rescued = await previewRescue(t);
@@ -1048,10 +1079,10 @@ export function warmConnections(){
 export async function resolve(t,options={}) {
   // Podcasts and audiobooks come with their own direct audio link.
   if(t?.direct){options.signal?.throwIfAborted();return {url:t.direct,mime:t.mime||'audio/mpeg',bitrate:128000,kind:'direct',instance:host(t.direct),cacheLayer:'direct'};}
-  const settings=getSettings(),allowEmbed=!!(options.allowEmbed&&settings.source==='youtube'),key=streamKey(t,settings);
+  const settings=getSettings(),allowEmbed=!!(options.allowEmbed&&['youtube','auto'].includes(settings.source)),key=streamKey(t,settings);
   let hit=!options.skip?.length&&cachedStream(key);
   // A saved 30-second clip must not block a new search for the full song.
-  if(hit?.preview && settings.source==='auto') hit=null;
+  if((hit?.preview||hit?.kind==='youtube-embed') && settings.source==='auto' && directDown<=Date.now()) hit=null;
   if(hit&&(!options.fullOnly||(!hit.preview&&hit.kind!=='youtube-embed'))&&(allowEmbed||hit.kind!=='youtube-embed')&&(!options.cors||(hit.kind!=='youtube-embed'&&await corsOK(hit.url)))){options.signal?.throwIfAborted();return {...hit,cacheLayer:'memory'};}
   if(options.skip?.length)forget(key);
   const warm=warmups.get(key);
