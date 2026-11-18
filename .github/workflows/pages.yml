@@ -59,7 +59,7 @@ jobs:
           RELEASE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          files=(index.html js/changelog.js sw.js css/app.css js/backgrounds.js js/app.js js/profile-photo.js js/api.js js/player.js)
+          files=(index.html js/changelog.js sw.js css/app.css css/backgrounds.css js/backgrounds.js js/app.js js/profile-photo.js js/api.js js/player.js)
           for file in "${files[@]}"; do
             safe="${file//\//_}"
             ok=0
