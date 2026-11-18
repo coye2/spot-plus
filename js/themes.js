@@ -22,7 +22,7 @@ export const presets=[
  {id:'snow',name:'Snow',note:'Light · cool',seed:'#4f6f8f',material:true,mode:'light'},
  {id:'blossom',name:'Blossom',note:'Light · pink',seed:'#b04a7a',material:true,mode:'light'},
 ];
-export const MODES=['dark','light','system'];
+export const MODES=['dark','light','system','clear'];
 export const validHex=x=>typeof x==='string'&&/^#[0-9a-f]{6}$/i.test(x);
 const rgb=hex=>hex.slice(1).match(/../g).map(x=>parseInt(x,16));
 export function mix(a,b,n){const x=rgb(a),y=rgb(b);return '#'+x.map((v,i)=>Math.round(v+(y[i]-v)*n).toString(16).padStart(2,'0')).join('');}
@@ -36,6 +36,8 @@ const systemLight=()=>typeof matchMedia==='function'&&matchMedia('(prefers-color
 export function themeMode(settings={}){
   const chosen=presets.find(x=>x.id===settings.themePreset);
   const mode=MODES.includes(settings.themeMode)?settings.themeMode:chosen?.mode||'dark';
+  // Clear keeps dark text colors and paints the chrome transparent over the wallpaper.
+  if(mode==='clear')return 'dark';
   return mode==='system'?(systemLight()?'light':'dark'):mode;
 }
 function readable(color,background,target=4.5,towards){for(let i=0;i<40&&contrast(color,background)<target;i++)color=mix(color,towards,.1);return color;}
@@ -68,10 +70,12 @@ export function applyTheme(settings){
   const p=palette(settings),root=document.documentElement;
   for(const [key,value]of Object.entries({'--canvas':p.canvas,'--bg':p.canvas,'--bg2':p.surface,'--bg3':p.raised,'--accent':p.accent,'--accent2':p.accent,'--accent-text':p.accentText,'--accent-ink':p.ink,'--line':p.line,'--hover':p.hover,'--text':p.text,'--muted':p.muted,'--contrast':p.contrastBg,'--on-contrast':p.contrastInk,'--radius':p.radius+'px'}))root.style.setProperty(key,value);
   document.body.dataset.cover=settings.coverStyle||'square';document.body.dataset.theme=p.id;document.body.dataset.mode=p.mode;
+  const chrome=settings.themeMode==='clear'?'clear':'solid';
+  document.body.dataset.chrome=chrome;root.dataset.chrome=chrome;
   root.style.colorScheme=p.mode;root.dataset.mode=p.mode;
   root.style.setProperty('--chrome-color',p.canvas);
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content',p.canvas);
-  try{localStorage.setItem('spotplus.chrome',JSON.stringify({mode:p.mode,canvas:p.canvas}));}catch{ /* Private mode. */ }
+  try{localStorage.setItem('spotplus.chrome',JSON.stringify({mode:p.mode,canvas:p.canvas,chrome}));}catch{ /* Private mode. */ }
   return p;
 }
 if(typeof matchMedia==='function')matchMedia('(prefers-color-scheme: light)').addEventListener?.('change',()=>{if(lastSettings?.themeMode==='system')applyTheme(lastSettings);});

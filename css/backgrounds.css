@@ -1,4 +1,4 @@
-/* Sharp wallpaper behind the app and library. The player and play bar stay opaque. */
+/* Wallpaper behind the app and library. The full player stays on its own paint. */
 .scene-bg{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;background:#000}
 .scene-bg img{width:100%;height:100%;object-fit:cover;object-position:var(--scene-x,50%) var(--scene-y,42%);transform:translateZ(0)}
 body[data-scene="on"],
@@ -7,60 +7,138 @@ body[data-scene="on"].has-panel .app{background:transparent}
 body[data-scene="on"] main,
 body[data-scene="on"].has-bar main,
 body[data-scene="on"] .sidebar{
-  background:color-mix(in srgb, var(--bg2) 34%, transparent);
-  backdrop-filter:none;
-  -webkit-backdrop-filter:none;
+  background:color-mix(in srgb, var(--bg2) 18%, transparent);
 }
-body[data-scene="on"] .view-toolbar,
+body[data-scene="on"] .view-toolbar{
+  background:linear-gradient(to bottom, color-mix(in srgb, var(--bg2) 55%, transparent), transparent);
+}
 body[data-scene="on"] .mobile-top,
-body[data-scene="on"] .topbar{background:color-mix(in srgb, var(--bg2) 40%, transparent);backdrop-filter:none;-webkit-backdrop-filter:none}
+body[data-scene="on"] .topbar{background:transparent}
+body[data-scene="on"] .list-tools input,
+body[data-scene="on"] .searchbox{
+  background:color-mix(in srgb, #000 42%, transparent);
+  border:1px solid color-mix(in srgb, #fff 16%, transparent);
+}
+body[data-scene="on"] .lib-list-header h1,
+body[data-scene="on"] .library-item b,
+body[data-scene="on"] .library-item small{
+  text-shadow:0 1px 8px rgba(0,0,0,.62);
+}
 body[data-scene="on"] .bar,
-body[data-scene="on"] .nav{background:var(--bg2);backdrop-filter:none}
+body[data-scene="on"] .nav{background:var(--bg2)}
 .app{position:relative;z-index:1}
 
-.bg-studio{padding-top:4px}
-.bg-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin:4px 0 14px}
-.bg-head h1{margin:0;font-size:32px;letter-spacing:-.6px}
-.bg-head p{margin:4px 0 0;color:var(--muted);font-size:14px}
-.bg-actions{display:flex;gap:8px;flex:none}
-.bg-actions .btn{min-height:40px;padding:0 16px}
-.bg-layout{display:grid;gap:8px;margin:0 0 16px}
-.bg-stage{position:relative;display:block;width:min(100%,640px);overflow:hidden;border:0;border-radius:16px;background:#111;color:#fff;cursor:grab;touch-action:none;aspect-ratio:9/16;max-height:240px;padding:0}
-.bg-layout.wide .bg-stage{aspect-ratio:16/9;max-height:220px}
+/* Clear: the panels drop out so the wallpaper is the app. */
+html[data-chrome="clear"] body main,
+html[data-chrome="clear"] body.has-bar main,
+html[data-chrome="clear"] body .sidebar,
+html[data-chrome="clear"] body .topbar,
+html[data-chrome="clear"] body .mobile-top,
+html[data-chrome="clear"] body .view-toolbar,
+html[data-chrome="clear"] body .app,
+html[data-chrome="clear"] body.has-panel .app{background:transparent}
+html[data-chrome="clear"] body[data-scene="on"] .nav{
+  background:color-mix(in srgb, #000 22%, transparent);
+  border-top-color:color-mix(in srgb, #fff 14%, transparent);
+}
+html[data-chrome="clear"] body[data-scene="on"] .bar{
+  background:color-mix(in srgb, #000 26%, transparent);
+  border-color:color-mix(in srgb, #fff 18%, transparent);
+  box-shadow:none;
+}
+html[data-chrome="clear"] body .chip:not(.on),
+html[data-chrome="clear"] body .list-tools input,
+html[data-chrome="clear"] body .searchbox,
+html[data-chrome="clear"] body .box,
+html[data-chrome="clear"] body .quick-item,
+html[data-chrome="clear"] body .bg-search input{
+  background:color-mix(in srgb, #000 28%, transparent);
+  border:1px solid color-mix(in srgb, #fff 16%, transparent);
+}
+html[data-chrome="clear"] body[data-scene="on"] h1,
+html[data-chrome="clear"] body[data-scene="on"] .library-item b,
+html[data-chrome="clear"] body[data-scene="on"] .library-item small,
+html[data-chrome="clear"] body[data-scene="on"] .bar-title,
+html[data-chrome="clear"] body[data-scene="on"] .mobile-top span{
+  text-shadow:0 1px 10px rgba(0,0,0,.72);
+}
+html[data-chrome="clear"] body .np{background:var(--song-surface, var(--bg2))}
+
+/* The wallpaper screen owns one scroll. The rest of the app stays still. */
+body[data-page="backgrounds"] main,
+body[data-page="backgrounds"].has-bar main{
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+}
+body[data-page="backgrounds"] #view{
+  flex:1 1 auto;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+body[data-page="backgrounds"] .content-footer{display:none}
+.bg-studio{
+  flex:1 1 auto;
+  min-height:0;
+  overflow-x:hidden;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+  padding-top:4px;
+}
+.bg-head{display:grid;grid-template-columns:92px minmax(0,1fr);gap:14px;align-items:center;margin:4px 0 12px}
+.bg-head h1{margin:0;font-size:28px;letter-spacing:-.5px;line-height:1.05}
+.bg-head-copy{min-width:0}
+.bg-note{margin:4px 0 10px;font-size:13px;font-weight:600;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bg-actions{display:flex;gap:8px}
+.bg-actions .btn{flex:1;min-height:40px;padding:0 12px}
+.bg-stage{
+  position:relative;display:block;width:92px;height:148px;overflow:hidden;border:0;border-radius:16px;
+  background:#111;color:#fff;cursor:grab;touch-action:none;padding:0;
+}
 .bg-stage img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:var(--scene-x,50%) var(--scene-y,42%);background:#000}
-.bg-stage-empty{position:absolute;inset:0;display:grid;place-items:center;color:#d0d0d0;font-size:14px}
-.bg-note{margin:0;font-size:14px;font-weight:600}
-.bg-search{display:block;margin:0 0 12px}
-.bg-search input{width:min(100%,420px);height:42px;border-radius:999px;border:1px solid var(--line);background:color-mix(in srgb, var(--bg2) 88%, transparent);color:var(--text);padding:0 16px;font:inherit}
-.bg-filters{display:flex;gap:8px;overflow-x:auto;padding:0 0 8px;margin:0 0 8px;scrollbar-width:none}
+.bg-stage-empty{position:absolute;inset:0;display:grid;place-items:center;padding:8px;color:#d0d0d0;font-size:12px;text-align:center}
+.bg-tools{padding:2px 0 8px}
+.bg-tools .mode-switch{width:100%;margin:0 0 10px}
+.bg-search{display:block;margin:0 0 10px}
+.bg-search input{
+  width:100%;height:42px;border-radius:999px;border:1px solid var(--line);
+  background:color-mix(in srgb, var(--bg2) 88%, transparent);color:var(--text);padding:0 16px;font:inherit;
+}
+.bg-filters{
+  display:flex;gap:8px;overflow-x:auto;padding:0 0 8px;margin:0;
+  scrollbar-width:none;touch-action:pan-x;overscroll-behavior-x:contain;
+}
 .bg-filters::-webkit-scrollbar{display:none}
-.bg-filters .chip{flex:none;display:inline-flex;align-items:center;height:34px;padding:0 14px;border-radius:999px;background:var(--bg3);color:var(--text);text-decoration:none;font-size:14px;white-space:nowrap}
+.bg-filters .chip{
+  flex:none;display:inline-flex;align-items:center;height:34px;padding:0 14px;border-radius:999px;
+  background:var(--bg3);color:var(--text);text-decoration:none;font-size:14px;white-space:nowrap;
+}
 .bg-filters .chip.on{background:var(--text);color:var(--canvas)}
-.bg-count{margin:0 0 10px;color:var(--muted);font-size:13px}
-.bg-table-wrap{border:1px solid var(--line);border-radius:16px;overflow:auto;background:color-mix(in srgb, var(--bg2) 92%, transparent);max-height:min(68vh,760px)}
-.bg-table{width:100%;border-collapse:collapse;font-size:14px}
-.bg-table th,.bg-table td{padding:8px 12px;text-align:left;vertical-align:middle}
-.bg-table thead th{position:sticky;top:0;z-index:1;font-size:12px;font-weight:600;color:var(--muted);background:color-mix(in srgb, var(--bg2) 96%, transparent)}
-.bg-table tbody td{border-top:1px solid color-mix(in srgb, var(--line) 80%, transparent)}
-.bg-group th{padding:16px 12px 6px;font-size:13px;color:var(--muted);font-weight:650;background:transparent}
-.bg-table tr[data-act]{cursor:pointer}
-.bg-table tr.is-on td{background:color-mix(in srgb, var(--accent) 16%, transparent)}
-.bg-col-name{display:flex;flex-direction:column;gap:2px;min-width:0}
-.bg-col-name b{font-weight:600}
-.bg-col-name small,.bg-on{color:var(--muted);font-size:12px}
-.bg-on{color:var(--accent);font-weight:650}
-.bg-thumb{width:112px;height:63px;object-fit:cover;border-radius:8px;background:#111;display:block}
+.bg-count{margin:0 0 8px;color:var(--muted);font-size:13px}
+.bg-list{padding-bottom:8px}
+.bg-group h2,.bg-list #bgMine h2{margin:14px 0 8px;font-size:13px;font-weight:650;color:var(--muted)}
+.bg-row{
+  display:flex;align-items:center;gap:12px;width:100%;min-height:72px;margin:0 0 8px;padding:8px 10px;
+  border:0;border-radius:14px;background:color-mix(in srgb, #000 48%, transparent);color:var(--text);text-align:left;cursor:pointer;
+}
+.bg-row.is-on{background:color-mix(in srgb, var(--accent) 55%, #000)}
+html[data-chrome="clear"] .bg-row{background:color-mix(in srgb, #000 32%, transparent)}
+.bg-col-name{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.bg-col-name b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bg-col-name small,.bg-on{color:color-mix(in srgb, #fff 78%, transparent);font-size:12px}
+.bg-on{color:#fff;font-weight:650;flex:none}
+.bg-thumb{width:64px;height:64px;object-fit:cover;border-radius:10px;background:#111;display:block;flex:none}
 .bg-thumb-file{display:inline-block;background:linear-gradient(135deg,#243,#132)}
-.bg-remove{min-height:32px;padding:0 12px;border-radius:999px;background:transparent;color:var(--text);border:1px solid var(--line)}
-.bg-empty{padding:18px 12px;color:var(--muted)}
-.bg-col-act{width:1%;white-space:nowrap;text-align:right}
-@media (max-width:767px){
-  .bg-head{align-items:flex-start;flex-direction:column;gap:12px}
-  .bg-head h1{font-size:28px}
-  .bg-actions{width:100%}
-  .bg-actions .btn{flex:1}
-  .bg-col-res{display:none}
-  .bg-thumb{width:72px;height:72px;border-radius:10px}
-  .bg-stage{width:100%}
-  .bg-search input{width:100%}
+.bg-remove{min-height:36px;padding:0 12px;border-radius:999px;background:transparent;color:#fff;border:1px solid color-mix(in srgb, #fff 28%, transparent);flex:none}
+.bg-empty{padding:18px 4px;color:var(--muted)}
+@media (min-width:900px){
+  .bg-head{grid-template-columns:220px minmax(0,1fr);align-items:end}
+  .bg-stage{width:220px;height:124px}
+  .bg-head h1{font-size:32px}
+  .bg-actions{max-width:280px}
+  .bg-actions .btn{flex:0 1 auto}
+  .bg-thumb{width:112px;height:64px}
 }

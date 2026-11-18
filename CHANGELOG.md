@@ -2,6 +2,13 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.14 — Clear theme and a wallpaper list that stays put
+_2026-11-18_
+
+- The wallpaper list is the only thing that scrolls on the background screen. It no longer drags the rest of the app.
+- Clear sits with Light, Dark, and Auto. It makes the app transparent over your wallpaper. The full player stays solid.
+- The background screen keeps a small crop preview, and search and categories stay at the top of the list.
+
 ## 1.9.13 — Sharp backgrounds and a searchable wallpaper library
 _2026-11-18_
 

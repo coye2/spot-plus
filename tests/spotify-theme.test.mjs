@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {zipSync,strToU8} from '../js/vendor/fflate.js';
 import {parseSpotifyLink} from '../js/spotify.js';
 import {readSpotifyArchive,normalizeSpotifyDocuments} from '../js/spotify-import.js';
-import {palette,contrast,presets,normalizeTheme} from '../js/themes.js';
+import {palette,contrast,presets,normalizeTheme,themeMode} from '../js/themes.js';
 const id='1234567890123456789012';
 const saved={tracks:[{track:'Song',artist:'Artist',album:'Album',uri:'spotify:track:'+id}]};
 const playlist={playlists:[{name:'My music',items:[{track:{trackName:'Song',artistName:'Artist',trackUri:'spotify:track:'+id}},{episode:{name:'A podcast'}}]}]};
@@ -30,6 +30,13 @@ test('Every preset and extreme custom colors have readable accent text and butto
     const p=palette(setting);assert.ok(contrast(p.accentText,p.raised)>=4.5);assert.ok(contrast(p.accent,p.ink)>=4.5);
   }
   assert.equal(palette().accent,'#1b5e46');assert.equal(palette().canvas,'#000000');
+});
+test('Clear is a transparent mode that keeps light text on a dark palette',()=>{
+  assert.equal(themeMode({themeMode:'clear'}),'dark');
+  assert.equal(palette({themeMode:'clear'}).mode,'dark');
+  assert.equal(palette({themeMode:'clear'}).text,'#ffffff');
+  const theme=normalizeTheme({app:'spotplus-theme',settings:{themeMode:'clear',themeCustom:{accent:'#1b5e46',surface:'#090e0b',raised:'#15231b'}}});
+  assert.equal(theme.themeMode,'clear');
 });
 test('Theme imports whitelist appearance and reject executable color values',()=>{
   const theme=normalizeTheme({app:'spotplus-theme',settings:{source:'evil',themeCustom:{accent:'#1b5e46',surface:'#090e0b',raised:'#15231b'},cornerRadius:999,coverStyle:'evil'}});

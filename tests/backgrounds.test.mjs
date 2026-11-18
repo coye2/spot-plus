@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {CATALOG, CATEGORIES} from '../js/background-catalog.js';
-import {coverCrop, deviceTier, sourceForDevice, targetPixels, wallpaperURLs, positionOf, normalizeScene, searchWallpapers, categoryFrom} from '../js/backgrounds.js';
+import {coverCrop, deviceTier, sourceForDevice, targetPixels, wallpaperURLs, positionOf, normalizeScene, searchWallpapers, categoryFrom, page} from '../js/backgrounds.js';
 
 const phone = {width: 390, height: 844, dpr: 3};
 const desktop = {width: 1920, height: 1080, dpr: 2};
@@ -58,6 +58,19 @@ test('cover crop stays inside the photo and matches the frame', () => {
   const edge = coverCrop(1000, 1000, 500, 200, {x: 0, y: 1});
   assert.equal(edge.x, 0);
   assert.ok(edge.y + edge.height <= 1000.1);
+});
+
+test('the wallpaper screen is one scroller with Clear in the appearance switch', () => {
+  const html = page({viewport: phone, settings: {themeMode: 'clear'}});
+  assert.match(html, /class="bg-studio"/);
+  assert.match(html, /class="bg-tools"/);
+  assert.match(html, /id="bgSearch"/);
+  assert.match(html, /id="bgStage"/);
+  assert.match(html, /data-mode="clear" aria-pressed="true"/);
+  assert.match(html, /class="bg-row/);
+  assert.match(html, /class="bg-group"/);
+  assert.equal(html.includes('<table'), false);
+  assert.equal(html.includes('overflow'), false);
 });
 
 test('a saved background keeps a clamped crop point', () => {

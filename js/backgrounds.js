@@ -93,6 +93,7 @@ export function stageURL(scene, viewport = readViewport()) {
 
 let uploads = new Map();
 let paints = new Map();
+let thumbs = new Map();
 let applyToken = 0;
 let listening = false;
 let settingsOf = () => ({});
@@ -132,12 +133,23 @@ export async function saveUpload(file) {
   uploads.set(rec.id, rec);
   return rec;
 }
+function uploadThumb(rec) {
+  if (!rec?.blob) return '';
+  const saved = thumbs.get(rec.id);
+  if (saved) return saved;
+  const url = URL.createObjectURL(rec.blob);
+  thumbs.set(rec.id, url);
+  return url;
+}
 export async function removeUpload(id) {
   await idb('readwrite', store => store.delete(id));
   uploads.delete(id);
   const paint = paints.get(id);
   if (paint?.url) URL.revokeObjectURL(paint.url);
   paints.delete(id);
+  const thumb = thumbs.get(id);
+  if (thumb) URL.revokeObjectURL(thumb);
+  thumbs.delete(id);
 }
 
 async function paintUpload(rec, scene, viewport) {
@@ -196,10 +208,6 @@ function clearScene() {
 function syncStudio(scene) {
   const studio = document.querySelector('.bg-studio');
   if (!studio) return;
-  const viewport = readViewport();
-  const layout = studio.querySelector('.bg-layout');
-  layout?.classList.toggle('wide', viewport.width >= 900);
-  layout?.classList.toggle('tall', viewport.width < 900);
   const note = studio.querySelector('.bg-note');
   if (note && scene?.kind === 'catalog') {
     const item = findWallpaper(scene.id);
@@ -208,7 +216,7 @@ function syncStudio(scene) {
   const preview = studio.querySelector('#bgStage img');
   if (preview && scene?.kind === 'catalog') {
     const item = findWallpaper(scene.id);
-    const next = item ? sourceForDevice(item, viewport).url : '';
+    const next = item ? wallpaperURLs(item).preview : '';
     if (next && preview.getAttribute('src') !== next) preview.src = next;
   }
 }
@@ -284,28 +292,26 @@ export function searchWallpapers({category = '', query = '', limit = 80} = {}) {
 function rows(items, scene, kind, esc, showCategory) {
   return items.map(item => {
     const on = scene?.kind === kind && scene.id === item.id;
-    const preview = kind === 'catalog' ? wallpaperURLs(item).preview : '';
-    const res = item.w && item.h ? `${item.w} × ${item.h}` : '';
+    const preview = kind === 'catalog' ? wallpaperURLs(item).preview : uploadThumb(item);
     const remove = kind === 'upload' ? `<button type="button" class="bg-remove" data-act="bg-delete" data-id="${esc(item.id)}">Remove</button>` : (on ? '<span class="bg-on">Selected</span>' : '');
-    return `<tr class="${on ? 'is-on' : ''}" data-act="bg-pick" data-kind="${kind}" data-id="${esc(item.id)}" tabindex="0" aria-pressed="${on}">
-      <td class="bg-col-preview">${preview ? `<img class="bg-thumb" alt="" src="${esc(preview)}" width="112" height="63">` : '<span class="bg-thumb bg-thumb-file"></span>'}</td>
-      <td class="bg-col-name"><b>${esc(item.name)}</b>${showCategory && item.category ? `<small>${esc(item.category)}</small>` : ''}</td>
-      <td class="bg-col-res">${res}</td>
-      <td class="bg-col-act">${remove}</td>
-    </tr>`;
+    return `<div class="bg-row${on ? ' is-on' : ''}" data-act="bg-pick" data-kind="${kind}" data-id="${esc(item.id)}" role="button" tabindex="0" aria-pressed="${on}">
+      ${preview ? `<img class="bg-thumb" alt="" src="${esc(preview)}">` : '<span class="bg-thumb bg-thumb-file"></span>'}
+      <span class="bg-col-name"><b>${esc(item.name)}</b>${showCategory && item.category ? `<small>${esc(item.category)}</small>` : ''}</span>
+      ${remove}
+    </div>`;
   }).join('');
 }
 
 function catalogMarkup(items, scene, esc, {grouped = false, showCategory = false} = {}) {
-  if (!items.length) return '<tbody class="bg-catalog-body"><tr><td class="bg-empty" colspan="4">No matches</td></tr></tbody>';
-  if (!grouped) return `<tbody class="bg-catalog-body">${rows(items, scene, 'catalog', esc, showCategory)}</tbody>`;
+  if (!items.length) return '<div class="bg-catalog-body"><p class="bg-empty">No matches</p></div>';
+  if (!grouped) return `<div class="bg-catalog-body">${rows(items, scene, 'catalog', esc, showCategory)}</div>`;
   const names = [];
   const buckets = new Map();
   for (const item of items) {
     if (!buckets.has(item.category)) { buckets.set(item.category, []); names.push(item.category); }
     buckets.get(item.category).push(item);
   }
-  return names.map(name => `<tbody class="bg-catalog-body"><tr class="bg-group"><th colspan="4">${esc(name)}</th></tr>${rows(buckets.get(name), scene, 'catalog', esc, false)}</tbody>`).join('');
+  return `<div class="bg-catalog-body">${names.map(name => `<section class="bg-group"><h2>${esc(name)}</h2>${rows(buckets.get(name), scene, 'catalog', esc, false)}</section>`).join('')}</div>`;
 }
 
 export function page({category = '', settings = {}, uploads: saved = [], viewport = readViewport(), esc = htmlEscape} = {}) {
@@ -313,34 +319,36 @@ export function page({category = '', settings = {}, uploads: saved = [], viewpor
   const active = categoryFrom(category);
   const items = searchWallpapers({category: active?.slug || '', limit: active ? 120 : 80});
   const picked = scene?.kind === 'catalog' ? findWallpaper(scene.id) : saved.find(item => item.id === scene?.id);
-  const frame = viewport.width >= 900 ? 'wide' : 'tall';
+  const mode = ['light', 'dark', 'system', 'clear'].includes(settings.themeMode) ? settings.themeMode : 'dark';
+  const modes = [['light', 'Light'], ['dark', 'Dark'], ['system', 'Auto'], ['clear', 'Clear']].map(([value, label]) => `<button type="button" data-act="theme-mode" data-mode="${value}" aria-pressed="${mode === value}">${label}</button>`).join('');
   const chips = [{slug: '', name: 'All'}, ...CATEGORIES].map(item => {
     const on = (active?.slug || '') === item.slug;
     return `<a class="chip${on ? ' on' : ''}" href="#/backgrounds${item.slug ? '/' + item.slug : ''}" aria-current="${on ? 'true' : 'false'}">${esc(item.name)}</a>`;
   }).join('');
-  const preview = stageURL(settings.scene, viewport);
+  const stageItem = scene?.kind === 'catalog' ? findWallpaper(scene.id) : null;
+  const stageSrc = stageItem ? wallpaperURLs(stageItem).preview : stageURL(settings.scene, viewport);
   const [px, py] = positionOf(scene).split(' ');
-  const mine = saved.length ? `<tbody id="bgMine"><tr class="bg-group"><th colspan="4">Yours</th></tr>${rows(saved, scene, 'upload', esc, false)}</tbody>` : '<tbody id="bgMine"></tbody>';
+  const mine = saved.length ? `<div id="bgMine"><h2>Yours</h2>${rows(saved, scene, 'upload', esc, false)}</div>` : '<div id="bgMine"></div>';
   return `<div class="bg-studio" data-category="${esc(active?.slug || '')}" data-scene-kind="${esc(scene?.kind || '')}" data-scene-id="${esc(scene?.id || '')}">
     <header class="bg-head">
-      <div><h1>Background</h1><p>App and library</p></div>
-      <div class="bg-actions"><button class="btn" type="button" data-act="bg-upload">Upload</button><button class="btn" type="button" data-act="bg-clear">None</button></div>
-    </header>
-    <div class="bg-layout ${frame}">
       <button type="button" class="bg-stage" id="bgStage" aria-label="Drag to crop" style="--scene-x:${px};--scene-y:${py}">
-        ${preview ? `<img alt="" src="${esc(preview)}">` : '<span class="bg-stage-empty">Choose a wallpaper</span>'}
+        ${stageSrc ? `<img alt="" src="${esc(stageSrc)}">` : '<span class="bg-stage-empty">Pick one</span>'}
       </button>
-      <p class="bg-note">${picked ? esc(picked.name) : 'Drag to crop'}</p>
+      <div class="bg-head-copy">
+        <h1>Background</h1>
+        <p class="bg-note">${picked ? esc(picked.name) : 'App and library'}</p>
+        <div class="bg-actions"><button class="btn" type="button" data-act="bg-upload">Upload</button><button class="btn" type="button" data-act="bg-clear">None</button></div>
+      </div>
+    </header>
+    <div class="bg-tools">
+      <div class="mode-switch" role="group" aria-label="Appearance">${modes}</div>
+      <label class="bg-search"><input id="bgSearch" type="search" placeholder="Search" aria-label="Search wallpapers" enterkeyhint="search" autocomplete="off"></label>
+      <nav class="bg-filters" aria-label="Categories">${chips}</nav>
+      <p class="bg-count">${CATALOG.length.toLocaleString()} wallpapers · ${CATEGORIES.length} categories</p>
     </div>
-    <label class="bg-search"><input id="bgSearch" type="search" placeholder="Search" aria-label="Search wallpapers" enterkeyhint="search" autocomplete="off"></label>
-    <nav class="bg-filters" aria-label="Categories">${chips}</nav>
-    <p class="bg-count">${CATALOG.length.toLocaleString()} wallpapers · ${CATEGORIES.length} categories</p>
-    <div class="bg-table-wrap">
-      <table class="bg-table" id="bgTable">
-        <thead><tr><th></th><th>Name</th><th class="bg-col-res">Size</th><th></th></tr></thead>
-        ${mine}
-        ${catalogMarkup(items, scene, esc, {grouped: !active})}
-      </table>
+    <div class="bg-list" id="bgList">
+      ${mine}
+      ${catalogMarkup(items, scene, esc, {grouped: !active})}
     </div>
   </div>`;
 }
@@ -355,11 +363,18 @@ export function mount(root, hooks) {
       const items = searchWallpapers({category: root.dataset.category || '', query: search.value, limit: 80});
       root.querySelectorAll('.bg-catalog-body').forEach(node => node.remove());
       const query = search.value.trim();
-      root.querySelector('#bgTable')?.insertAdjacentHTML('beforeend', catalogMarkup(items, scene, htmlEscape, {grouped: !query && !root.dataset.category, showCategory: Boolean(query)}));
+      root.querySelector('#bgList')?.insertAdjacentHTML('beforeend', catalogMarkup(items, scene, htmlEscape, {grouped: !query && !root.dataset.category, showCategory: Boolean(query)}));
     });
   }
   if (!stage || stage.dataset.bound) return;
   stage.dataset.bound = '1';
+  root.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const row = event.target.closest?.('.bg-row');
+    if (!row || event.target !== row) return;
+    event.preventDefault();
+    row.click();
+  });
   let drag = false;
   const point = (event) => {
     const box = stage.getBoundingClientRect();

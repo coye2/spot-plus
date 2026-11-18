@@ -1,6 +1,11 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.14', date: '2026-11-18', title: 'Clear theme and a wallpaper list that stays put', items: [
+    'The wallpaper list is the only thing that scrolls on the background screen. It no longer drags the rest of the app.',
+    'Clear sits with Light, Dark, and Auto. It makes the app transparent over your wallpaper. The full player stays solid.',
+    'The background screen keeps a small crop preview, and search and categories stay at the top of the list.',
+  ]},
   {version: '1.9.13', date: '2026-11-18', title: 'Sharp backgrounds and a searchable wallpaper library', items: [
     'Backgrounds stay sharp. The app and library show the photo, without a blur over it. The player keeps its own color.',
     'The wallpaper library is the Alpha Coders category list: search by name, and browse every category.',
