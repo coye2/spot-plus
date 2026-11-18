@@ -39,3 +39,43 @@ jobs:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
+
+  verify-live:
+    name: Verify live GitHub Pages files
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Fetch and compare deployed files against built artifacts
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          files=(index.html js/changelog.js sw.js css/app.css js/backgrounds.js js/app.js js/profile-photo.js js/api.js js/player.js)
+          for file in "${files[@]}"; do
+            safe="${file//\//_}"
+            ok=0
+            for attempt in $(seq 1 30); do
+              if curl --fail --silent --show-error --location --max-time 15 -H "Cache-Control: no-cache" -o "/tmp/${safe}" "https://coye2.github.io/spot-plus/${file}?verify=${RELEASE_SHA}" && cmp -s "dist/${file}" "/tmp/${safe}"; then
+                ok=1
+                break
+              fi
+              sleep 10
+            done
+            if [ "$ok" -ne 1 ]; then
+              echo "::error::Live ${file} does not match deploy for ${RELEASE_SHA}"
+              exit 1
+            fi
+            echo "MATCH ${file} sha256=$(sha256sum "/tmp/${safe}" | cut -d' ' -f1)"
+          done
+          grep -q "1.9.18" /tmp/js_changelog.js
+          grep -q "spotplus-shell-v91" /tmp/sw.js
+          echo "Verified live Spot+ 1.9.18 (commit ${RELEASE_SHA})."
