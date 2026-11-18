@@ -2,11 +2,13 @@
 import * as api from './api.js';
 import * as store from './store.js';
 import { NextAudioBuffer } from './audio-buffer.js';
-import {audioHasHeadroom} from './playback-policy.js';
+import {audioHasHeadroom, mediaWarmHeadroom, KEEP_WARM_AFTER_PAUSE_MS, seamlessHandoffWindow} from './playback-policy.js';
 
 export const AUDIO_CACHE = 'spotplus-audio-v1';
 let audio = new Audio();
 audio.preload = 'auto';
+audio.playsInline = true;
+audio.setAttribute?.('playsinline', '');
 export let el = audio;
 
 const listeners = { state: new Set(), time: new Set(), error: new Set(), 'effects-skipped': new Set() };
@@ -42,7 +44,7 @@ let restorePos = 0;
 let cancelLoad = null;
 let pendingPlay = true;
 const nextBuffer = new NextAudioBuffer();
-let prefetchTimer = 0, warmGeneration = 0, startedAt = 0;
+let prefetchTimer = 0, warmGeneration = 0, startedAt = 0, pauseClearTimer = 0;
 let volumeLevel = 1;
 let stallTimer;
 function clearStall(){clearTimeout(stallTimer);stallTimer=null;}
@@ -63,6 +65,15 @@ function maybeMix() {
   if (!nextBuffer.entry || nextBuffer.entry.key !== api.streamKey(nextTrack) || nextBuffer.entry.media.readyState < 3) return;
   mixing = true; onFinish(current()); state.index++; errRetries = 0;
   load({mixSeconds: Math.max(1, left)}).finally(() => { mixing = false; });
+}
+/** InstantPlay: when AutoMix is off (iOS), swap onto a ready next element just before 'ended'. */
+function maybeSeamless() {
+  if (mixSeconds || mixing || effectsOn() || state.repeat === 'one' || state.index >= state.queue.length - 1) return;
+  const nextTrack = state.queue[state.index + 1];
+  const key = nextTrack && api.streamKey(nextTrack);
+  if (!key || !nextBuffer.isReady(key, 2) || !seamlessHandoffWindow(audio)) return;
+  mixing = true; onFinish(current()); state.index++; errRetries = 0;
+  load().finally(() => { mixing = false; });
 }
 function fade(media, from, to, seconds) {
   return new Promise(resolve => {
@@ -88,13 +99,15 @@ function silentWav() {
 }
 const SILENT = silentWav();
 export function unlockElement(element) {
+  element.playsInline = true;
+  element.setAttribute?.('playsinline', '');
   if(element.src)return;
   element.src=SILENT;
   element.play().then(()=>{if(element.src===SILENT)element.pause();}).catch(()=>{});
 }
 function unlock() {
   unlockElement(nextBuffer.spare);
-  if (!plainSpare) { plainSpare = new Audio(); plainSpare.preload = 'auto'; bindAudio(plainSpare); unlockElement(plainSpare); }
+  if (!plainSpare) { plainSpare = new Audio(); plainSpare.preload = 'auto'; plainSpare.playsInline = true; plainSpare.setAttribute?.('playsinline', ''); bindAudio(plainSpare); unlockElement(plainSpare); }
   if (audio.src) return;
   audio.src = SILENT;
   audio.play().then(() => { if (audio.src === SILENT) audio.pause(); }).catch(() => {});
@@ -128,7 +141,7 @@ async function load(opts = {}) {
       // AutoMix: the old song fades out while the new one fades in; a fresh spare preloads the song after.
       audio.volume = 0; fade(audio, 0, target, opts.mixSeconds);
       fade(previous, previous.volume, 0, opts.mixSeconds).then(() => { previous.pause(); previous.removeAttribute('src'); previous.load(); });
-      const spare = new Audio(); spare.preload = 'none'; bindAudio(spare); nextBuffer.spare = spare;
+      const spare = new Audio(); spare.preload = 'none'; spare.playsInline = true; spare.setAttribute?.('playsinline', ''); bindAudio(spare); nextBuffer.spare = spare;
     } else {
       audio.volume = target;
       nextBuffer.recycle(previous);
@@ -208,16 +221,25 @@ function prefetch() {
   const generation = ++warmGeneration;
   clearTimeout(prefetchTimer);
   const next = state.queue[state.index + 1] || (state.repeat === 'all' ? state.queue[0] : null);
-  if (store.getSettings().preloadNext === false || navigator.connection?.saveData || /2g/.test(navigator.connection?.effectiveType || '') || !next || next.local || !isPlaying() || state.loading) { nextBuffer.clear(); return; }
+  const afterTrack = (() => {
+    if (!next) return null;
+    if (state.index + 2 < state.queue.length) return state.queue[state.index + 2];
+    if (state.repeat === 'all' && state.queue.length > 1) return state.queue[(state.index + 2) % state.queue.length];
+    return null;
+  })();
+  if (store.getSettings().preloadNext === false || navigator.connection?.saveData || /2g/.test(navigator.connection?.effectiveType || '') || !next || next.local || !isPlaying() || state.loading) return;
+  // InstantPlay phase 1: resolve URLs for the next songs immediately (no buffer wait).
+  api.prewarmAhead([next, afterTrack].filter(t => t && !t.local));
+  const need = mediaWarmHeadroom();
   prefetchTimer = setTimeout(async () => {
     try {
       if (generation !== warmGeneration || !isPlaying() || state.loading) return;
-      if (!audioHasHeadroom(audio,12)) { prefetch(); return; }
+      if (!audioHasHeadroom(audio, need)) { prefetch(); return; }
       const source = await (api.prewarm(next) || api.resolve(next));
-      if (generation !== warmGeneration || !isPlaying() || state.loading || !audioHasHeadroom(audio,8)) return;
+      if (generation !== warmGeneration || !isPlaying() || state.loading || !audioHasHeadroom(audio, Math.max(4, need - 2))) return;
       if (!effectsOn()) nextBuffer.warm(api.streamKey(next), source);
     } catch { /* Foreground playback retains its own retry path. */ }
-  }, 250);
+  }, 120);
   prefetchTimer.unref?.();
 }
 
@@ -230,12 +252,20 @@ boundAudio.add(media);
 const listen = (event,fn) => media.addEventListener(event,() => { if (media === audio) fn(); });
 // Only the current track may make sound: a spare/preloaded element that starts on its own is stopped at once.
 media.addEventListener('play',() => { if (media !== audio && media.src && !media.src.startsWith('data:')) media.pause(); else if (media === audio) window.dispatchEvent?.(new Event('spotplus:music-play')); });
-listen('playing', () => { clearStall();if (state.startupMs == null && startedAt && isRealSrc()) state.startupMs = Math.round(performance.now() - startedAt); state.loading = false; api.reportPlaybackSource(state.source); emit('state'); prefetch(); });
-listen('play', () => { if ('mediaSession' in navigator) { navigator.mediaSession.playbackState = 'playing'; updateSession(current()); } emit('state'); });
-listen('pause', () => { clearStall();if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'; emit('state'); save(); ++warmGeneration; clearTimeout(prefetchTimer); if(nextBuffer.entry)nextBuffer.clear(); });
+listen('playing', () => { clearStall();clearTimeout(pauseClearTimer);if (state.startupMs == null && startedAt && isRealSrc()) state.startupMs = Math.round(performance.now() - startedAt); state.loading = false; api.reportPlaybackSource(state.source); emit('state'); prefetch(); });
+listen('play', () => { clearTimeout(pauseClearTimer);if ('mediaSession' in navigator) { navigator.mediaSession.playbackState = 'playing'; updateSession(current()); } emit('state'); });
+listen('pause', () => {
+  clearStall();if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'; emit('state'); save();
+  ++warmGeneration; clearTimeout(prefetchTimer);
+  // InstantPlay: keep the prepared next track across short pauses so skip stays instant.
+  clearTimeout(pauseClearTimer);
+  pauseClearTimer = setTimeout(() => { if (nextBuffer.entry) nextBuffer.clear(); }, KEEP_WARM_AFTER_PAUSE_MS);
+  pauseClearTimer.unref?.();
+});
 listen('waiting', () => { if (isRealSrc() && audio.currentTime > 1 && state.source?.fast) { api.reportChoppy(state.source); recoverMedia(); return; }
-  if (isRealSrc()) { watchStall();state.loading = true; ++warmGeneration; clearTimeout(prefetchTimer); nextBuffer.clear(); api.cancelPrewarm(); emit('state'); } });
-listen('canplay', () => { if (state.loading && !audio.paused) { state.loading = false; emit('state'); } });
+  // Yield attaching more next-track media, but keep InstantPlay’s warmed element and URL cache.
+  if (isRealSrc()) { watchStall();state.loading = true; ++warmGeneration; clearTimeout(prefetchTimer); emit('state'); } });
+listen('canplay', () => { if (state.loading && !audio.paused) { state.loading = false; emit('state'); prefetch(); } });
 listen('progress', () => emit('state'));
 listen('timeupdate', () => {
   if(isRealSrc() && audio.currentTime>0)restorePos=0;
@@ -244,6 +274,7 @@ listen('timeupdate', () => {
   if (now - lastPos > 1000) { lastPos = now; positionState(); }
   if (now - lastSave > 10000) { lastSave = now; save(); }
   maybeMix();
+  maybeSeamless();
 });
 listen('ended', () => {
   if (state.repeat === 'one') { state.playbackId=(state.playbackId||0)+1;audio.currentTime = 0;emit('state');audio.play().catch(() => {}); }
