@@ -380,12 +380,16 @@ export function fitWallpaperList(root = document) {
       limit = Math.min(limit, node.getBoundingClientRect().top);
     }
   }
-  const space = Math.max(120, Math.floor(limit - wrap.getBoundingClientRect().top - 8));
-  // A real pixel flex basis is required in iOS WebKit: height alone gets shrunk to a tiny strip.
+  const space = Math.max(160, Math.floor(limit - wrap.getBoundingClientRect().top - 8));
+  // A real pixel flex basis. iOS shrinks a height-only scrollport to a tiny strip.
+  wrap.style.position = 'relative';
   wrap.style.flex = '0 0 ' + space + 'px';
   wrap.style.height = space + 'px';
   wrap.style.maxHeight = space + 'px';
-  wrap.style.overflowY = 'auto';
+  wrap.style.overflowY = 'scroll';
+  wrap.style.webkitOverflowScrolling = 'touch';
+  wrap.style.touchAction = 'pan-y';
+  wrap.style.overscrollBehavior = 'contain';
   return space;
 }
 
@@ -461,7 +465,6 @@ export function mount(root, hooks) {
     const refit = () => { if (document.body?.dataset.page === 'backgrounds') fitWallpaperList(root); };
     globalThis.addEventListener?.('resize', refit);
     globalThis.visualViewport?.addEventListener?.('resize', refit);
-    globalThis.visualViewport?.addEventListener?.('scroll', refit);
     const main = document.querySelector('main');
     if (main && !main.dataset.bgScrollGuard) {
       main.dataset.bgScrollGuard = '1';

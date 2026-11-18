@@ -1,6 +1,9 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.22', date: '2026-11-18', title: 'The wallpaper list takes the swipe', items: [
+    'On Background, a finger on the wallpaper database moves that list. The rest of the page stays still, including while you search.',
+  ]},
   {version: '1.9.21', date: '2026-11-18', title: 'Full songs from Monochrome, then a preview that actually starts', items: [
     'Automatic playback asks Monochrome first. It has the mainstream catalog, including songs the other public servers miss, and it is not the YouTube player.',
     'JioSaavn, HiFi, Audius, Invidious, and Piped still run beside it. A 30-second preview is only used after those miss, and that preview is fetched fresh so it can start.',

@@ -19,7 +19,7 @@ body[data-scene="on"] .nav{background:var(--bg2)}
 body[data-page="backgrounds"] main,
 body[data-page="backgrounds"].has-bar main{
   overflow:hidden !important;
-  -webkit-overflow-scrolling:auto;
+  -webkit-overflow-scrolling:auto !important;
   display:flex;
   flex-direction:column;
 }
@@ -112,7 +112,7 @@ body[data-page=backgrounds].has-bar main{display:flex;flex-direction:column;min-
 body[data-page=backgrounds] #view{display:flex;flex:1 1 auto;min-height:0;overflow:hidden}
 body[data-page=backgrounds] .mobile-top{flex:none}
 body[data-page=backgrounds] .bg-studio{width:100%;min-height:0;overflow:hidden}
-body[data-page=backgrounds] .bg-table-wrap{flex-shrink:0!important;overflow-y:auto!important;overflow-x:hidden!important;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y}
+body[data-page=backgrounds] .bg-table-wrap{position:relative;z-index:1;flex-shrink:0!important;overflow-y:scroll!important;overflow-x:hidden!important;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y}
 body[data-page=backgrounds] .bg-filters{display:flex;flex:none;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;max-width:100%;gap:7px;scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;touch-action:pan-x;margin-bottom:8px}
 body[data-page=backgrounds] .bg-filters::-webkit-scrollbar{display:none}
 body[data-page=backgrounds] .bg-filters .chip{flex:none;white-space:nowrap}

@@ -46,11 +46,18 @@ function settle() {
   gesture = null;
 }
 pane?.addEventListener('touchstart', event => {
+  // The wallpaper database is its own scroller. This rubber-band calls preventDefault
+  // on the whole pane, which stops that list from moving and drags the page instead.
+  if (document.body.dataset.page === 'backgrounds' || event.target.closest('#bgList,.bg-table-wrap')) return;
   if (event.touches.length !== 1 || event.target.closest('input,textarea,select,.shelf,.chips,.view-toolbar,.spotify-embed')) return;
   content.style.transition = '';
   gesture = { x: event.touches[0].clientX, y: event.touches[0].clientY, edge: 0 };
 }, { passive: true });
 pane?.addEventListener('touchmove', event => {
+  if (document.body.dataset.page === 'backgrounds' || event.target.closest('#bgList,.bg-table-wrap')) {
+    gesture = null;
+    return;
+  }
   if (!gesture || event.touches.length !== 1) return;
   const dy = event.touches[0].clientY - gesture.y, dx = event.touches[0].clientX - gesture.x;
   if (Math.abs(dx) > Math.abs(dy)) return;

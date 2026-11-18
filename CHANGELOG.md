@@ -2,6 +2,11 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.22 — The wallpaper list takes the swipe
+_2026-11-18_
+
+- On Background, a finger on the wallpaper database moves that list. The rest of the page stays still, including while you search.
+
 ## 1.9.21 — Full songs from Monochrome, then a preview that actually starts
 _2026-11-18_
 

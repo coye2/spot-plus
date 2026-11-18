@@ -6,7 +6,7 @@ import {shouldRefreshPhoto} from '../js/profile-photo.js';
 import {MODES} from '../js/themes.js';
 import {CHANGELOG} from '../js/changelog.js';
 
-test('1.9.21 release and its iOS features stay paired', async () => {
+test('1.9.22 release and its iOS features stay paired', async () => {
   const [pkg,sw,css,html,app] = await Promise.all([
     readFile('package.json','utf8').then(JSON.parse),
     readFile('sw.js','utf8'),
@@ -14,9 +14,9 @@ test('1.9.21 release and its iOS features stay paired', async () => {
     readFile('index.html','utf8'),
     readFile('js/app.js','utf8'),
   ]);
-  assert.equal(pkg.version,'1.9.21');
+  assert.equal(pkg.version,'1.9.22');
   assert.equal(CHANGELOG[0].version,pkg.version);
-  assert.match(sw,/spotplus-shell-v94/);
+  assert.match(sw,/spotplus-shell-v95/);
   assert.match(sw,/['"]\.\/js\/profile-photo\.js['"]/);
   for(const selector of ['#homeDJPrompt','#globalQ','#q','#libraryQ','#pageLibraryQ','#folderQ','#djPrompt','#bgSearch']) assert.ok(css.includes(selector),selector);
   assert.match(css,/-webkit-appearance:none!important/);
@@ -25,6 +25,15 @@ test('1.9.21 release and its iOS features stay paired', async () => {
   assert.match(html,/id="profilePhotoInput"/);
   assert.match(app,/avatar:spotifyPhoto\(\)/); // Jam never receives a blob: URL.
   assert.match(app,/profile-photo-spotify/);
+});
+
+test('wallpaper swipes are not stolen by the page rubber-band', async () => {
+  const shell = await readFile(new URL('../js/shell.js', import.meta.url), 'utf8');
+  const css = await readFile(new URL('../css/backgrounds.css', import.meta.url), 'utf8');
+  assert.match(shell, /dataset\.page === 'backgrounds'/);
+  assert.match(shell, /#bgList/);
+  assert.match(css, /body\[data-page="backgrounds"\] main/);
+  assert.match(css, /-webkit-overflow-scrolling:auto !important/);
 });
 
 test('wallpaper picker uses a real pixel scroll viewport below bars on 390x844', () => {
