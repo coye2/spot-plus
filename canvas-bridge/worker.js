@@ -3,6 +3,7 @@ import {devProfile} from './dev-profile.js';
 import {liveStats, InstallCounter} from './installs.js';
 export {InstallCounter};
 import {youtubeMatch} from './youtube-match.js';
+import {wallpapers} from './wallpapers.js';
 import {youtubeStream} from './youtube-stream.js';
 // A narrow public-metadata adapter, never an arbitrary URL or credential proxy.
 import {spotifyStats} from './spotify-stats.js';
@@ -79,9 +80,10 @@ export async function handle(request, {fetcher=fetch,cache,waitUntil=()=>{},env}
   if (['/podcasts','/podcast','/audiobooks'].includes(url.pathname)) return podcasts(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/dev') return devProfile(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/match') return youtubeMatch(request,{fetcher,cache,waitUntil});
+  if (url.pathname === '/wallpapers') return wallpapers(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/stream') return youtubeStream(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/spotify-public') return spotifyPublic(request,{fetcher,cache,waitUntil});
-  if (url.pathname === '/health') return json({service:'Spot+ Canvas bridge',status:'ok',lyrics:true,spotifyPublic:true,match:true,stream:true,stats:true,dev:true,podcasts:true});
+  if (url.pathname === '/health') return json({service:'Spot+ Canvas bridge',status:'ok',lyrics:true,spotifyPublic:true,match:true,wallpapers:true,stream:true,stats:true,dev:true,podcasts:true});
   if (url.pathname === '/lyrics-search') return lyricsSearch(url,{fetcher,cache,waitUntil});
   if (url.pathname !== '/canvas') return json({error:'Not found'},404);
   const query = queryFor(url.searchParams);

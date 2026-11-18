@@ -87,7 +87,9 @@ try {
   console.log('Mobile wallpaper layout:',JSON.stringify(layout));
   assert.equal(layout.viewport[0],390);
   assert.equal(layout.viewport[1],844);
-  assert.ok(layout.rows>=2600,'The full wallpaper catalog must render');
+  // The grid paints in batches; the status line still counts the whole database.
+  assert.ok(layout.rows>=48,'The first wallpaper batch must render');
+  assert.match(await page.locator('#bgStatus').textContent(),/2,6\d\d wallpapers/,'Status must count the full database');
   assert.ok(layout.listHeight>=220,'Wallpaper list must be useful on iPhone, not a tiny strip');
   assert.ok(layout.listScrollHeight>layout.listHeight*5,'Wallpaper list must be internally scrollable');
   assert.equal(layout.mainScrollTop,0,'Main must stay still');
@@ -102,7 +104,7 @@ try {
   const lastRow=await page.evaluate(()=>{
     const list=document.querySelector('#bgList');
     list.scrollTop=list.scrollHeight;
-    const last=list.querySelector('tbody:last-of-type tr:last-child');
+    const last=list.querySelector('.bg-catalog-body tr:last-child');
     return {list: list.scrollTop, lastBottom:last?.getBoundingClientRect().bottom,listBottom:list.getBoundingClientRect().bottom};
   });
   assert.ok(lastRow.list>0,'Cannot reach the catalog end');

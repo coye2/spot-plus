@@ -1,6 +1,13 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.24', date: '2026-11-18', title: 'Search every Alpha Coders wallpaper', items: [
+    'Search on Background now covers all of Alpha Coders, not only the 2,670 wallpapers saved in the app. Results keep loading as you scroll.',
+    'Picking a category keeps going past the saved set. Scroll to the end and more wallpapers from that category load in.',
+    'The wallpaper grid loads in batches as you scroll, so the page opens fast and scrolling stays smooth.',
+    'Tapping a wallpaper sets it in place. The list keeps your spot and your search results.',
+    'A wallpaper you found through search stays set after you close and reopen the app.',
+  ]},
   {version: '1.9.23', date: '2026-11-18', title: 'Full songs instead of 30-second previews', items: [
     'Automatic playback no longer falls back to a 30-second preview when the free audio servers are busy. If none of them answers within about 2.5 seconds, the full song plays through YouTube’s official player.',
     'When the servers have been failing, the next songs go straight to YouTube’s player, so they start almost at once. Spot+ tries the lossless servers again after 10 minutes.',

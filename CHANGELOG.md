@@ -2,6 +2,15 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.24 — Search every Alpha Coders wallpaper
+_2026-11-18_
+
+- Search on Background now covers all of Alpha Coders, not only the 2,670 wallpapers saved in the app. Results keep loading as you scroll.
+- Picking a category keeps going past the saved set. Scroll to the end and more wallpapers from that category load in.
+- The wallpaper grid loads in batches as you scroll, so the page opens fast and scrolling stays smooth.
+- Tapping a wallpaper sets it in place. The list keeps your spot and your search results.
+- A wallpaper you found through search stays set after you close and reopen the app.
+
 ## 1.9.23 — Full songs instead of 30-second previews
 _2026-11-18_
 

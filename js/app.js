@@ -1063,8 +1063,11 @@ async function handleAct(act, el) {
       break;
     case 'bg-pick': {
       const cur = scene.normalizeScene(store.getSettings().scene);
-      store.setSettings({ scene: { kind: el.dataset.kind, id: el.dataset.id, x: cur?.x ?? 0.5, y: cur?.y ?? 0.42 } });
-      route({ keepScroll: true });
+      const next = scene.sceneFor(el.dataset.kind, el.dataset.id, cur);
+      store.setSettings({ scene: next });
+      // Update in place so the list keeps its scroll spot and live search results.
+      scene.apply(store.getSettings());
+      scene.markPicked(document, next);
       break;
     }
     case 'bg-clear':
