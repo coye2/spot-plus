@@ -2,6 +2,13 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.11 — Backgrounds for the app and library
+_2026-11-18_
+
+- A background changer for the app and playlist areas. The player and the play bar keep their own color.
+- Wallpapers are a 4K Alpha Coders catalog in an Apple-style table. The crop is instant: drag the preview, and the file size follows the device (1920 on a phone, the 4K original on a large screen).
+- Upload your own image. It is cropped and lightly sharpened for this screen, and saved on the device.
+
 ## 1.9.10 — Playback stays on the link that is working
 _2026-11-18_
 

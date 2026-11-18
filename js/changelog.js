@@ -1,6 +1,11 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.11', date: '2026-11-18', title: 'Backgrounds for the app and library', items: [
+    'A background changer for the app and playlist areas. The player and the play bar keep their own color.',
+    'Wallpapers are a 4K Alpha Coders catalog in an Apple-style table. The crop is instant: drag the preview, and the file size follows the device (1920 on a phone, the 4K original on a large screen).',
+    'Upload your own image. It is cropped and lightly sharpened for this screen, and saved on the device.',
+  ]},
   {version: '1.9.10', date: '2026-11-18', title: 'Playback stays on the link that is working', items: [
     'Fixed the glitch where a song restarted over and over while it was still connecting, then died with “No audio server answered.” Buffering is no longer treated as a failure.',
     'A link is only replaced after several seconds of silence, or when it actually errors. The first backup is tried in place, without tearing the player down.',

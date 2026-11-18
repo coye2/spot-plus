@@ -23,6 +23,7 @@ import { libraryItems, visibleTracks, parseRoute } from './library.js';
 import * as dj from './dj.js';
 import * as spotify from './spotify.js';
 import * as themes from './themes.js';
+import * as scene from './backgrounds.js';
 import {clipSource,hasLocalClip,prefetchClips} from './canvas-cache.js';
 import {Jam,jamLink,validJamCode} from './jam.js';
 import qrcode from './vendor/qrcode.js';
@@ -583,7 +584,7 @@ async function viewSettings() {
   <section class="box"><h2>Your devices</h2><p class="settings-note">${libsync.syncState()?'Your library syncs with your other devices.':'Keep your likes and playlists the same on your phone and computer. No account.'}</p><button class="btn primary small" data-act="link-devices">${libsync.syncState()?'Link another device':'Link a device'}</button></section>
   <section class="box"><h2>Notifications</h2>${notify.permission()==='unsupported'?'<p class="settings-note">This browser can’t show notifications. On iPhone, add Spot+ to your Home Screen first.</p>':notify.permission()==='granted'?'':`<p class="settings-note">${notify.permission()==='denied'?'Notifications are blocked for Spot+. Allow them in your browser or phone settings.':'Get a heads-up about new music and updates. Never more than two a day, and nothing at night.'}</p>${notify.permission()==='default'?'<button class="btn primary small" data-act="notify-enable">Turn on notifications</button>':''}`}
   ${toggle('notifyReleases','New releases','When an artist you follow drops a song or album.')}${toggle('notifyStats','Weekly recap','Sunday evening: your minutes and most-played artist.')}${toggle('notifyUpdates','App updates','When a new version of Spot+ is ready.')}</section>
-  <section class="box"><h2>Appearance</h2>${themeModeSwitch(s)}<p class="settings-note">Light, dark or automatic, with 19 color themes.</p><a class="btn" href="#/themes">Themes</a><label class="field"><span>Library and track spacing</span>${sel('density',[['comfortable','Comfortable'],['compact','Compact']])}</label><label class="field"><span>Text size</span>${sel('textSize',[['normal','Default'],['large','Larger']])}</label><label class="field"><span>Motion</span>${sel('motion',[['system','Follow system'],['reduced','Reduced']])}</label></section>
+  <section class="box"><h2>Appearance</h2>${themeModeSwitch(s)}<p class="settings-note">Light, dark or automatic, with 19 color themes.</p><a class="btn" href="#/themes">Themes</a><a class="btn" href="#/backgrounds">Background</a><label class="field"><span>Library and track spacing</span>${sel('density',[['comfortable','Comfortable'],['compact','Compact']])}</label><label class="field"><span>Text size</span>${sel('textSize',[['normal','Default'],['large','Larger']])}</label><label class="field"><span>Motion</span>${sel('motion',[['system','Follow system'],['reduced','Reduced']])}</label></section>
   <section class="box"><h2>Playback</h2>
     <label class="field"><span>Audio source<small>Full tracks depend on reachable audio servers. Preview mode plays short samples only.</small></span>${sel('source', [['auto', 'Automatic'], ['piped', 'Piped'], ['invidious', 'Invidious'],['audius','Audius public releases'],['preview','Deezer previews (30 sec)']])}</label>
     <label class="field"><span>Streaming quality</span>${sel('quality', [['high', 'High'], ['low', 'Data saver']])}</label>
@@ -657,6 +658,7 @@ const routes = [
   [/^#\/spotify-account\/playlist\/([a-zA-Z0-9]{22})$/, viewSpotifyAccountList],
   [/^#\/spotify\/(playlist|album|artist|track)\/([a-zA-Z0-9]{22})$/, viewSpotifyCollection],
   [/^#\/themes$/, viewThemes],
+  [/^#\/backgrounds(?:\/([A-Za-z]+))?$/, viewBackgrounds],
   [/^#\/linked\/([A-Za-z0-9]{22})$/, viewLinked],
   [/^#\/jam$/, viewJam],
   [/^#\/jam\/([A-Za-z0-9]{6})$/, joinJamFromLink],
@@ -686,6 +688,7 @@ async function route({ keepScroll = false } = {}) {
       hydrateStatistics(view);syncAvatars();if(view.querySelector('[data-live]'))refreshLive();if(view.querySelector('#devCredits'))refreshDev();if(location.hash==='#/rewind')hydrateRewind(view);
       syncVoices();
       view.setAttribute('aria-busy','false');
+      if (view.querySelector('.bg-studio')) scene.mount(view, {onFocus(focus){const current=scene.normalizeScene(store.getSettings().scene);if(!current)return;store.setSettings({scene:{...current,...focus}});scene.apply(store.getSettings());}});
       renderSidebar();
       syncPlayer();
       main.scrollTop = keepScroll ? scroll : 0;
@@ -837,6 +840,10 @@ async function handleAct(act, el) {
     case 'account-paste-field': {const text=$('#accountPasteField')?.value||'';closeSheet();await applyPastedLibrary(text);break;}
     case 'account-disconnect': if(await confirmBox('Remove this Spotify connection?', 'This removes the Spotify library copy from this device. Your local Spot+ music and Spotify account are kept.')){pendingAccount=null;store.clearSpotifyAccount();toast('Spotify copy removed from this device');}break;
     case 'theme-preset': {const t=themes.presets.find(x=>x.id===el.dataset.id);store.setSettings({themePreset:el.dataset.id,themeCustom:null,...(t?.mode?{themeMode:t.mode}:{})});route({keepScroll:true});break;}
+    case 'bg-pick': {const prev=scene.normalizeScene(store.getSettings().scene);store.setSettings({scene:{kind:el.dataset.kind==='upload'?'upload':'catalog',id:el.dataset.id,x:prev?.x??.5,y:prev?.y??.42}});scene.apply(store.getSettings());route({keepScroll:true});break;}
+    case 'bg-clear': store.setSettings({scene:null});scene.apply(store.getSettings());route({keepScroll:true});break;
+    case 'bg-upload': $('#bgUpload')?.click();break;
+    case 'bg-delete': {await scene.removeUpload(el.dataset.id);if(store.getSettings().scene?.id===el.dataset.id)store.setSettings({scene:null});scene.apply(store.getSettings());route({keepScroll:true});break;}
     case 'go-back': if(history.length>1)history.back();else go('#/home');break;
     case 'expand-section': {const sec=el.closest('.collapsible');const open=!sec.classList.contains('expanded');sec.classList.toggle('expanded',open);el.textContent=open?'See less':(sec.classList.contains('artist-releases')?'See discography':'See more');break;}
     case 'artist-more': {const a=activeArtist;if(!a)break;openSheet({head:`<div class="sheet-title">${esc(a.name)}</div>`,items:[{icon:I.radio,label:'Go to artist radio',fn:()=>go('#/radio/'+a.id)},{icon:I.play,label:'Play essentials',fn:()=>go('#/essentials/'+a.id)},{icon:I.share||I.arrow,label:'Share',fn:()=>{const url=location.origin+location.pathname+'#/artist/'+a.id;if(navigator.share)navigator.share({title:a.name,url}).catch(()=>{});else navigator.clipboard?.writeText(url).then(()=>toast('Link copied'));}},{icon:I.arrow,label:'Find on Spotify',fn:()=>window.open('https://open.spotify.com/search/'+encodeURIComponent(a.name)+'/artists','_blank','noopener')}]});break;}
@@ -1381,6 +1388,7 @@ function applyPreferences(){
   const s=store.getSettings();
   document.body.dataset.density=s.density;delete document.body.dataset.accent;document.body.dataset.motion=s.motion;document.body.dataset.textSize=s.textSize;
   const palette=themes.applyTheme(s);
+  scene.install(() => store.getSettings());
   if(typeof syncStatusColor==='function')queueMicrotask(()=>syncStatusColor());
   syncStatusColor();
   if($('#themeLiveName'))$('#themeLiveName').textContent=s.themeCustom?'Your mix':palette.name;
@@ -1708,6 +1716,9 @@ function themePresetGroups(s,p){
   const groups=[['Signature',t=>!t.material],['Material',t=>t.material&&!t.mode],['Light',t=>t.mode==='light']];
   return groups.map(([title,test])=>`<section><h2>${title}</h2><div class="theme-presets">${themes.presets.filter(test).map(t=>{const x=themes.palette({...s,themePreset:t.id,themeCustom:null,themeMode:t.mode||s.themeMode});const on=!s.themeCustom&&t.id===p.id;return `<button class="theme-preset${on?' selected':''}" data-act="theme-preset" data-id="${t.id}" aria-pressed="${on}"><div class="theme-swatch" style="--swatch-surface:${x.surface};--swatch-raised:${x.raised};--swatch-accent:${x.accent}"><span></span><i></i><b></b></div><strong>${t.name}</strong><small>${t.note}</small></button>`;}).join('')}</div></section>`).join('');
 }
+async function viewBackgrounds(category){
+  return scene.page({category, settings: store.getSettings(), uploads: scene.listUploads(), viewport: scene.readViewport(), esc});
+}
 function viewThemes(){
   const s=store.getSettings(),p=themes.palette(s);if(!themeUndo)themeUndo={...themeSettings(s),density:s.density,textSize:s.textSize,motion:s.motion};
   return `<div class="studio-heading"><div><div class="kicker">Personalize</div><h1>Themes</h1><p class="muted">Pick a look or mix your own. Changes apply instantly.</p></div><div class="row-btns"><button class="btn" data-act="theme-undo">Undo this session</button><button class="btn primary" data-act="theme-save">Save theme</button></div></div><div class="studio-grid"><section class="studio-preview"><div class="studio-preview-top"><b id="themeLiveName">${s.themeCustom?'Your mix':p.name}</b><span>LIVE</span></div><div class="mini-workspace" aria-hidden="true"><div class="mini-sidebar"><span class="mini-dot"></span><i></i><i></i><i></i></div><div class="mini-main"><span class="mini-chip">Your library</span><h3>Made for your music</h3><div class="mini-art-row">${img(player.current()?.cover||'icons/icon-512.png')}${img(store.getLikes()[0]?.cover||'icons/icon-512.png')}</div><div class="mini-track"><span></span><b>Spot+</b><i>${I.play}</i></div></div></div><div class="studio-preview-bottom"><span id="themeContrast">${themes.contrast(p.accentText,p.raised).toFixed(1)}:1 accent text contrast</span><span>Auto contrast</span></div></section><section class="studio-controls"><h2>Make it yours</h2>${themeModeSwitch(s)}<label class="field"${p.mode==='light'?' hidden':''}><span>Pure black<small>True black backgrounds for OLED screens.</small></span><input type="checkbox" role="switch" data-setting="amoled" ${s.amoled!==false?'checked':''}></label><div class="color-controls">${[['accent','Accent',p.accent],['surface','Surface tint',p.surface],['raised','Control tint',p.raised]].map(([key,label,value])=>`<label><span>${label}</span><input type="color" data-theme-color="${key}" value="${value}" aria-label="${label} color"><small data-color-value="${key}">${value.toUpperCase()}</small></label>`).join('')}</div><label class="field"><span>Corner shape<small>Square to softly rounded.</small></span><input type="range" min="0" max="24" step="2" value="${p.radius}" data-setting="cornerRadius" aria-label="Corner roundness"></label><label class="field"><span>Album artwork</span><select data-setting="coverStyle"><option value="square" ${s.coverStyle!=='disc'?'selected':''}>Original square</option><option value="disc" ${s.coverStyle==='disc'?'selected':''}>Record circles</option></select></label><button class="btn" data-act="theme-remix">${I.shuffle}Remix a theme</button></section></div>${themePresetGroups(s,p)}<section class="box"><h2>Feel & readability</h2><div class="studio-comfort"><label class="field"><span>Spacing</span><select data-setting="density"><option value="comfortable" ${s.density==='comfortable'?'selected':''}>Comfortable</option><option value="compact" ${s.density==='compact'?'selected':''}>Compact</option></select></label><label class="field"><span>Text</span><select data-setting="textSize"><option value="normal" ${s.textSize==='normal'?'selected':''}>Default</option><option value="large" ${s.textSize==='large'?'selected':''}>Larger</option></select></label><label class="field"><span>Motion</span><select data-setting="motion"><option value="system" ${s.motion==='system'?'selected':''}>Follow system</option><option value="reduced" ${s.motion==='reduced'?'selected':''}>Reduced</option></select></label></div></section><section class="box"><div class="sec-head"><h2>Your theme collection</h2><div class="row-btns"><button class="btn small" data-act="theme-import">Import theme</button><button class="btn small" data-act="theme-export">Export current</button></div></div>${store.getThemes().length?`<div class="saved-themes">${store.getThemes().map(t=>`<button class="btn" data-act="theme-load" data-id="${esc(t.id)}">${esc(t.name)}</button>`).join('')}</div>`:'<p class="muted">Save a mix to keep it here. Theme files contain appearance settings only.</p>'}</section>`;
@@ -1866,6 +1877,18 @@ async function runNotifyChecks(){
 setTimeout(runNotifyChecks,8000);setInterval(runNotifyChecks,3*3600000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout(runNotifyChecks,3000);});
 
+$('#bgUpload')?.addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const rec = await scene.saveUpload(file);
+    store.setSettings({scene: {kind: 'upload', id: rec.id, x: .5, y: .42}});
+    scene.apply(store.getSettings());
+    if (location.hash.startsWith('#/backgrounds')) route({keepScroll: true});
+    toast('Background updated');
+  } catch (err) { toast(err.message); }
+});
 player.restore();
 applyPreferences();
 vol.value=Math.round(player.el.volume*100);
