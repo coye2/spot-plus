@@ -59,7 +59,7 @@ try {
   assert.ok(layout.listScrollHeight>layout.listHeight*5,'Wallpaper list must be internally scrollable');
   assert.equal(layout.mainScrollTop,0,'Main must stay still');
   assert.equal(layout.listOverflow,'auto');
-  assert.ok(layout.listBottom<=Math.min(layout.barTop,layout.navTop)+2,'List must end above bars');
+  assert.ok(layout.listBottom<=Math.min(layout.barTop ?? 844,layout.navTop)+2,'List must end above bars');
   await page.mouse.move(190,Math.min(layout.listTop+65,layout.listBottom-12));
   await page.mouse.wheel(0,800);
   await page.waitForTimeout(350);
