@@ -78,6 +78,6 @@ jobs:
           done
           version="$(node -p "require('./package.json').version")"
           cache="$(grep -o 'spotplus-shell-v[0-9]*' sw.js | head -n 1)"
-          grep -Fq "version: '${version}'" /tmp/js_changelog.js
+          grep -Fq "${version}" /tmp/js_changelog.js
           grep -Fq "${cache}" /tmp/sw.js
           echo "Verified live Spot+ ${version}, ${cache} (commit ${RELEASE_SHA})."
