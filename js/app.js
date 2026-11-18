@@ -100,8 +100,14 @@ const main = $('#main');
 const view = $('#view');
 
 function toast(msg, { sticky = false, action = null } = {}) {
+  const host = $('#toasts');
+  if (!action && host) {
+    const open = [...host.children].find((item) => item.dataset.msg === msg);
+    if (open) return { set: (m) => { open.dataset.msg = m; open.firstChild.textContent = m; }, close() {} };
+  }
   const el = document.createElement('div');
   el.className = 'toast';
+  el.dataset.msg = msg;
   el.textContent = msg;
   if (action) { const b = document.createElement('button'); b.className = 'toast-action'; b.textContent = action.label; b.onclick = () => { action.run(); el.remove(); }; el.append(b); }
   $('#toasts').appendChild(el);

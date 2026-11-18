@@ -1,6 +1,10 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.12', date: '2026-11-18', title: 'One playback message, and the preview still starts', items: [
+    'A failed song no longer stacks the same “Playback failed” message on top of itself.',
+    'When full audio cannot start, the 30-second preview is allowed to play. An error from the link that just died no longer cancels that preview.',
+  ]},
   {version: '1.9.11', date: '2026-11-18', title: 'Backgrounds for the app and library', items: [
     'A background changer for the app and playlist areas. The player and the play bar keep their own color.',
     'Wallpapers are a 4K Alpha Coders catalog in an Apple-style table. The crop is instant: drag the preview, and the file size follows the device (1920 on a phone, the 4K original on a large screen).',

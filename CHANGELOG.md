@@ -2,6 +2,12 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.12 — One playback message, and the preview still starts
+_2026-11-18_
+
+- A failed song no longer stacks the same “Playback failed” message on top of itself.
+- When full audio cannot start, the 30-second preview is allowed to play. An error from the link that just died no longer cancels that preview.
+
 ## 1.9.11 — Backgrounds for the app and library
 _2026-11-18_
 

@@ -17,3 +17,30 @@ test('the first tap starts a restored song even while the silent unlock clip is 
 test('restored shuffle removal survives disabling shuffle',()=>{store.savePlayer({queue:tracks.map(t=>({...t})),original:[...tracks].reverse().map(t=>({...t})),index:0,shuffle:true});player.restore();player.removeAt(2);player.toggleShuffle();assert.ok(!player.state.queue.some(t=>t.id==='three'));});
 
 test('a stream failure keeps the selected song and exposes an error',async()=>{player.playList(tracks);await settle();player.el.dispatchEvent(new Event('error'));assert.equal(player.current().id,'one');assert.match(player.state.error,/Playback failed/);assert.equal(player.state.loading,false);});
+
+test('a rejected play and the media error behind it report one failure',async()=>{
+  let n=0;player.on('error',()=>{n++;});
+  player.playList(tracks);await settle();
+  const original=player.el.play;
+  player.el.play=()=>Promise.reject(Object.assign(new Error('decode'),{name:'NotSupportedError'}));
+  try{
+    player.retry();await settle();
+    player.el.dispatchEvent(new Event('error'));await settle();
+    assert.equal(n,1);
+    assert.match(player.state.error,/Playback failed/);
+  }finally{player.el.play=original;}
+});
+
+test('switching to the catalog preview drops the CORS flag from the link that failed',async()=>{
+  player.playList(tracks);await settle();
+  player.state.offline=false;
+  player.state.source={url:player.el.src,alternatives:[],instance:'https://example.test'};
+  player.current().preview='https://cdnt-preview.dzcdn.net/stream/pickmeup.mp3';
+  player.el.crossOrigin='anonymous';
+  player.el.dispatchEvent(new Event('error'));
+  await settle();
+  assert.equal(player.el.crossOrigin,null);
+  assert.equal(player.state.source.preview,true);
+  assert.match(player.el.src,/pickmeup\.mp3/);
+  assert.equal(player.state.error,null);
+});

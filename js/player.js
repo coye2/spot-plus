@@ -49,11 +49,25 @@ let prefetchTimer = 0, warmGeneration = 0, startedAt = 0, pauseClearTimer = 0;
 let volumeLevel = 1;
 let stallTimer;
 let liveAttempt = 0;
+let mediaTicket = 0;
+let suppressError = false;
 function clearStall(){clearTimeout(stallTimer);stallTimer=null;}
 function failAttempt(ticket){
   if(ticket!==liveAttempt)return;
   liveAttempt++;
   recoverMedia();
+}
+function assignSrc(url){
+  const ticket=++liveAttempt;
+  mediaTicket=ticket;
+  // The element can still deliver an error queued for the previous file. Ignore that one.
+  suppressError=true;
+  audio.src=url;
+  const release=()=>{if(mediaTicket===ticket)suppressError=false;};
+  if(typeof setImmediate==='function')setImmediate(release);
+  const timer=setTimeout(release,0);
+  timer.unref?.();
+  return ticket;
 }
 function watchStall(){
   // One timer per attempt. A repeating `waiting` event must not postpone recovery, and must not restart it.
@@ -68,10 +82,11 @@ function watchStall(){
   stallTimer.unref?.();
 }
 function playAssigned(nextSource){
-  const ticket=++liveAttempt;
   state.source=nextSource;
   state.error=null;
-  audio.src=nextSource.url;
+  // A preview (and any failover while effects are off) must not inherit a CORS mode from the link that just died.
+  if(nextSource.preview||!effectsOn())audio.removeAttribute('crossorigin');
+  const ticket=assignSrc(nextSource.url);
   if(!pendingPlay){state.loading=false;emit('state');return;}
   state.loading=true;
   clearStall();
@@ -108,7 +123,9 @@ function recoverMedia(){
   if(!state.offline&&alternatives.length){const [variant,...rest]=alternatives;load({keepSkip:true,startAt:audio.currentTime||0,sourceOverride:{...failed,...variant,alternatives:rest}});return;}
   api.reportPlaybackSource(failed,false);
   if(!state.offline&&failed&&errRetries<2){errRetries++;if(failed.instance)skipList.push(failed.instance);load({keepSkip:true,startAt:audio.currentTime||0});return;}
-  state.loading=false;state.error=`Playback failed for “${current().title}”. Retry or choose another audio source in Settings.`;audio.pause();emit('error',state.error);emit('state');
+  const message=`Playback failed for “${current().title}”. Retry or choose another audio source in Settings.`;
+  if(state.error===message){state.loading=false;audio.pause();return;}
+  state.loading=false;state.error=message;audio.pause();emit('error',state.error);emit('state');
 }
 function maybeMix() {
   if (!mixSeconds || mixing || effectsOn() || state.repeat === 'one' || audio.paused || !isFinite(audio.duration)) return;
@@ -200,6 +217,7 @@ async function load(opts = {}) {
       audio.volume = target;
       nextBuffer.recycle(previous);
     }
+    mediaTicket=++liveAttempt;
   } else {
     nextBuffer.clear(); audio.removeAttribute('src'); audio.load();
   }
@@ -245,13 +263,13 @@ async function load(opts = {}) {
       else if (!isCaptured(audio) && corsKnown(src) === true) audio.crossOrigin = 'anonymous';
       else if (!isCaptured(audio)) audio.removeAttribute('crossorigin');
       if (my !== token) return;
-      audio.src = src;
+      assignSrc(src);
     }
     audio.preload = 'auto';
     audio.addEventListener('loadedmetadata', () => { if(my!==token)return;if(opts.startAt)audio.currentTime=Math.min(opts.startAt,duration());restorePos=0; }, { once: true });
     emit('state');
     if (pendingPlay) {
-      const ticket=++liveAttempt;
+      const ticket=mediaTicket;
       watchStall();
       await audio.play().catch((e) => { if(my!==token||ticket!==liveAttempt)return;if (e.name === 'NotAllowedError' || e.name === 'AbortError') { clearStall();state.loading = false; emit('state'); } else {failAttempt(ticket);} });
     } else {
@@ -307,7 +325,7 @@ boundAudio.add(media);
 const listen = (event,fn) => media.addEventListener(event,() => { if (media === audio) fn(); });
 // Only the current track may make sound: a spare/preloaded element that starts on its own is stopped at once.
 media.addEventListener('play',() => { if (media !== audio && media.src && !media.src.startsWith('data:')) media.pause(); else if (media === audio) window.dispatchEvent?.(new Event('spotplus:music-play')); });
-listen('playing', () => { clearStall();startupSwaps=0;clearTimeout(pauseClearTimer);if (state.startupMs == null && startedAt && isRealSrc()) state.startupMs = Math.round(performance.now() - startedAt); state.loading = false; api.reportPlaybackSource(state.source); emit('state'); prefetch(); });
+listen('playing', () => { suppressError=false;clearStall();startupSwaps=0;clearTimeout(pauseClearTimer);if (state.startupMs == null && startedAt && isRealSrc()) state.startupMs = Math.round(performance.now() - startedAt); state.loading = false; api.reportPlaybackSource(state.source); emit('state'); prefetch(); });
 listen('play', () => { clearTimeout(pauseClearTimer);if ('mediaSession' in navigator) { navigator.mediaSession.playbackState = 'playing'; updateSession(current()); } emit('state'); });
 listen('pause', () => {
   clearStall();if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'; emit('state'); save();
@@ -340,7 +358,7 @@ listen('ended', () => {
   if (state.repeat === 'one') { state.playbackId=(state.playbackId||0)+1;audio.currentTime = 0;emit('state');audio.play().catch(() => {}); }
   else { onFinish(current()); if (!mixing) next(false); }
 });
-listen('error',()=>{if(isRealSrc())failAttempt(liveAttempt);});
+listen('error',()=>{if(isRealSrc()&&!suppressError)failAttempt(mediaTicket);});
 }
 bindAudio(audio);
 bindAudio(nextBuffer.spare);

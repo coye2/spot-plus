@@ -5,7 +5,7 @@ export class FakeAudio extends EventTarget {
   async play(){this.paused=false;this.dispatchEvent(new Event('play'));this.dispatchEvent(new Event('playing'));}
   pause(){const changed=!this.paused;this.paused=true;if(changed)this.dispatchEvent(new Event('pause'));}
   load(){}
-  removeAttribute(name){if(name==='src')this.src='';}
+  removeAttribute(name){if(name==='src')this.src='';if(name==='crossorigin')this.crossOrigin=null;}
 }
 export function browserMocks(){
   globalThis.localStorage=storageMock();globalThis.Audio=FakeAudio;
