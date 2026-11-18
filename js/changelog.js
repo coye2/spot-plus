@@ -1,6 +1,13 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.7', date: '2026-11-18', title: 'InstantPlay: Spotify-speed starts and skips', items: [
+    'Songs start and skip faster: the next two tracks are found while you listen, and the next song’s audio is buffered as soon as the current one has enough headroom.',
+    'Skipping stays instant after a short pause — Spot+ keeps the prepared next track ready instead of throwing it away.',
+    'On iPhone and iPad, InstantPlay always uses AAC audio and playsinline media elements so Safari starts tracks reliably.',
+    'Near the end of a song, a ready next track takes over seamlessly even when AutoMix can’t fade (Safari on iPhone/iPad).',
+    'If a fast-start Opus stream stutters, Spot+ can switch to AAC mid-song without rematching the recording.',
+  ]},
   {version: '1.9.5', date: '2026-11-17', title: 'Podcasts fixed, faster song starts', items: [
     'Podcasts work again: top shows and podcast search now use two public directories with automatic fallback, so shows load even if one directory is down.',
     'Songs load faster: dead or blocked audio servers are skipped right away instead of retrying, more servers are checked in parallel, and stalled streams switch sooner.',

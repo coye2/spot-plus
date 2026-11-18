@@ -6,6 +6,7 @@
 import { getSettings, getVideoCache, setVideoCache } from './store.js';
 import {loopQuality} from './playback-policy.js';
 import {rankAudioMatches,chooseAudioFormat,raceAudioSources} from './audio-selection.js';
+import {prefersAac} from './playback-policy.js';
 import {corsOK} from './cors-probe.js';
 
 const DEEZER = 'https://api.deezer.com';
@@ -477,13 +478,15 @@ async function fastStream(t,{cached,shared,set,cors,skip,signal}){
   if(!id&&shared)id=(await Promise.race([shared,new Promise((_,reject)=>setTimeout(()=>reject(new Error('slow')),2200))]))[0]?.id;
   if(!id||!/^[\w-]{11}$/.test(id))return null;
   signal?.throwIfAborted();
-  const opus=set.quality!=='low'&&!!probe?.canPlayType('audio/webm; codecs="opus"');
+  // InstantPlay: iPhone/iPad always use AAC (itag 140). Opus is fine elsewhere when the browser can play it.
+  const opus=!prefersAac()&&set.quality!=='low'&&!!probe?.canPlayType('audio/webm; codecs="opus"');
   const make=itag=>`${base}/latest_version?id=${id}&itag=${itag}&local=true`;
   const url=make(opus?FAST_ITAGS.opus:FAST_ITAGS.aac);
   if(cors&&!(await corsOK(url)))return null;
   if(!cached?.id)setVideoCache(t.id,{id,manual:false,matchVersion:3});
-  // No alternatives: if this server stalls, skip it and run the full search instead of retrying it.
-  return {url,mime:opus?'audio/webm; codecs="opus"':'audio/mp4',bitrate:opus?160000:128000,kind:'invidious',instance:base,videoId:id,fast:true,alternatives:[]};
+  // AAC fallback lets mid-song recovery switch formats without a full rematch.
+  const alternatives=opus?[{url:make(FAST_ITAGS.aac),mime:'audio/mp4',bitrate:128000}]:[];
+  return {url,mime:opus?'audio/webm; codecs="opus"':'audio/mp4',bitrate:opus?160000:128000,kind:'invidious',instance:base,videoId:id,fast:true,alternatives};
 }
 
 // Keep short-lived results in memory. Resolve the next queued song after playback
@@ -555,11 +558,17 @@ export function prewarm(t){
   const settings=getSettings(),key=streamKey(t,settings);if(warmups.has(key))return warmups.get(key);
   const hit=cachedStream(key);if(hit)return Promise.resolve(hit);
   for (const base of Object.values(lastGood())) preconnect(base);
-  if(warmControllers.size>=2){const oldest=warmControllers.keys().next().value;warmControllers.get(oldest).abort();warmControllers.delete(oldest);warmups.delete(oldest);}
+  // InstantPlay keeps up to three predictive resolves (current restore + next + next+1).
+  if(warmControllers.size>=3){const oldest=warmControllers.keys().next().value;warmControllers.get(oldest).abort();warmControllers.delete(oldest);warmups.delete(oldest);}
   const controller=new AbortController();warmControllers.set(key,controller);
   const promise=resolveUncached(t,{signal:controller.signal}).then(stream=>{controller.signal.throwIfAborted();remember(streamKey(t,settings,stream.videoId||getVideoCache(t.id)?.id||''),stream);preconnect(stream.url);return stream;}).finally(()=>{if(warmControllers.get(key)===controller){warmups.delete(key);warmControllers.delete(key);}});
   warmups.set(key,promise);promise.catch(()=>{});
   return promise;
+}
+/** Resolve the next few queued songs so InstantPlay skip/next already has URLs. */
+export function prewarmAhead(tracks){
+  if(!Array.isArray(tracks)||!tracks.length)return;
+  for(const track of tracks.slice(0,2))prewarm(track);
 }
 /** The catalog's spelling of a song (same title, sharing an artist name), or null. */
 export async function canonicalTrack(t){
