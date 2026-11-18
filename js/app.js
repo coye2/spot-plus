@@ -30,7 +30,7 @@ import {Jam,jamLink,validJamCode} from './jam.js';
 import qrcode from './vendor/qrcode.js';
 import {shouldOnboard,showOnboarding} from './onboarding.js';
 import {shouldShowLanding,showLanding} from './landing.js';
-import {addLinks,syncLinks,loadLinks,cachedLinks,clearLinks,madeForYou,fetchPublic} from './spotify-links.js';
+import {addLinks,syncLinks,loadLinks,cachedLinks,clearLinks,madeForYou,fetchPublic,rememberProfileAvatar} from './spotify-links.js';
 import {bindPlayerDismiss} from './player-gestures.js';
 import {COMPANION_INSTALL_URL,connectionDevice,setupHtml,spotifyConnectionURLs,helperInstallHtml,copyHelperInstallLink,spotifyProfileHtml} from './account-setup.js';
 let accountDevice=connectionDevice(navigator.userAgent,navigator.platform,navigator.maxTouchPoints);
