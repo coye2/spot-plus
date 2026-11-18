@@ -11,7 +11,9 @@ export function audioHasHeadroom(media, seconds = 8) {
   if (media.paused || !media.src || media.src.startsWith('data:')) return false;
   if (media.src.startsWith('blob:')) return true;
   const ahead = bufferedAhead(media);
-  return ahead >= seconds || (ahead > .5 && Number.isFinite(media.duration) && media.duration - media.currentTime <= ahead + .25);
+  if (ahead >= seconds || (ahead > .5 && Number.isFinite(media.duration) && media.duration - media.currentTime <= ahead + .25)) return true;
+  // iPhone Safari often hides buffered ranges while audio is already flowing.
+  return (media.readyState || 0) >= 3 && (media.currentTime || 0) > 0.35;
 }
 export function loopQuality(connection) {
   if (connection?.saveData || /(^|-)2g$/.test(connection?.effectiveType || '')) return 360;
@@ -30,7 +32,7 @@ export function prefersAac(ua = globalThis.navigator?.userAgent || '', platform 
 export function mediaWarmHeadroom(connection = globalThis.navigator?.connection) {
   if (connection?.saveData || /(^|-)2g$/.test(connection?.effectiveType || '')) return 16;
   if (connection?.effectiveType === '3g' || (connection?.downlink > 0 && connection.downlink < 1.5)) return 10;
-  return 6;
+  return 3;
 }
 
 /** Keep a prepared next track across short pauses so skip/next stays instant. */

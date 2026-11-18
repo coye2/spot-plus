@@ -48,7 +48,7 @@ let prefetchTimer = 0, warmGeneration = 0, startedAt = 0, pauseClearTimer = 0;
 let volumeLevel = 1;
 let stallTimer;
 function clearStall(){clearTimeout(stallTimer);stallTimer=null;}
-function watchStall(){clearStall();const generation=token;const ms=(state.source?.fast||state.source?.alternatives?.length)?2500:3800;stallTimer=setTimeout(()=>{if(generation===token&&pendingPlay&&isRealSrc())recoverMedia();},ms);stallTimer.unref?.();}
+function watchStall(){clearStall();const generation=token;const ms=(state.source?.fast||state.source?.alternatives?.length)?1200:2800;stallTimer=setTimeout(()=>{if(generation===token&&pendingPlay&&isRealSrc())recoverMedia();},ms);stallTimer.unref?.();}
 function recoverMedia(){
   clearStall();if(!isRealSrc()||!current())return;
   const alternatives=state.source?.alternatives||[];
@@ -307,6 +307,7 @@ export function playList(tracks, i = 0, { shuffle = null } = {}) {
     state.index = i;
   }
   errRetries = 0; failStreak = 0; restorePos = 0;
+  api.prewarmAhead([state.queue[state.index], state.queue[state.index + 1]].filter(Boolean));
   load();
 }
 export function playIndex(i) { if (i >= 0 && i < state.queue.length) { state.index = i; errRetries = 0; load(); } }

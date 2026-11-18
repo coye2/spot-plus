@@ -2,6 +2,14 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.9 — InstantPlay starts without waiting
+_2026-11-18_
+
+- Songs start as soon as the recording is known: Spot+ plays a direct audio link immediately and keeps backup links ready, instead of waiting on a slow or missing server.
+- A bridge that doesn’t answer is abandoned in a fraction of a second so it can’t delay playback.
+- The next songs are prepared as soon as audio is flowing, including on iPhone where Safari hides how much is buffered.
+- If the first audio link stalls, Spot+ switches to the next one in about a second.
+
 ## 1.9.8 — InstantPlay audio bridge — songs play again
 _2026-11-18_
 

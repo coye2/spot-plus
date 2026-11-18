@@ -259,7 +259,7 @@ async function bridgeMatches(t, signal) {
 /** InstantPlay: resolve a known recording to a direct audio URL via the Spot+ bridge (no public mirrors). */
 export async function bridgeStream(videoId, {signal, preferAac = prefersAac()} = {}) {
   if (!/^[\w-]{11}$/.test(videoId || '')) return null;
-  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 5000);
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 900);
   try {
     const r = await fetch(`${STREAM_ENDPOINT}?id=${encodeURIComponent(videoId)}${preferAac ? '&aac=1' : ''}`, {
       signal: signal ? AbortSignal.any([signal, ctl.signal]) : ctl.signal,
@@ -516,30 +516,53 @@ export async function fastVideoLoop(track,{signal,skip=[],target=720}={}){
     return musicVideoLoop({kind:'music-video',engine:'invidious',instance:base,url:`${base}/latest_version?id=${match.id}&itag=${VIDEO_ITAGS[height]}&local=true`,videoId:match.id,title:match.title,duration:match.duration,height,fast:true});
   }catch{return null;}finally{clearTimeout(timer);}
 }
+function mirrorBases(set, skip) {
+  const custom = (set.customInvidious || '').split(/[\s,]+/).map(clean).filter(x => /^https:\/\//.test(x));
+  const now = Date.now();
+  return uniq([lastGood().invidious, ...custom, ...INV_FALLBACK]).filter(base =>
+    base && !skip.includes(base) && (failedInstances.get(base) || 0) <= now && (choppy.get(base) || 0) <= now);
+}
+/** Direct audio URLs for a known recording — no extra “get the links” request. */
+export function instantMirrors(videoId, bases, {opus = false} = {}) {
+  const itag = opus ? FAST_ITAGS.opus : FAST_ITAGS.aac;
+  const mime = opus ? 'audio/webm; codecs="opus"' : 'audio/mp4';
+  return bases.map(base => ({
+    url: `${base}/latest_version?id=${videoId}&itag=${itag}&local=true`,
+    mime,
+    bitrate: opus ? 160000 : 128000,
+    kind: 'invidious',
+    instance: base,
+    videoId,
+    fast: true,
+  }));
+}
 async function fastStream(t,{cached,shared,set,cors,skip,signal}){
   if(['piped','audius','preview'].includes(set.source))return null;
   let id=cached?.id;
-  if(!id&&shared)id=(await Promise.race([shared,new Promise((_,reject)=>setTimeout(()=>reject(new Error('slow')),2200))]))[0]?.id;
+  // Don't sit on a slow match: a cached recording starts immediately, a fresh one waits briefly.
+  if(!id&&shared){
+    try{id=(await Promise.race([shared,new Promise((_,reject)=>setTimeout(()=>reject(new Error('slow')),700))]))[0]?.id;}
+    catch{id=null;}
+  }
   if(!id||!/^[\w-]{11}$/.test(id))return null;
   signal?.throwIfAborted();
-  // InstantPlay primary path: the Spot+ bridge returns a direct audio URL. Public
-  // Invidious/Piped mirrors are often down or blocked, so this must not depend on them.
-  const bridged=await bridgeStream(id,{signal,preferAac:prefersAac()||set.quality==='low'});
-  if(bridged&&(!cors||await corsOK(bridged.url))){
-    if(!cached?.id)setVideoCache(t.id,{id,manual:false,matchVersion:3});
-    return bridged;
-  }
-  const base=lastGood().invidious||(set.customInvidious||'').split(/[\s,]+/).map(clean).find(x=>/^https:\/\//.test(x));
-  if(!base||skip.includes(base)||(failedInstances.get(base)||0)>Date.now()||(choppy.get(base)||0)>Date.now())return null;
-  // InstantPlay: iPhone/iPad always use AAC (itag 140). Opus is fine elsewhere when the browser can play it.
   const opus=!prefersAac()&&set.quality!=='low'&&!!probe?.canPlayType('audio/webm; codecs="opus"');
-  const make=itag=>`${base}/latest_version?id=${id}&itag=${itag}&local=true`;
-  const url=make(opus?FAST_ITAGS.opus:FAST_ITAGS.aac);
-  if(cors&&!(await corsOK(url)))return null;
+  const mirrors=instantMirrors(id, mirrorBases(set, skip), {opus});
+  // Give the bridge a short head start, then play a direct mirror URL anyway.
+  // A dead /stream must not add seconds before the song starts.
+  const bridged=cors?null:await Promise.race([
+    bridgeStream(id,{signal,preferAac:!opus}),
+    new Promise(resolve=>setTimeout(()=>resolve(null),280)),
+  ]);
   if(!cached?.id)setVideoCache(t.id,{id,manual:false,matchVersion:3});
-  // AAC fallback lets mid-song recovery switch formats without a full rematch.
-  const alternatives=opus?[{url:make(FAST_ITAGS.aac),mime:'audio/mp4',bitrate:128000}]:[];
-  return {url,mime:opus?'audio/webm; codecs="opus"':'audio/mp4',bitrate:opus?160000:128000,kind:'invidious',instance:base,videoId:id,fast:true,alternatives};
+  const asAlt=source=>({url:source.url,mime:source.mime,bitrate:source.bitrate,instance:source.instance,kind:source.kind,fast:true});
+  if(bridged?.url)return {...bridged,alternatives:mirrors.map(asAlt)};
+  const [first,...rest]=mirrors;
+  if(!first)return null;
+  if(cors&&!(await corsOK(first.url)))return null;
+  const alternatives=rest.map(asAlt);
+  if(opus)alternatives.unshift({url:first.url.replace(`itag=${FAST_ITAGS.opus}`,`itag=${FAST_ITAGS.aac}`),mime:'audio/mp4',bitrate:128000,instance:first.instance,kind:'invidious',fast:true});
+  return {...first,alternatives};
 }
 
 // Keep short-lived results in memory. Resolve the next queued song after playback
