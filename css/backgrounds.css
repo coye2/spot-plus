@@ -63,3 +63,73 @@ body[data-page="backgrounds"] .bg-studio{flex:1 1 auto;display:flex;flex-directi
   .bg-stage{width:100%;max-height:132px;aspect-ratio:16/9}
   body[data-page="backgrounds"] .studio-heading p{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 }
+
+/* 1.9.18: iPhone search controls have exactly one painted surface, the outer pill.
+   themes.css globally paints inputs and native Safari search controls: undo both. */
+:is(.home-dj form,.top-search form,#globalSearch,.searchbox,.library-tools label,.list-tools,.dj-request,.gen-search) input:not([type=range]):not([type=checkbox]):not([type=color]),
+:is(#homeDJPrompt,#globalQ,#q,#libraryQ,#pageLibraryQ,#folderQ,#djPrompt) {
+  -webkit-appearance:none!important;appearance:none!important;
+  background:transparent!important;background-color:transparent!important;
+  border:0!important;border-radius:0!important;padding:0!important;
+  outline:none!important;box-shadow:none!important;min-width:0;
+  color:var(--text);
+}
+:is(.home-dj form,.top-search form,#globalSearch,.searchbox,.library-tools label,.list-tools,.dj-request,.gen-search) input:focus,
+:is(#homeDJPrompt,#globalQ,#q,#libraryQ,#pageLibraryQ,#folderQ,#djPrompt):focus {
+  border:0!important;outline:none!important;box-shadow:none!important;
+  background:transparent!important;
+}
+input[type=search]::-webkit-search-decoration,
+input[type=search]::-webkit-search-results-button,
+input[type=search]::-webkit-search-results-decoration{display:none}
+.bg-search{background:transparent!important;border:0!important;padding:0!important}
+#bgSearch,#bgSearch:focus{
+  -webkit-appearance:none!important;appearance:none!important;
+  width:100%;height:44px;min-width:0;
+  border:1px solid var(--line)!important;border-radius:999px!important;
+  background:var(--bg3)!important;background-color:var(--bg3)!important;
+  padding:0 16px!important;box-shadow:none!important;outline:none!important;
+}
+#bgSearch:focus-visible{outline:2px solid var(--accent-text)!important;outline-offset:1px!important}
+
+/* Keep all 2,670+ wallpapers reachable inside the list, not by moving main. */
+body[data-page=backgrounds] main,
+body[data-page=backgrounds].has-bar main{display:flex;flex-direction:column;min-height:0;overflow:hidden!important;overscroll-behavior:none}
+body[data-page=backgrounds] #view{display:flex;flex:1 1 auto;min-height:0;overflow:hidden}
+body[data-page=backgrounds] .mobile-top{flex:none}
+body[data-page=backgrounds] .bg-studio{width:100%;min-height:0;overflow:hidden}
+body[data-page=backgrounds] .bg-table-wrap{flex-shrink:0!important;overflow-y:auto!important;overflow-x:hidden!important;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y}
+body[data-page=backgrounds] .bg-filters{display:flex;flex:none;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;max-width:100%;gap:7px;scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;touch-action:pan-x;margin-bottom:8px}
+body[data-page=backgrounds] .bg-filters::-webkit-scrollbar{display:none}
+body[data-page=backgrounds] .bg-filters .chip{flex:none;white-space:nowrap}
+body[data-page=backgrounds] .bg-search{flex:none;margin-bottom:8px}
+body[data-page=backgrounds] .studio-heading,body[data-page=backgrounds] .bg-layout{flex:none}
+@media(max-width:767px){
+  body[data-page=backgrounds] .studio-heading{padding:4px 0 6px;margin:0;display:flex;flex-direction:row;align-items:center;gap:8px}
+  body[data-page=backgrounds] .studio-heading h1{font-size:24px;line-height:1.1;margin:2px 0}
+  body[data-page=backgrounds] .studio-heading .kicker{font-size:10px}
+  body[data-page=backgrounds] .studio-heading p{display:none}
+  body[data-page=backgrounds] .studio-heading .row-btns{display:flex;flex:none;gap:5px}
+  body[data-page=backgrounds] .studio-heading .btn{height:34px;min-width:0;padding:0 10px;font-size:12px}
+  body[data-page=backgrounds] .bg-layout{display:flex;align-items:center;gap:12px;margin:2px 0 8px;min-height:88px}
+  body[data-page=backgrounds] .bg-stage{width:78px;height:88px;min-width:78px;max-height:88px;aspect-ratio:auto;border-radius:10px}
+  body[data-page=backgrounds] .bg-note{flex:1;min-width:0;line-height:1.4;font-size:12px;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+  body[data-page=backgrounds] .bg-table th,body[data-page=backgrounds] .bg-table td{padding:7px 8px}
+}
+/* Clear shows the actual wallpaper; legible labels, with only one opaque media layer. */
+body[data-chrome=clear][data-scene=on] .scene-bg::after{background:rgba(0,0,0,.2)}
+body[data-chrome=clear][data-scene=on] .app,
+body[data-chrome=clear][data-scene=on] main,
+body[data-chrome=clear][data-scene=on].has-bar main,
+body[data-chrome=clear][data-scene=on] .sidebar,
+body[data-chrome=clear][data-scene=on] .mobile-top,
+body[data-chrome=clear][data-scene=on] .view-toolbar,
+body[data-chrome=clear][data-scene=on] .topbar{background:transparent!important;background-color:transparent!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+body[data-chrome=clear][data-scene=on] main,
+body[data-chrome=clear][data-scene=on] .sidebar{text-shadow:0 1px 3px #000a}
+body[data-chrome=clear][data-scene=on] :is(.box,.quick-item,.searchbox,.home-dj form,.top-search form,.library-empty,.studio-controls,.studio-preview){background:rgba(6,12,14,.34);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+body[data-chrome=clear][data-scene=on] :is(.box,.studio-controls,.studio-preview){border-color:rgba(255,255,255,.12)}
+body[data-chrome=clear][data-scene=on] .nav{background:rgba(5,10,12,.96)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;border-color:transparent}
+body[data-chrome=clear][data-scene=on] .bar,
+body[data-chrome=clear][data-scene=on] .bar:not(.bar-empty){background:var(--song-surface,var(--bg2))!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+body[data-chrome=clear] .np{background-color:var(--song-color,#1b5e46)!important}
