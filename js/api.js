@@ -242,6 +242,7 @@ export function instances(force = false) {
 
 // Shared match lookup on the Spot+ bridge: one fast, edge-cached search for every user.
 export const MATCH_ENDPOINT = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/match';
+export const STREAM_ENDPOINT = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/stream';
 let matchDown = 0;
 async function bridgeMatches(t, signal) {
   if (matchDown > Date.now()) throw new Error('Match lookup paused');
@@ -254,6 +255,32 @@ async function bridgeMatches(t, signal) {
     if (!matches.length) throw new Error('No match');
     return matches;
   } finally { clearTimeout(timer); }
+}
+/** InstantPlay: resolve a known recording to a direct audio URL via the Spot+ bridge (no public mirrors). */
+export async function bridgeStream(videoId, {signal, preferAac = prefersAac()} = {}) {
+  if (!/^[\w-]{11}$/.test(videoId || '')) return null;
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 5000);
+  try {
+    const r = await fetch(`${STREAM_ENDPOINT}?id=${encodeURIComponent(videoId)}${preferAac ? '&aac=1' : ''}`, {
+      signal: signal ? AbortSignal.any([signal, ctl.signal]) : ctl.signal,
+      credentials: 'omit',
+    });
+    if (!r.ok) return null;
+    const data = await r.json();
+    if (!data?.url || !/^https:\/\//.test(data.url)) return null;
+    return {
+      url: data.url,
+      mime: data.mime || 'audio/mp4',
+      bitrate: Number(data.bitrate) || 128000,
+      kind: 'bridge',
+      instance: data.instance || 'https://spot-plus-canvas.pwr97pnmkn.workers.dev',
+      videoId,
+      fast: true,
+      itag: data.itag || null,
+      alternatives: Array.isArray(data.alternatives) ? data.alternatives : [],
+    };
+  } catch { return null; }
+  finally { clearTimeout(timer); }
 }
 const goodKey = 'spotplus.goodInstance';
 const failedInstances = new Map();
@@ -421,7 +448,15 @@ async function resolveUncached(t, { skip = [], signal, cors = false } = {}, _ret
       try{let value=await attemptServer(kind,base);recordSpeed(base,performance.now()-began,true);
         if(cors&&!(await corsOK(value.url))){const alt=(value.alternatives||[]).find(x=>x.url);if(alt&&await corsOK(alt.url))value={...value,...alt,alternatives:[]};else throw new Error('Effects not supported by this server');}
         return value;}
-      catch(error){if(!combined.aborted)recordSpeed(base,performance.now()-began,false);throw error;}
+      catch(error){
+        if(!combined.aborted){
+          recordSpeed(base,performance.now()-began,false);
+          // Dead/blocked mirrors waste InstantPlay retries — skip them for a while.
+          if(/HTTP 403|HTTP 404|HTTP 502|HTTP 503|HTTP 500|forbidden|Endpoint disabled|timed out/i.test(error?.message||''))
+            failedInstances.set(base,Date.now()+30*60e3);
+        }
+        throw error;
+      }
     },{signal:combined,quality:set.quality,concurrency:8,qualityWait:250});
     async function attemptServer(kind,base){
       const choices=cached?[cached]:(await Promise.any([shared,ENGINES[kind].search(base,t,combined)].filter(Boolean))).slice(0,2);
@@ -445,6 +480,17 @@ async function resolveUncached(t, { skip = [], signal, cors = false } = {}, _ret
     if(_retry!=='catalog'){
       const canonical=await canonicalTrack(t).catch(()=>null);
       if(canonical)return resolveUncached({...t,title:canonical.title,searchTitle:canonical.searchTitle||canonical.title,artist:canonical.artist,duration:t.duration||canonical.duration},{skip,signal,cors},'catalog');
+    }
+    // Last InstantPlay attempt: match on the bridge, then resolve audio there too (mirrors may all be down).
+    if(_retry!=='bridge'){
+      try{
+        const matches=await bridgeMatches(t,signal);
+        const bridged=await bridgeStream(matches[0].id,{signal,preferAac:prefersAac()||set.quality==='low'});
+        if(bridged&&(!cors||await corsOK(bridged.url))){
+          setVideoCache(t.id,{id:matches[0].id,manual:false,matchVersion:3});
+          return bridged;
+        }
+      }catch{ /* fall through */ }
     }
     throw new Error('No audio server answered. Try another source in Settings, a 30-second preview, or a local audio file.');
   } finally {clearTimeout(deadline);control.abort();}
@@ -472,12 +518,19 @@ export async function fastVideoLoop(track,{signal,skip=[],target=720}={}){
 }
 async function fastStream(t,{cached,shared,set,cors,skip,signal}){
   if(['piped','audius','preview'].includes(set.source))return null;
-  const base=lastGood().invidious||(set.customInvidious||'').split(/[\s,]+/).map(clean).find(x=>/^https:\/\//.test(x));
-  if(!base||skip.includes(base)||(failedInstances.get(base)||0)>Date.now()||(choppy.get(base)||0)>Date.now())return null;
   let id=cached?.id;
   if(!id&&shared)id=(await Promise.race([shared,new Promise((_,reject)=>setTimeout(()=>reject(new Error('slow')),2200))]))[0]?.id;
   if(!id||!/^[\w-]{11}$/.test(id))return null;
   signal?.throwIfAborted();
+  // InstantPlay primary path: the Spot+ bridge returns a direct audio URL. Public
+  // Invidious/Piped mirrors are often down or blocked, so this must not depend on them.
+  const bridged=await bridgeStream(id,{signal,preferAac:prefersAac()||set.quality==='low'});
+  if(bridged&&(!cors||await corsOK(bridged.url))){
+    if(!cached?.id)setVideoCache(t.id,{id,manual:false,matchVersion:3});
+    return bridged;
+  }
+  const base=lastGood().invidious||(set.customInvidious||'').split(/[\s,]+/).map(clean).find(x=>/^https:\/\//.test(x));
+  if(!base||skip.includes(base)||(failedInstances.get(base)||0)>Date.now()||(choppy.get(base)||0)>Date.now())return null;
   // InstantPlay: iPhone/iPad always use AAC (itag 140). Opus is fine elsewhere when the browser can play it.
   const opus=!prefersAac()&&set.quality!=='low'&&!!probe?.canPlayType('audio/webm; codecs="opus"');
   const make=itag=>`${base}/latest_version?id=${id}&itag=${itag}&local=true`;
