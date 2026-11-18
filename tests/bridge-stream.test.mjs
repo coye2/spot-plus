@@ -32,3 +32,18 @@ test('InstantPlay uses the Spot+ bridge stream before public mirrors', async () 
   assert.ok(calls.some(u => u.includes('/stream?id=MxEjnYdfLXU')));
   assert.ok(!calls.some(u => u.includes('dead.example')), 'dead mirror never contacted');
 });
+test('a hanging bridge does not delay the direct audio link', async () => {
+  localStorage.setItem('spotplus.goodInstance', JSON.stringify({invidious: 'https://inv.example'}));
+  globalThis.fetch = async (url) => {
+    url = String(url);
+    if (url.includes('/match')) return new Response(JSON.stringify({items: [{id: 'MxEjnYdfLXU', title: 'I Wonder', channel: 'Kanye West', duration: 244}]}));
+    if (url.includes('/stream')) return new Promise(() => {});
+    return new Response('[]');
+  };
+  const api = await import('../js/api.js');
+  const started = performance.now();
+  const stream = await api.resolve({id: 'wonder-slow', title: 'I Wonder', artist: 'Kanye West', duration: 243});
+  assert.ok(performance.now() - started < 1200, 'direct link returned before the bridge');
+  assert.match(stream.url, /^https:\/\/inv\.example\/latest_version\?id=MxEjnYdfLXU&itag=/);
+  assert.ok(stream.alternatives?.length >= 1);
+});

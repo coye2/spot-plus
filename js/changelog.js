@@ -1,6 +1,12 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.9', date: '2026-11-18', title: 'InstantPlay starts without waiting', items: [
+    'Songs start as soon as the recording is known: Spot+ plays a direct audio link immediately and keeps backup links ready, instead of waiting on a slow or missing server.',
+    'A bridge that doesn’t answer is abandoned in a fraction of a second so it can’t delay playback.',
+    'The next songs are prepared as soon as audio is flowing, including on iPhone where Safari hides how much is buffered.',
+    'If the first audio link stalls, Spot+ switches to the next one in about a second.',
+  ]},
   {version: '1.9.8', date: '2026-11-18', title: 'InstantPlay audio bridge — songs play again', items: [
     'Fixed “No audio server answered”: Spot+ now resolves audio through its own InstantPlay bridge instead of depending on public Invidious/Piped mirrors that are down or blocked.',
     'Song starts stay InstantPlay-fast: match the recording, then get a direct audio link from the bridge in one step (AAC on iPhone).',
