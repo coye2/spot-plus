@@ -77,6 +77,8 @@ test('maintenance mode blocks public visitors, rejects plaintext forged tokens, 
 
   const publicVisit = canBypassMaintenance({ storage, origin, now });
   assert.equal(publicVisit.allowed, !MAINTENANCE_MODE);
+  // With maintenance off everyone is let in; the owner gate below only matters while it is on.
+  if (!MAINTENANCE_MODE) return;
 
   // Legacy plaintext handle in storage is rejected and cleared
   storage.setItem(DEV_ACCESS_STORAGE_KEY, TEST_OWNER);

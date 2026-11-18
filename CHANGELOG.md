@@ -2,6 +2,11 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.25 — Spot+ is open again
+_2026-11-18_
+
+- Maintenance is over. Everyone can open Spot+ again, with full songs and the new wallpaper search.
+
 ## 1.9.24 — Search every Alpha Coders wallpaper
 _2026-11-18_
 

@@ -1,6 +1,9 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.25', date: '2026-11-18', title: 'Spot+ is open again', items: [
+    'Maintenance is over. Everyone can open Spot+ again, with full songs and the new wallpaper search.',
+  ]},
   {version: '1.9.24', date: '2026-11-18', title: 'Search every Alpha Coders wallpaper', items: [
     'Search on Background now covers all of Alpha Coders, not only the 2,670 wallpapers saved in the app. Results keep loading as you scroll.',
     'Picking a category keeps going past the saved set. Scroll to the end and more wallpapers from that category load in.',

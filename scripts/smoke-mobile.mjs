@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
 import {existsSync} from 'node:fs';
-import {ALLOWED_ID_HASHES, DEV_ACCESS_STORAGE_KEY, createSessionToken} from '../js/maintenance.js';
+import {ALLOWED_ID_HASHES, DEV_ACCESS_STORAGE_KEY, MAINTENANCE_MODE, createSessionToken} from '../js/maintenance.js';
 import {APP_VERSION} from '../js/changelog.js';
 
 const {chromium} = await import('playwright').catch(() => import('/usr/local/share/bun-global/node_modules/playwright-core/index.mjs'));
@@ -32,7 +32,8 @@ try {
     ...(existsSync(bundledShell) ? {executablePath: bundledShell} : {}),
   });
 
-  // 1. Verify public guest visitor is locked behind the maintenance screen with zero leaked app nodes.
+  // 1. With maintenance on, verify public guest visitor is locked behind the maintenance screen with zero leaked app nodes.
+  if (MAINTENANCE_MODE) {
   const guestCtx=await browser.newContext({
     viewport:{width:390,height:844},deviceScaleFactor:3,hasTouch:true,isMobile:true,serviceWorkers:'block',
   });
@@ -49,6 +50,7 @@ try {
   assert.equal(guestState.screenVisible,true,'Maintenance screen must be visible for guests');
   assert.equal(guestState.unlockHidden,true,'Unlock form must remain hidden until developer gesture');
   await guestCtx.close();
+  }
 
   // 2. Verify full 390x844 authenticated owner session layout, background grid scroll, search & clear.
   const ownerToken=createSessionToken(ALLOWED_ID_HASHES[0],{origin});
