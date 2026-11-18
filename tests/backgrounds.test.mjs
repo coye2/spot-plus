@@ -60,10 +60,12 @@ test('cover crop stays inside the photo and matches the frame', () => {
   assert.ok(edge.y + edge.height <= 1000.1);
 });
 
-test('the wallpaper screen is one scroller with Clear in the appearance switch', () => {
+test('the wallpaper screen is a grid inside its own list, with Clear in the appearance switch', () => {
   const html = page({viewport: phone, settings: {themeMode: 'clear'}});
   assert.match(html, /class="bg-studio"/);
   assert.match(html, /class="bg-tools"/);
+  assert.match(html, /id="bgList"/);
+  assert.match(html, /class="bg-grid"/);
   assert.match(html, /id="bgSearch"/);
   assert.match(html, /id="bgStage"/);
   assert.match(html, /data-mode="clear" aria-pressed="true"/);

@@ -28,7 +28,7 @@ body[data-scene="on"] .bar,
 body[data-scene="on"] .nav{background:var(--bg2)}
 .app{position:relative;z-index:1}
 
-/* Clear: the panels drop out so the wallpaper is the app. */
+/* Clear: the wallpaper stays sharp. Glass is only where text has to be read. */
 html[data-chrome="clear"] body main,
 html[data-chrome="clear"] body.has-bar main,
 html[data-chrome="clear"] body .sidebar,
@@ -37,34 +37,59 @@ html[data-chrome="clear"] body .mobile-top,
 html[data-chrome="clear"] body .view-toolbar,
 html[data-chrome="clear"] body .app,
 html[data-chrome="clear"] body.has-panel .app{background:transparent}
-html[data-chrome="clear"] body[data-scene="on"] .nav{
-  background:color-mix(in srgb, #000 22%, transparent);
-  border-top-color:color-mix(in srgb, #fff 14%, transparent);
-}
+html[data-chrome="clear"] body[data-scene="on"] .nav,
 html[data-chrome="clear"] body[data-scene="on"] .bar{
-  background:color-mix(in srgb, #000 26%, transparent);
-  border-color:color-mix(in srgb, #fff 18%, transparent);
+  background:color-mix(in srgb, #000 46%, transparent);
+  border-color:color-mix(in srgb, #fff 20%, transparent);
   box-shadow:none;
+  -webkit-backdrop-filter:blur(18px) saturate(1.2);
+  backdrop-filter:blur(18px) saturate(1.2);
 }
+html[data-chrome="clear"] body .box,
+html[data-chrome="clear"] body .rewind-link,
+html[data-chrome="clear"] body .quick-item,
 html[data-chrome="clear"] body .chip:not(.on),
+html[data-chrome="clear"] body .mode-switch{
+  background:color-mix(in srgb, #000 58%, transparent);
+  border:1px solid color-mix(in srgb, #fff 18%, transparent);
+  color:#fff;
+}
+html[data-chrome="clear"] body .box{
+  border-radius:18px;
+  padding:14px 16px 6px;
+  margin:0 0 12px;
+}
+html[data-chrome="clear"] body .quick-item{border-radius:10px}
+html[data-chrome="clear"] body .rewind-link,
+html[data-chrome="clear"] body .rewind-link small{color:#fff}
 html[data-chrome="clear"] body .list-tools input,
 html[data-chrome="clear"] body .searchbox,
-html[data-chrome="clear"] body .box,
-html[data-chrome="clear"] body .quick-item,
-html[data-chrome="clear"] body .bg-search input{
-  background:color-mix(in srgb, #000 28%, transparent);
-  border:1px solid color-mix(in srgb, #fff 16%, transparent);
+html[data-chrome="clear"] body .bg-search input,
+html[data-chrome="clear"] body .field input:not([type=checkbox]):not([type=range]):not([type=color]),
+html[data-chrome="clear"] body .field select,
+html[data-chrome="clear"] body .home-dj input{
+  background:color-mix(in srgb, #000 66%, transparent);
+  color:#fff;
+  border:1px solid color-mix(in srgb, #fff 24%, transparent);
 }
+html[data-chrome="clear"] body .box h2,
+html[data-chrome="clear"] body .box .settings-note,
+html[data-chrome="clear"] body .box .field,
+html[data-chrome="clear"] body .box .field small,
+html[data-chrome="clear"] body .quick-item b{color:#fff;text-shadow:none}
 html[data-chrome="clear"] body[data-scene="on"] h1,
 html[data-chrome="clear"] body[data-scene="on"] .library-item b,
 html[data-chrome="clear"] body[data-scene="on"] .library-item small,
-html[data-chrome="clear"] body[data-scene="on"] .bar-title,
-html[data-chrome="clear"] body[data-scene="on"] .mobile-top span{
-  text-shadow:0 1px 10px rgba(0,0,0,.72);
+html[data-chrome="clear"] body[data-scene="on"] .mobile-top span,
+html[data-chrome="clear"] body[data-scene="on"] .ctitle,
+html[data-chrome="clear"] body[data-scene="on"] .csub,
+html[data-chrome="clear"] body[data-scene="on"] .greet{
+  color:#fff;
+  text-shadow:0 1px 2px rgba(0,0,0,.92), 0 0 12px rgba(0,0,0,.55);
 }
-html[data-chrome="clear"] body .np{background:var(--song-surface, var(--bg2))}
+html[data-chrome="clear"] body .np{background:var(--song-surface, var(--bg2));-webkit-backdrop-filter:none;backdrop-filter:none}
 
-/* The wallpaper screen owns one scroll. The rest of the app stays still. */
+/* The wallpaper grid is the only scroller. The page, header, and filters stay still. */
 body[data-page="backgrounds"] main,
 body[data-page="backgrounds"].has-bar main{
   overflow:hidden;
@@ -72,7 +97,8 @@ body[data-page="backgrounds"].has-bar main{
   flex-direction:column;
 }
 body[data-page="backgrounds"] #view{
-  flex:1 1 auto;
+  flex:1 1 0%;
+  height:0;
   min-height:0;
   display:flex;
   flex-direction:column;
@@ -80,12 +106,12 @@ body[data-page="backgrounds"] #view{
 }
 body[data-page="backgrounds"] .content-footer{display:none}
 .bg-studio{
-  flex:1 1 auto;
+  flex:1 1 0%;
+  height:100%;
   min-height:0;
-  overflow-x:hidden;
-  overflow-y:auto;
-  overscroll-behavior:contain;
-  -webkit-overflow-scrolling:touch;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
   padding-top:4px;
 }
 .bg-head{display:grid;grid-template-columns:92px minmax(0,1fr);gap:14px;align-items:center;margin:4px 0 12px}
@@ -109,7 +135,7 @@ body[data-page="backgrounds"] .content-footer{display:none}
 }
 .bg-filters{
   display:flex;gap:8px;overflow-x:auto;padding:0 0 8px;margin:0;
-  scrollbar-width:none;touch-action:pan-x;overscroll-behavior-x:contain;
+  scrollbar-width:none;touch-action:pan-x pan-y;overscroll-behavior-x:contain;
 }
 .bg-filters::-webkit-scrollbar{display:none}
 .bg-filters .chip{
@@ -118,19 +144,29 @@ body[data-page="backgrounds"] .content-footer{display:none}
 }
 .bg-filters .chip.on{background:var(--text);color:var(--canvas)}
 .bg-count{margin:0 0 8px;color:var(--muted);font-size:13px}
-.bg-list{padding-bottom:8px}
-.bg-group h2,.bg-list #bgMine h2{margin:14px 0 8px;font-size:13px;font-weight:650;color:var(--muted)}
-.bg-row{
-  display:flex;align-items:center;gap:12px;width:100%;min-height:72px;margin:0 0 8px;padding:8px 10px;
-  border:0;border-radius:14px;background:color-mix(in srgb, #000 48%, transparent);color:var(--text);text-align:left;cursor:pointer;
+.bg-list{
+  flex:1 1 0%;
+  height:0;
+  min-height:0;
+  overflow-x:hidden;
+  overflow-y:scroll;
+  overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+  touch-action:pan-y;
+  padding-bottom:16px;
 }
-.bg-row.is-on{background:color-mix(in srgb, var(--accent) 55%, #000)}
-html[data-chrome="clear"] .bg-row{background:color-mix(in srgb, #000 32%, transparent)}
-.bg-col-name{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
-.bg-col-name b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bg-col-name small,.bg-on{color:color-mix(in srgb, #fff 78%, transparent);font-size:12px}
-.bg-on{color:#fff;font-weight:650;flex:none}
-.bg-thumb{width:64px;height:64px;object-fit:cover;border-radius:10px;background:#111;display:block;flex:none}
+.bg-group h2,.bg-list #bgMine h2{margin:14px 0 8px;font-size:13px;font-weight:650;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.8)}
+.bg-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:0 0 8px}
+.bg-row{
+  position:relative;display:flex;flex-direction:column;align-items:stretch;gap:6px;width:100%;min-height:0;margin:0;padding:0;
+  border:0;border-radius:12px;background:transparent;color:#fff;text-align:left;cursor:pointer;
+}
+.bg-row.is-on .bg-thumb{outline:3px solid #fff;outline-offset:2px}
+.bg-col-name{display:flex;flex-direction:column;gap:2px;min-width:0}
+.bg-col-name b{font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 2px rgba(0,0,0,.85)}
+.bg-col-name small{color:rgba(255,255,255,.86);font-size:12px;text-shadow:0 1px 2px rgba(0,0,0,.85)}
+.bg-on{position:absolute;top:8px;left:8px;padding:2px 8px;border-radius:999px;background:rgba(0,0,0,.72);color:#fff;font-size:11px;font-weight:700}
+.bg-thumb{width:100%;height:auto;aspect-ratio:16/9;object-fit:cover;border-radius:12px;background:#111;display:block}
 .bg-thumb-file{display:inline-block;background:linear-gradient(135deg,#243,#132)}
 .bg-remove{min-height:36px;padding:0 12px;border-radius:999px;background:transparent;color:#fff;border:1px solid color-mix(in srgb, #fff 28%, transparent);flex:none}
 .bg-empty{padding:18px 4px;color:var(--muted)}
@@ -140,5 +176,5 @@ html[data-chrome="clear"] .bg-row{background:color-mix(in srgb, #000 32%, transp
   .bg-head h1{font-size:32px}
   .bg-actions{max-width:280px}
   .bg-actions .btn{flex:0 1 auto}
-  .bg-thumb{width:112px;height:64px}
+  .bg-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
 }

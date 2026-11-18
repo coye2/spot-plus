@@ -304,14 +304,15 @@ function rows(items, scene, kind, esc, showCategory) {
 
 function catalogMarkup(items, scene, esc, {grouped = false, showCategory = false} = {}) {
   if (!items.length) return '<div class="bg-catalog-body"><p class="bg-empty">No matches</p></div>';
-  if (!grouped) return `<div class="bg-catalog-body">${rows(items, scene, 'catalog', esc, showCategory)}</div>`;
+  const grid = (list, names) => `<div class="bg-grid">${rows(list, scene, 'catalog', esc, names)}</div>`;
+  if (!grouped) return `<div class="bg-catalog-body">${grid(items, showCategory)}</div>`;
   const names = [];
   const buckets = new Map();
   for (const item of items) {
     if (!buckets.has(item.category)) { buckets.set(item.category, []); names.push(item.category); }
     buckets.get(item.category).push(item);
   }
-  return `<div class="bg-catalog-body">${names.map(name => `<section class="bg-group"><h2>${esc(name)}</h2>${rows(buckets.get(name), scene, 'catalog', esc, false)}</section>`).join('')}</div>`;
+  return `<div class="bg-catalog-body">${names.map(name => `<section class="bg-group"><h2>${esc(name)}</h2>${grid(buckets.get(name), false)}</section>`).join('')}</div>`;
 }
 
 export function page({category = '', settings = {}, uploads: saved = [], viewport = readViewport(), esc = htmlEscape} = {}) {
@@ -328,7 +329,7 @@ export function page({category = '', settings = {}, uploads: saved = [], viewpor
   const stageItem = scene?.kind === 'catalog' ? findWallpaper(scene.id) : null;
   const stageSrc = stageItem ? wallpaperURLs(stageItem).preview : stageURL(settings.scene, viewport);
   const [px, py] = positionOf(scene).split(' ');
-  const mine = saved.length ? `<div id="bgMine"><h2>Yours</h2>${rows(saved, scene, 'upload', esc, false)}</div>` : '<div id="bgMine"></div>';
+  const mine = saved.length ? `<div id="bgMine"><h2>Yours</h2><div class="bg-grid">${rows(saved, scene, 'upload', esc, false)}</div></div>` : '<div id="bgMine"></div>';
   return `<div class="bg-studio" data-category="${esc(active?.slug || '')}" data-scene-kind="${esc(scene?.kind || '')}" data-scene-id="${esc(scene?.id || '')}">
     <header class="bg-head">
       <button type="button" class="bg-stage" id="bgStage" aria-label="Drag to crop" style="--scene-x:${px};--scene-y:${py}">

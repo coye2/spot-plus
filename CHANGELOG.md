@@ -2,6 +2,12 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.16 — A clearer Clear theme, and a wallpaper grid that scrolls
+_2026-11-18_
+
+- Clear keeps the wallpaper visible. Panels, the player, and the tab bar stay readable instead of showing the page through them.
+- The wallpaper picker is a grid, and only that grid scrolls.
+
 ## 1.9.15 — Your real Spotify photo, and a photo you choose
 _2026-11-18_
 
