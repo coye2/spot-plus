@@ -197,6 +197,7 @@ const INV_FALLBACK = [
   'https://yt.chocolatemoo53.com',
 ];
 const JIOSAAVN_FALLBACK = ['https://saavn.sumit.co'];
+const MONO_BASE = 'https://tracks.monochrome.st';
 const HIFI_REGISTRY_URL = 'https://raw.githubusercontent.com/kipavy/spotube-plugin-lossless-sources/main/sources.json';
 const HIFI_FALLBACK = [
   'https://hifi-api-w9y8.onrender.com',
@@ -388,13 +389,13 @@ const failedInstances = new Map();
 function lastGood() { try { return JSON.parse(localStorage.getItem(goodKey) || '{}'); } catch { return {}; } }
 function markGood(kind, base) { const g = lastGood(); g[kind] = base; try { localStorage.setItem(goodKey, JSON.stringify(g)); } catch {} }
 export function reportPlaybackSource(source, ok = true, meta = {}) {
-  if (!source?.instance || !['piped','invidious','bridge','audius','jiosaavn','hifi'].includes(source.kind)) return;
+  if (!source?.instance || !['piped','invidious','bridge','audius','jiosaavn','hifi','monochrome'].includes(source.kind)) return;
   const hostKey = source.kind === 'bridge' ? STREAM_ENDPOINT : source.instance;
   router.recordPlayback(hostKey, { ok, startupMs: meta.startupMs, stalled: !!meta.stalled });
   if (ok) {
     failedInstances.delete(source.instance);
     if (source.kind === 'bridge') streamDown = 0;
-    else if (['piped','invidious','jiosaavn','hifi'].includes(source.kind)) markGood(source.kind, source.instance);
+    else if (['piped','invidious','jiosaavn','hifi','monochrome'].includes(source.kind)) markGood(source.kind, source.instance);
   } else {
     failedInstances.set(source.instance, Date.now() + (source.kind === 'bridge' ? 30e3 : 90e3));
     if (source.kind === 'bridge') streamDown = Date.now() + 20e3;
@@ -550,6 +551,39 @@ function decodeHifiManifest(data) {
   }
   return null;
 }
+async function monochromeStream(base, track, signal, ms = 2200) {
+  const data = await fetchJSON(`${base}/search/tracks?q=${encodeURIComponent(query(track))}`, ms, signal);
+  const rows = Array.isArray(data?.tracks) ? data.tracks : [];
+  const wantInstrumental = /\binstrumental\b/i.test(`${track.title} ${track.artist}`);
+  const items = rows.filter((row) => row && row.playable !== false && row.id && (wantInstrumental || !/\binstrumental\b/i.test(row.title || ''))).map((row) => ({
+    id: String(row.id),
+    title: String(row.title || '').replace(/\s+-\s+.*\bremix\b.*/i, ''),
+    channel: Array.isArray(row.artistNames) ? row.artistNames.filter(Boolean).join(', ') : '',
+    duration: Math.round((Number(row.duration) || 0) / (Number(row.duration) > 10000 ? 1000 : 1)),
+    verified: true,
+  }));
+  const matches = best(items, track);
+  if (!matches.length) throw new Error('No matching Monochrome track');
+  const chosen = matches[0];
+  const mime = 'audio/flac';
+  if (probe && !probe.canPlayType(mime) && !probe.canPlayType('audio/x-flac')) throw new Error('This device cannot play lossless audio');
+  return {
+    url: `${base}/track/${encodeURIComponent(chosen.id)}`,
+    mime,
+    bitrate: 900000,
+    lossless: true,
+    fast: true,
+    kind: 'monochrome',
+    engineLabel: 'Monochrome',
+    instance: base,
+    catalogId: chosen.id,
+    title: chosen.title,
+    channel: chosen.channel,
+    duration: chosen.duration,
+    verified: true,
+    alternatives: [],
+  };
+}
 async function hifiStream(base, track, signal, ms = 2600) {
   const sData = await fetchJSON(`${base}/search/?s=${encodeURIComponent(query(track))}`, ms, signal);
   const rawItems = sData?.data?.items || sData?.items || sData?.tracks || [];
@@ -648,7 +682,7 @@ function kinds(s = getSettings().source) {
   if (s === 'invidious') return ['invidious'];
   if (s === 'audius') return ['audius'];
   if (s === 'youtube') return ['youtube'];
-  return ['jiosaavn', 'hifi', 'invidious', 'piped', 'audius'];
+  return ['monochrome', 'jiosaavn', 'hifi', 'invidious', 'piped', 'audius'];
 }
 
 export async function previewStream(t) {
@@ -764,6 +798,7 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
     const ytKinds = activeKinds.filter((k) => ['piped', 'invidious'].includes(k));
     const streamGroups = ytKinds.map((kind) => orderedInstances(kind, inst, set).slice(0, perKind).map((base) => ({ kind, base })));
     const sources = [];
+    if (activeKinds.includes('monochrome') && !skip.includes(MONO_BASE)) sources.push({ kind: 'monochrome', base: MONO_BASE });
     if (activeKinds.includes('jiosaavn')) {
       for (const base of orderedInstances('jiosaavn', inst, set).slice(0, 2)) {
         if (!skip.includes(base)) sources.push({ kind: 'jiosaavn', base });
@@ -783,7 +818,8 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
       const began = performance.now();
       try {
         let value;
-        if (kind === 'audius') value = await audiusStream(t, raceSignal);
+        if (kind === 'monochrome') value = await monochromeStream(base, t, raceSignal, reqMs);
+        else if (kind === 'audius') value = await audiusStream(t, raceSignal);
         else if (kind === 'jiosaavn') value = await jiosaavnStream(base, t, raceSignal, reqMs);
         else if (kind === 'hifi') value = await hifiStream(base, t, raceSignal, reqMs);
         else value = await attemptServer(kind, base);
@@ -855,6 +891,8 @@ function previewSource(url) {
 
 /** When every full-track server is down, start the catalog sample so the song is not a dead error. */
 async function previewRescue(t) {
+  const fresh = await previewStream(t).catch(() => null);
+  if (fresh?.url) return fresh;
   const ready = previewSource(t?.preview);
   if (ready) return ready;
   if (!globalThis.document?.head) {
@@ -1000,6 +1038,7 @@ function preconnect(url) {
 }
 export function warmConnections(){
   preconnect(MATCH_ENDPOINT);
+  preconnect(MONO_BASE);
   preconnect('https://saavn.sumit.co');
   preconnect('https://aac.saavncdn.com');
   preconnect('https://api.audius.co');
@@ -1009,7 +1048,10 @@ export function warmConnections(){
 export async function resolve(t,options={}) {
   // Podcasts and audiobooks come with their own direct audio link.
   if(t?.direct){options.signal?.throwIfAborted();return {url:t.direct,mime:t.mime||'audio/mpeg',bitrate:128000,kind:'direct',instance:host(t.direct),cacheLayer:'direct'};}
-  const settings=getSettings(),allowEmbed=!!(options.allowEmbed&&settings.source==='youtube'),key=streamKey(t,settings),hit=!options.skip?.length&&cachedStream(key);
+  const settings=getSettings(),allowEmbed=!!(options.allowEmbed&&settings.source==='youtube'),key=streamKey(t,settings);
+  let hit=!options.skip?.length&&cachedStream(key);
+  // A saved 30-second clip must not block a new search for the full song.
+  if(hit?.preview && settings.source==='auto') hit=null;
   if(hit&&(!options.fullOnly||(!hit.preview&&hit.kind!=='youtube-embed'))&&(allowEmbed||hit.kind!=='youtube-embed')&&(!options.cors||(hit.kind!=='youtube-embed'&&await corsOK(hit.url)))){options.signal?.throwIfAborted();return {...hit,cacheLayer:'memory'};}
   if(options.skip?.length)forget(key);
   const warm=warmups.get(key);
@@ -1075,6 +1117,10 @@ export async function matchCatalogTrack(t){
 
 /** Other YouTube matches for a track, for when the automatic match is wrong. */
 export async function candidates(t) {
+  try {
+    const matches = await bridgeMatches(t);
+    if (matches?.length) return matches.slice(0, 8);
+  } catch { /* The public match service is down. Try the other catalogs. */ }
   const inst = await instances();
   const set = getSettings();
   for (const kind of kinds()) {

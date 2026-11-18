@@ -1,6 +1,11 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.21', date: '2026-11-18', title: 'Full songs from Monochrome, then a preview that actually starts', items: [
+    'Automatic playback asks Monochrome first. It has the mainstream catalog, including songs the other public servers miss, and it is not the YouTube player.',
+    'JioSaavn, HiFi, Audius, Invidious, and Piped still run beside it. A 30-second preview is only used after those miss, and that preview is fetched fresh so it can start.',
+    'The “could not search for alternatives” message no longer appears when the public match service can still find recordings. The playback failure is shown once.',
+  ]},
   {version: '1.9.20', date: '2026-11-18', title: 'Background grid scrolling, hardened maintenance gate, Deezer restoration, and Spotube-style multi-source audio', items: [
     'Turned the Background picker into a responsive visual grid (2 columns on iPhone, multi-column on desktop) whose internal catalog container scrolls independently without dragging the rest of the page, with multi-token search across all 2,670+ wallpapers.',
     'Hardened the maintenance gate with hashed owner verification (zero plaintext handle in shipped code), origin-bound signed tokens, brute-force lockout, and DOM mutation enforcement.',

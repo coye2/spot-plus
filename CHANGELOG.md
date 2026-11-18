@@ -2,6 +2,13 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.21 — Full songs from Monochrome, then a preview that actually starts
+_2026-11-18_
+
+- Automatic playback asks Monochrome first. It has the mainstream catalog, including songs the other public servers miss, and it is not the YouTube player.
+- JioSaavn, HiFi, Audius, Invidious, and Piped still run beside it. A 30-second preview is only used after those miss, and that preview is fetched fresh so it can start.
+- The “could not search for alternatives” message no longer appears when the public match service can still find recordings. The playback failure is shown once.
+
 ## 1.9.20 — Background grid scrolling, hardened maintenance gate, Deezer restoration, and Spotube-style multi-source audio
 _2026-11-18_
 

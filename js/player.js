@@ -354,28 +354,11 @@ function recoverMedia(mediaErr = null) {
     return;
   }
 
-  // 30s catalog preview fallback only after full-track servers + alternatives are exhausted in auto mode.
-  const previewUrl = cur?.preview;
-  if (!state.offline && !failed?.preview && store.getSettings().source === 'auto') {
-    if (/^https:\/\//.test(previewUrl || '')) {
-      startupSwaps = 0;
-      telemetry.endRecovery(recStart, true);
-      playAssigned({
-        url: previewUrl,
-        mime: 'audio/mpeg',
-        bitrate: 128000,
-        kind: 'preview',
-        instance: 'https://api.deezer.com',
-        preview: true,
-        alternatives: [],
-      });
-      return;
-    }
-    if (!cur.local) {
-      telemetry.endRecovery(recStart, true);
-      fallbackToPreview('', { allowPreview: true });
-      return;
-    }
+  // A fresh catalog sample, only after the full-song servers are exhausted.
+  if (!state.offline && !failed?.preview && !cur.local && store.getSettings().source === 'auto') {
+    telemetry.endRecovery(recStart, true);
+    fallbackToPreview('', { allowPreview: true });
+    return;
   }
 
   telemetry.endRecovery(recStart, false);

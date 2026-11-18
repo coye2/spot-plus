@@ -1927,7 +1927,7 @@ document.addEventListener('pointerover',e=>{if(e.pointerType==='mouse')warmPage(
 $$('[data-icon]').forEach((el) => setIcon(el, el.dataset.icon));
 player.on('state', syncPlayer);
 player.on('time', syncTime);
-player.on('error', (msg) => toast(msg));
+player.on('error', (msg) => { if (!/^Playback failed/.test(msg || '')) toast(msg); });
 store.onChange((key) => {
   const h = location.hash;
   if(key==='settings'){applyPreferences();if(!store.getSettings().djVoice)dj.voice.cancelSpeech();}
