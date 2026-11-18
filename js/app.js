@@ -590,7 +590,7 @@ async function viewSettings() {
   <section class="box"><h2>Your devices</h2><p class="settings-note">${libsync.syncState()?'Your library syncs with your other devices.':'Keep your likes and playlists the same on your phone and computer. No account.'}</p><button class="btn primary small" data-act="link-devices">${libsync.syncState()?'Link another device':'Link a device'}</button></section>
   <section class="box"><h2>Notifications</h2>${notify.permission()==='unsupported'?'<p class="settings-note">This browser can’t show notifications. On iPhone, add Spot+ to your Home Screen first.</p>':notify.permission()==='granted'?'':`<p class="settings-note">${notify.permission()==='denied'?'Notifications are blocked for Spot+. Allow them in your browser or phone settings.':'Get a heads-up about new music and updates. Never more than two a day, and nothing at night.'}</p>${notify.permission()==='default'?'<button class="btn primary small" data-act="notify-enable">Turn on notifications</button>':''}`}
   ${toggle('notifyReleases','New releases','When an artist you follow drops a song or album.')}${toggle('notifyStats','Weekly recap','Sunday evening: your minutes and most-played artist.')}${toggle('notifyUpdates','App updates','When a new version of Spot+ is ready.')}</section>
-  <section class="box"><h2>Appearance</h2>${themeModeSwitch(s)}<p class="settings-note">Light, dark or automatic, with 19 color themes.</p><a class="btn" href="#/themes">Themes</a><a class="btn" href="#/backgrounds">Background</a><label class="field"><span>Library and track spacing</span>${sel('density',[['comfortable','Comfortable'],['compact','Compact']])}</label><label class="field"><span>Text size</span>${sel('textSize',[['normal','Default'],['large','Larger']])}</label><label class="field"><span>Motion</span>${sel('motion',[['system','Follow system'],['reduced','Reduced']])}</label></section>
+  <section class="box"><h2>Appearance</h2>${themeModeSwitch(s)}<p class="settings-note">Light, dark, or automatic.</p><div class="row-btns"><a class="btn" href="#/themes">Themes</a><a class="btn" href="#/backgrounds">Background</a></div><label class="field"><span>Library and track spacing</span>${sel('density',[['comfortable','Comfortable'],['compact','Compact']])}</label><label class="field"><span>Text size</span>${sel('textSize',[['normal','Default'],['large','Larger']])}</label><label class="field"><span>Motion</span>${sel('motion',[['system','Follow system'],['reduced','Reduced']])}</label></section>
   <section class="box"><h2>Playback</h2>
     <label class="field"><span>Audio source<small>Full tracks depend on reachable audio servers. Preview mode plays short samples only.</small></span>${sel('source', [['auto', 'Automatic'], ['piped', 'Piped'], ['invidious', 'Invidious'],['audius','Audius public releases'],['preview','Deezer previews (30 sec)']])}</label>
     <label class="field"><span>Streaming quality</span>${sel('quality', [['high', 'High'], ['low', 'Data saver']])}</label>
@@ -664,7 +664,7 @@ const routes = [
   [/^#\/spotify-account\/playlist\/([a-zA-Z0-9]{22})$/, viewSpotifyAccountList],
   [/^#\/spotify\/(playlist|album|artist|track)\/([a-zA-Z0-9]{22})$/, viewSpotifyCollection],
   [/^#\/themes$/, viewThemes],
-  [/^#\/backgrounds(?:\/([A-Za-z]+))?$/, viewBackgrounds],
+  [/^#\/backgrounds(?:\/([a-z0-9-]+))?$/, viewBackgrounds],
   [/^#\/linked\/([A-Za-z0-9]{22})$/, viewLinked],
   [/^#\/jam$/, viewJam],
   [/^#\/jam\/([A-Za-z0-9]{6})$/, joinJamFromLink],

@@ -2,6 +2,13 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.13 — Sharp backgrounds and a searchable wallpaper library
+_2026-11-18_
+
+- Backgrounds stay sharp. The app and library show the photo, without a blur over it. The player keeps its own color.
+- The wallpaper library is the Alpha Coders category list: search by name, and browse every category.
+- The background screen uses a short title, Upload and None side by side, and a simpler table.
+
 ## 1.9.12 — One playback message, and the preview still starts
 _2026-11-18_
 

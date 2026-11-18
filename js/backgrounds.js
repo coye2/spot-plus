@@ -46,7 +46,7 @@ export function wallpaperURLs(item) {
   return {
     full: `${base}${item.id}.${item.ext}`,
     fhd: `${base}thumb-1920-${item.id}.${item.ext}`,
-    preview: `${base}thumb-350-${item.id}.webp`,
+    preview: `${base}thumbbig-${item.id}.webp`,
   };
 }
 
@@ -197,21 +197,13 @@ function syncStudio(scene) {
   const studio = document.querySelector('.bg-studio');
   if (!studio) return;
   const viewport = readViewport();
-  const tier = deviceTier(viewport);
-  const pixels = targetPixels(viewport);
   const layout = studio.querySelector('.bg-layout');
   layout?.classList.toggle('wide', viewport.width >= 900);
   layout?.classList.toggle('tall', viewport.width < 900);
-  const lead = studio.querySelector('.muted');
-  if (lead) {
-    const device = viewport.width >= 900 ? 'screen' : 'phone';
-    const source = tier === '4k' ? '4K' : '1920';
-    lead.textContent = `Covers the app and your library. The player stays on its own color. Drag the preview to crop. This ${device} uses a ${source} source, painted at ${pixels.width}×${pixels.height}.`;
-  }
   const note = studio.querySelector('.bg-note');
-  if (note) {
-    const name = note.textContent.split('·')[0].trim() || 'No background';
-    note.textContent = `${name} · ${tier === '4k' ? '4K file, cropped to this device' : '1920 file, cropped to this phone'} · Alpha Coders and your uploads`;
+  if (note && scene?.kind === 'catalog') {
+    const item = findWallpaper(scene.id);
+    if (item) note.textContent = item.name;
   }
   const preview = studio.querySelector('#bgStage img');
   if (preview && scene?.kind === 'catalog') {
@@ -261,53 +253,93 @@ export function install(getSettings) {
   } else apply(getSettings());
 }
 
-function rows(items, scene, kind, esc) {
+const htmlEscape = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+
+export function categoryFrom(value) {
+  if (!value) return null;
+  const key = String(value).toLowerCase();
+  return CATEGORIES.find(item => item.slug === key || item.name.toLowerCase() === key) || null;
+}
+
+/** Search the Alpha Coders catalog. With no query and no category, return a few from each category. */
+export function searchWallpapers({category = '', query = '', limit = 80} = {}) {
+  const picked = categoryFrom(category);
+  const q = String(query || '').trim().toLowerCase();
+  let items = picked ? CATALOG.filter(item => item.category === picked.name) : CATALOG;
+  if (q) items = items.filter(item => `${item.name} ${item.category}`.toLowerCase().includes(q));
+  else if (!picked) {
+    const seen = new Map();
+    const sample = [];
+    for (const item of items) {
+      const count = seen.get(item.category) || 0;
+      if (count >= 3) continue;
+      seen.set(item.category, count + 1);
+      sample.push(item);
+    }
+    return sample;
+  }
+  return items.slice(0, limit);
+}
+
+function rows(items, scene, kind, esc, showCategory) {
   return items.map(item => {
     const on = scene?.kind === kind && scene.id === item.id;
     const preview = kind === 'catalog' ? wallpaperURLs(item).preview : '';
-    const res = item.w && item.h ? `${item.w}×${item.h}` : '—';
-    const remove = kind === 'upload' ? `<button type="button" class="bg-remove" data-act="bg-delete" data-id="${esc(item.id)}">Remove</button>` : '';
+    const res = item.w && item.h ? `${item.w} × ${item.h}` : '';
+    const remove = kind === 'upload' ? `<button type="button" class="bg-remove" data-act="bg-delete" data-id="${esc(item.id)}">Remove</button>` : (on ? '<span class="bg-on">Selected</span>' : '');
     return `<tr class="${on ? 'is-on' : ''}" data-act="bg-pick" data-kind="${kind}" data-id="${esc(item.id)}" tabindex="0" aria-pressed="${on}">
-      <td class="bg-col-preview">${preview ? `<img class="bg-thumb" alt="" src="${esc(preview)}" width="96" height="54">` : '<span class="bg-thumb bg-thumb-file"></span>'}</td>
-      <td class="bg-col-name"><b>${esc(item.name)}</b><small>${esc(item.category || 'On this device')}</small></td>
+      <td class="bg-col-preview">${preview ? `<img class="bg-thumb" alt="" src="${esc(preview)}" width="112" height="63">` : '<span class="bg-thumb bg-thumb-file"></span>'}</td>
+      <td class="bg-col-name"><b>${esc(item.name)}</b>${showCategory && item.category ? `<small>${esc(item.category)}</small>` : ''}</td>
       <td class="bg-col-res">${res}</td>
-      <td class="bg-col-source">${kind === 'catalog' ? 'Alpha Coders' : 'Upload'}</td>
-      <td class="bg-col-act">${on ? '<span class="bg-on">On</span>' : '<span class="bg-set">Use</span>'}${remove}</td>
+      <td class="bg-col-act">${remove}</td>
     </tr>`;
   }).join('');
 }
 
-export function page({category = '', settings = {}, uploads: saved = [], viewport = readViewport(), esc = String} = {}) {
+function catalogMarkup(items, scene, esc, {grouped = false, showCategory = false} = {}) {
+  if (!items.length) return '<tbody class="bg-catalog-body"><tr><td class="bg-empty" colspan="4">No matches</td></tr></tbody>';
+  if (!grouped) return `<tbody class="bg-catalog-body">${rows(items, scene, 'catalog', esc, showCategory)}</tbody>`;
+  const names = [];
+  const buckets = new Map();
+  for (const item of items) {
+    if (!buckets.has(item.category)) { buckets.set(item.category, []); names.push(item.category); }
+    buckets.get(item.category).push(item);
+  }
+  return names.map(name => `<tbody class="bg-catalog-body"><tr class="bg-group"><th colspan="4">${esc(name)}</th></tr>${rows(buckets.get(name), scene, 'catalog', esc, false)}</tbody>`).join('');
+}
+
+export function page({category = '', settings = {}, uploads: saved = [], viewport = readViewport(), esc = htmlEscape} = {}) {
   const scene = normalizeScene(settings.scene);
-  const active = category && CATEGORIES.includes(category) ? category : '';
-  const list = active ? CATALOG.filter(item => item.category === active) : CATALOG;
-  const groups = active ? [[active, list]] : CATEGORIES.map(name => [name, list.filter(item => item.category === name)]);
+  const active = categoryFrom(category);
+  const items = searchWallpapers({category: active?.slug || '', limit: active ? 120 : 80});
   const picked = scene?.kind === 'catalog' ? findWallpaper(scene.id) : saved.find(item => item.id === scene?.id);
-  const tier = deviceTier(viewport);
-  const pixels = targetPixels(viewport);
   const frame = viewport.width >= 900 ? 'wide' : 'tall';
-  const chips = [['', 'All'], ...CATEGORIES.map(name => [name, name])].map(([id, label]) => {
-    const on = (id || '') === active;
-    return `<a class="chip${on ? ' on' : ''}" href="#/backgrounds${id ? '/' + id : ''}" aria-pressed="${on}">${esc(label)}</a>`;
+  const chips = [{slug: '', name: 'All'}, ...CATEGORIES].map(item => {
+    const on = (active?.slug || '') === item.slug;
+    return `<a class="chip${on ? ' on' : ''}" href="#/backgrounds${item.slug ? '/' + item.slug : ''}" aria-current="${on ? 'true' : 'false'}">${esc(item.name)}</a>`;
   }).join('');
   const preview = stageURL(settings.scene, viewport);
-  const body = groups.map(([name, items]) => items.length ? `<tbody><tr class="bg-group"><th colspan="5">${esc(name)}</th></tr>${rows(items, scene, 'catalog', esc)}</tbody>` : '').join('');
-  const mine = saved.length ? `<tbody><tr class="bg-group"><th colspan="5">On this device</th></tr>${rows(saved, scene, 'upload', esc)}</tbody>` : '';
-  return `<div class="bg-studio">
-    <div class="studio-heading"><div><div class="kicker">Appearance</div><h1>Background</h1><p class="muted">Covers the app and your library. The player stays on its own color. Drag the preview to crop. This ${esc(viewport.width >= 900 ? 'screen' : 'phone')} uses a ${tier === '4k' ? '4K' : '1920'} source, painted at ${pixels.width}×${pixels.height}.</p></div>
-    <div class="row-btns"><button class="btn" type="button" data-act="bg-upload">Upload</button><button class="btn" type="button" data-act="bg-clear">None</button></div></div>
+  const [px, py] = positionOf(scene).split(' ');
+  const mine = saved.length ? `<tbody id="bgMine"><tr class="bg-group"><th colspan="4">Yours</th></tr>${rows(saved, scene, 'upload', esc, false)}</tbody>` : '<tbody id="bgMine"></tbody>';
+  return `<div class="bg-studio" data-category="${esc(active?.slug || '')}" data-scene-kind="${esc(scene?.kind || '')}" data-scene-id="${esc(scene?.id || '')}">
+    <header class="bg-head">
+      <div><h1>Background</h1><p>App and library</p></div>
+      <div class="bg-actions"><button class="btn" type="button" data-act="bg-upload">Upload</button><button class="btn" type="button" data-act="bg-clear">None</button></div>
+    </header>
     <div class="bg-layout ${frame}">
-      <button type="button" class="bg-stage" id="bgStage" aria-label="Drag to choose the crop" style="--scene-x:${positionOf(scene).split(' ')[0]};--scene-y:${positionOf(scene).split(' ')[1]}">
-        ${preview ? `<img alt="" src="${esc(preview)}">` : '<span class="bg-stage-empty">Pick a wallpaper</span>'}
-        <i class="bg-stage-app"></i><i class="bg-stage-library"></i><b>App and library</b>
+      <button type="button" class="bg-stage" id="bgStage" aria-label="Drag to crop" style="--scene-x:${px};--scene-y:${py}">
+        ${preview ? `<img alt="" src="${esc(preview)}">` : '<span class="bg-stage-empty">Choose a wallpaper</span>'}
       </button>
-      <p class="bg-note">${picked ? esc(picked.name) : 'No background'} · ${tier === '4k' ? '4K file, cropped to this device' : '1920 file, cropped to this phone'} · Alpha Coders and your uploads</p>
+      <p class="bg-note">${picked ? esc(picked.name) : 'Drag to crop'}</p>
     </div>
-    <div class="chips bg-filters">${chips}</div>
+    <label class="bg-search"><input id="bgSearch" type="search" placeholder="Search" aria-label="Search wallpapers" enterkeyhint="search" autocomplete="off"></label>
+    <nav class="bg-filters" aria-label="Categories">${chips}</nav>
+    <p class="bg-count">${CATALOG.length.toLocaleString()} wallpapers · ${CATEGORIES.length} categories</p>
     <div class="bg-table-wrap">
-      <table class="bg-table">
-        <thead><tr><th>Preview</th><th>Name</th><th class="bg-col-res">Resolution</th><th class="bg-col-source">Source</th><th></th></tr></thead>
-        ${body}${mine}
+      <table class="bg-table" id="bgTable">
+        <thead><tr><th></th><th>Name</th><th class="bg-col-res">Size</th><th></th></tr></thead>
+        ${mine}
+        ${catalogMarkup(items, scene, esc, {grouped: !active})}
       </table>
     </div>
   </div>`;
@@ -315,6 +347,17 @@ export function page({category = '', settings = {}, uploads: saved = [], viewpor
 
 export function mount(root, hooks) {
   const stage = root.querySelector('#bgStage');
+  const search = root.querySelector('#bgSearch');
+  if (search && !search.dataset.bound) {
+    search.dataset.bound = '1';
+    search.addEventListener('input', () => {
+      const scene = {kind: root.dataset.sceneKind, id: root.dataset.sceneId};
+      const items = searchWallpapers({category: root.dataset.category || '', query: search.value, limit: 80});
+      root.querySelectorAll('.bg-catalog-body').forEach(node => node.remove());
+      const query = search.value.trim();
+      root.querySelector('#bgTable')?.insertAdjacentHTML('beforeend', catalogMarkup(items, scene, htmlEscape, {grouped: !query && !root.dataset.category, showCategory: Boolean(query)}));
+    });
+  }
   if (!stage || stage.dataset.bound) return;
   stage.dataset.bound = '1';
   let drag = false;
