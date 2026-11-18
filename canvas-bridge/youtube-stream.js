@@ -1,7 +1,7 @@
 // /stream: resolve a YouTube video id to a direct audio URL from Cloudflare's edge.
 // Browser clients can no longer rely on public Invidious/Piped CORS mirrors (most are
-// down or return 403). The bridge talks to YouTube InnerTube (ANDROID_VR) and, as a
-// fallback, server-side Invidious/Piped — then returns a short-lived googlevideo URL.
+// down or return 403). The bridge talks to YouTube InnerTube (ANDROID_VR / IOS) and
+// server-side Invidious/Piped mirrors, returning direct URLs + mirror alternatives.
 const headers = {
   'Content-Type': 'application/json; charset=utf-8',
   'X-Content-Type-Options': 'nosniff',
@@ -15,6 +15,9 @@ const reply = (data, status = 200, maxAge = 0) => new Response(JSON.stringify(da
 
 const ANDROID_VR_VERSION = '1.65.10';
 const ANDROID_VR_UA = `com.google.android.apps.youtube.vr.oculus/${ANDROID_VR_VERSION} (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip`;
+const IOS_VERSION = '19.45.4';
+const IOS_UA = `com.google.ios.youtube/${IOS_VERSION} (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)`;
+const API_UA = 'SpotPlus/2.0 (https://coye2.github.io/spot-plus/)';
 const PLAYER = 'https://www.youtube.com/youtubei/v1/player';
 const VISITOR = 'https://youtubei.googleapis.com/youtubei/v1/visitor_id';
 
@@ -24,21 +27,33 @@ export const AUDIO_ITAGS = {aac: 140, opus: 251, opus70: 250, opus50: 249};
 let visitorData = '';
 let visitorFetched = 0;
 
-function clientContext() {
-  const client = {
-    clientName: 'ANDROID_VR',
-    clientVersion: ANDROID_VR_VERSION,
-    deviceMake: 'Oculus',
-    deviceModel: 'Quest 3',
-    androidSdkVersion: 32,
-    osName: 'Android',
-    osVersion: '12L',
-    userAgent: ANDROID_VR_UA,
-    hl: 'en',
-    gl: 'US',
-    timeZone: 'UTC',
-    utcOffsetMinutes: 0,
-  };
+function clientContext(profile = 'android_vr') {
+  const client = profile === 'ios'
+    ? {
+      clientName: 'IOS',
+      clientVersion: IOS_VERSION,
+      deviceMake: 'Apple',
+      deviceModel: 'iPhone16,2',
+      osName: 'iPhone',
+      osVersion: '18.1.0.22B83',
+      userAgent: IOS_UA,
+      hl: 'en',
+      gl: 'US',
+    }
+    : {
+      clientName: 'ANDROID_VR',
+      clientVersion: ANDROID_VR_VERSION,
+      deviceMake: 'Oculus',
+      deviceModel: 'Quest 3',
+      androidSdkVersion: 32,
+      osName: 'Android',
+      osVersion: '12L',
+      userAgent: ANDROID_VR_UA,
+      hl: 'en',
+      gl: 'US',
+      timeZone: 'UTC',
+      utcOffsetMinutes: 0,
+    };
   if (visitorData) client.visitorData = visitorData;
   return {client};
 }
@@ -46,7 +61,7 @@ function clientContext() {
 export async function ensureVisitor(fetcher = fetch, {force = false} = {}) {
   if (visitorData && !force && Date.now() - visitorFetched < 6 * 3600e3) return visitorData;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 4000);
+  const timer = setTimeout(() => controller.abort(), 3500);
   try {
     const response = await fetcher(VISITOR, {
       method: 'POST',
@@ -78,7 +93,20 @@ export function pickAudioFormat(formats, {preferAac = false} = {}) {
   return direct.sort((a, b) => (Number(b.bitrate) || 0) - (Number(a.bitrate) || 0))[0];
 }
 
-export function shapeStream(format, videoId, engine = 'bridge') {
+function asAlt(format, fallbackEngine = 'bridge') {
+  return {
+    url: format.url,
+    mime: String(format.mimeType || format.type || 'audio/mp4'),
+    bitrate: Number(format.bitrate) || (Number(format.itag) === 251 ? 160000 : 128000),
+    itag: Number(format.itag) || null,
+    kind: 'bridge',
+    instance: 'https://spot-plus-canvas.pwr97pnmkn.workers.dev',
+    engine: fallbackEngine,
+    fast: true,
+  };
+}
+
+export function shapeStream(format, videoId, engine = 'bridge', alternatives = []) {
   const mime = String(format.mimeType || format.type || 'audio/mp4');
   return {
     url: format.url,
@@ -90,28 +118,31 @@ export function shapeStream(format, videoId, engine = 'bridge') {
     instance: 'https://spot-plus-canvas.pwr97pnmkn.workers.dev',
     engine,
     fast: true,
-    alternatives: [],
+    alternatives,
   };
 }
 
 async function innertubeStream(videoId, {fetcher, preferAac}) {
   await ensureVisitor(fetcher);
-  const attempt = async () => {
+  const attempt = async (profile = 'android_vr') => {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
+    const timer = setTimeout(() => controller.abort(), 7000);
+    const ua = profile === 'ios' ? IOS_UA : ANDROID_VR_UA;
+    const clientName = profile === 'ios' ? '5' : '28';
+    const clientVer = profile === 'ios' ? IOS_VERSION : ANDROID_VR_VERSION;
     try {
       const response = await fetcher(PLAYER, {
         method: 'POST',
         signal: controller.signal,
         headers: {
           'Content-Type': 'application/json',
-          'User-Agent': ANDROID_VR_UA,
-          'X-YouTube-Client-Name': '28',
-          'X-YouTube-Client-Version': ANDROID_VR_VERSION,
+          'User-Agent': ua,
+          'X-YouTube-Client-Name': clientName,
+          'X-YouTube-Client-Version': clientVer,
           'Accept-Language': 'en-US,en;q=0.9',
         },
         body: JSON.stringify({
-          context: clientContext(),
+          context: clientContext(profile),
           videoId,
           contentCheckOk: true,
           racyCheckOk: true,
@@ -126,15 +157,26 @@ async function innertubeStream(videoId, {fetcher, preferAac}) {
       const formats = data?.streamingData?.adaptiveFormats || data?.streamingData?.formats || [];
       const picked = pickAudioFormat(formats, {preferAac});
       if (!picked) return {error: 'No direct audio URL'};
-      return {stream: shapeStream(picked, videoId, 'innertube')};
+      // Include a companion AAC fallback when Opus was chosen so Safari/constrained decoders stay covered.
+      const extra = [];
+      if (!preferAac && Number(picked.itag) !== AUDIO_ITAGS.aac) {
+        const aac = pickAudioFormat(formats, {preferAac: true});
+        if (aac && aac.url !== picked.url) extra.push(asAlt(aac, `innertube-${profile}`));
+      }
+      return {stream: shapeStream(picked, videoId, `innertube-${profile}`, extra)};
     } catch (error) {
       return {error: String(error?.message || error).slice(0, 160)};
     } finally { clearTimeout(timer); }
   };
-  let result = await attempt();
+
+  let result = await attempt('android_vr');
   if (result.login) {
     await ensureVisitor(fetcher, {force: true});
-    result = await attempt();
+    result = await attempt('android_vr');
+  }
+  if (!result.stream) {
+    const iosResult = await attempt('ios');
+    if (iosResult.stream) return iosResult;
   }
   return result;
 }
@@ -152,13 +194,13 @@ const MIRROR_BASES = [
 
 async function mirrorStream(videoId, {fetcher, preferAac}) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10000);
+  const timer = setTimeout(() => controller.abort(), 8000);
   try {
     const attempts = MIRROR_BASES.map(async ([kind, base]) => {
       if (kind === 'invidious') {
         const response = await fetcher(`${base}/api/v1/videos/${videoId}?fields=adaptiveFormats,title,error`, {
           signal: controller.signal,
-          headers: {'Accept': 'application/json', 'User-Agent': ANDROID_VR_UA},
+          headers: {'Accept': 'application/json', 'User-Agent': API_UA},
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
@@ -176,7 +218,7 @@ async function mirrorStream(videoId, {fetcher, preferAac}) {
       }
       const response = await fetcher(`${base}/streams/${videoId}`, {
         signal: controller.signal,
-        headers: {'Accept': 'application/json', 'User-Agent': ANDROID_VR_UA},
+        headers: {'Accept': 'application/json', 'User-Agent': API_UA},
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
@@ -208,11 +250,27 @@ export async function youtubeStream(request, {fetcher = fetch, cache, waitUntil 
   const cached = await cache?.match(key);
   if (cached) return cached;
 
+  // Run InnerTube and server-side mirror fallback together; prefer InnerTube when both answer,
+  // and attach mirror fallback as an alternative in case googlevideo URLs are IP-restricted.
+  const mirrorPromise = mirrorStream(id, {fetcher, preferAac}).catch(() => ({error: 'mirror failed'}));
   const innertube = await innertubeStream(id, {fetcher, preferAac});
-  const resolved = innertube.stream ? innertube : await mirrorStream(id, {fetcher, preferAac});
-  if (!resolved.stream) return reply({error: 'No audio server answered', detail: resolved.error || innertube.error || ''}, 503);
+  const mirror = await (innertube.stream
+    ? Promise.race([mirrorPromise, new Promise(resolve => setTimeout(() => resolve(null), 150))])
+    : mirrorPromise);
 
-  const result = reply(resolved.stream, 200, 300);
+  let stream = innertube.stream || mirror?.stream || null;
+  if (innertube.stream && mirror?.stream && mirror.stream.url !== innertube.stream.url) {
+    stream = {
+      ...innertube.stream,
+      alternatives: [
+        ...(innertube.stream.alternatives || []),
+        asAlt({url: mirror.stream.url, mimeType: mirror.stream.mime, bitrate: mirror.stream.bitrate, itag: mirror.stream.itag}, mirror.stream.engine),
+      ],
+    };
+  }
+  if (!stream) return reply({error: 'No audio server answered', detail: mirror?.error || innertube.error || ''}, 503);
+
+  const result = reply(stream, 200, 300);
   if (cache) waitUntil(cache.put(key, result.clone()).catch(() => {}));
   return result;
 }

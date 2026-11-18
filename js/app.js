@@ -29,8 +29,7 @@ import {Jam,jamLink,validJamCode} from './jam.js';
 import qrcode from './vendor/qrcode.js';
 import {shouldOnboard,showOnboarding} from './onboarding.js';
 import {shouldShowLanding,showLanding} from './landing.js';
-import {addLinks,syncLinks,loadLinks,cachedLinks,clearLinks,madeForYou,fetchPublic,rememberProfileAvatar} from './spotify-links.js';
-import {loadPhoto,savePhoto,clearPhoto,hasCustomPhoto,customPhotoURL,shouldRefreshPhoto} from './profile-photo.js';
+import {addLinks,syncLinks,loadLinks,cachedLinks,clearLinks,madeForYou,fetchPublic} from './spotify-links.js';
 import {bindPlayerDismiss} from './player-gestures.js';
 import {COMPANION_INSTALL_URL,connectionDevice,setupHtml,spotifyConnectionURLs,helperInstallHtml,copyHelperInstallLink,spotifyProfileHtml} from './account-setup.js';
 let accountDevice=connectionDevice(navigator.userAgent,navigator.platform,navigator.maxTouchPoints);
@@ -101,21 +100,18 @@ const main = $('#main');
 const view = $('#view');
 
 function toast(msg, { sticky = false, action = null } = {}) {
-  const host = $('#toasts');
-  if (!action && host) {
-    const open = [...host.children].find((item) => item.dataset.msg === msg);
-    if (open) return { set: (m) => { open.dataset.msg = m; open.firstChild.textContent = m; }, close() {} };
-  }
+  const active = !sticky && !action && [...$('#toasts').children].find((x) => x.dataset.msg === String(msg) && x.classList.contains('show'));
+  if (active) return { set: (m) => { active.textContent = m; active.dataset.msg = String(m); }, close: () => {} };
   const el = document.createElement('div');
   el.className = 'toast';
-  el.dataset.msg = msg;
+  el.dataset.msg = String(msg);
   el.textContent = msg;
   if (action) { const b = document.createElement('button'); b.className = 'toast-action'; b.textContent = action.label; b.onclick = () => { action.run(); el.remove(); }; el.append(b); }
   $('#toasts').appendChild(el);
   requestAnimationFrame(() => el.classList.add('show'));
   const close = (ms = 0) => setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); }, ms);
   if (!sticky) close(3200);
-  return { set: (m) => { el.textContent = m; }, close };
+  return { set: (m) => { el.dataset.msg = String(m); if (action && el.firstChild) el.firstChild.textContent = m; else el.textContent = m; }, close };
 }
 
 function ask({ title, message = '', value = '', placeholder = '', ok = 'OK', input = true }) {
@@ -410,8 +406,8 @@ async function viewBook(id){
 document.addEventListener('submit',e=>{const kind=e.target.dataset?.spokenSearch;if(!kind)return;e.preventDefault();const q=e.target.q.value.trim();go(q?`#/${kind}/search/${encodeURIComponent(q)}`:`#/${kind}`);});
 // Remember where you are in every episode and chapter.
 let lastProgress=0;
-player.on('time',()=>{const t=player.current();if(!spoken.isSpoken(t)||Date.now()-lastProgress<5000)return;lastProgress=Date.now();spoken.saveProgress(t,player.el.currentTime||0,player.duration());});
-player.on('state',()=>{const t=player.current();$('#np')?.classList.toggle('spoken',spoken.isSpoken(t));if(spoken.isSpoken(t)&&player.el.paused)spoken.saveProgress(t,player.el.currentTime||0,player.duration());});
+player.on('time',()=>{const t=player.current();if(!spoken.isSpoken(t)||Date.now()-lastProgress<5000)return;lastProgress=Date.now();spoken.saveProgress(t,player.position(),player.duration());});
+player.on('state',()=>{const t=player.current();$('#np')?.classList.toggle('spoken',spoken.isSpoken(t));if(spoken.isSpoken(t)&&player.isPaused())spoken.saveProgress(t,player.position(),player.duration());});
 
 /* ---------------- Views ---------------- */
 async function viewHome() {
@@ -582,7 +578,7 @@ async function viewSettings() {
   const sel = (k, opts) => `<select data-setting="${k}">${opts.map(([v, l]) => `<option value="${v}"${s[k] === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`;
   const toggle=(key,label,detail='')=>`<label class="field"><span>${label}<small>${detail}</small></span><input type="checkbox" role="switch" data-setting="${key}" ${s[key]?'checked':''}></label>`;
   return `<h1 class="settings-top">Settings</h1>
-  <section class="box"><h2>Your profile</h2><div class="profile-edit"><button type="button" class="avatar" data-act="profile-photo" aria-label="Change profile photo">${esc((profileName()[0]||'S').toUpperCase())}</button><div class="profile-edit-actions"><button type="button" class="btn small" data-act="profile-photo">Change photo</button>${hasCustomPhoto()?'<button type="button" class="btn small" data-act="profile-photo-spotify">Use Spotify photo</button>':''}</div></div><p class="settings-note">${spotifyUserId()?'Your Spotify photo is used here. Change photo keeps a picture on this device.':'Choose a photo from this device, or connect Spotify to use that picture.'}</p><label class="field"><span>Display name<small>Shown on your profile and in Jams.</small></span><input maxlength="60" data-setting="displayName" value="${esc(s.displayName)}"></label><a class="btn small" href="#/profile">View profile</a></section>
+  <section class="box"><h2>Your profile</h2><label class="field"><span>Display name<small>Shown on your profile and in Jams.</small></span><input maxlength="60" data-setting="displayName" value="${esc(s.displayName)}"></label><a class="btn small" href="#/profile">View profile</a></section>
   <section class="box"><h2>Spotify</h2><p class="settings-note">${spotifyAccount||cachedLinks()?'Connected. Rewind and your profile update by themselves.':'Connect once to get Rewind, your profile picture and Made For You.'}</p><a class="btn primary" href="#/spotify-account">${spotifyAccount||cachedLinks()?'Manage Spotify':'Connect Spotify'}</a></section>
   <section class="box credits" id="devCredits"><h2>Made by</h2><div class="credit-card"><img class="credit-pfp" src="${esc(devCache?.avatar||'icons/icon-192.png')}" alt="" width="64" height="64"><div><b class="credit-name">${esc(devCache?.name||'Coye | NXInfinity DEV')}</b><small class="credit-user">${devCache?.username?'@'+esc(devCache.username):'Spot+ developer'}</small></div></div>
     <p class="settings-note">Spot+ is a solo project, built with Claude and Takumi. Bugs, ideas or just want to talk music? Come hang out.</p>
@@ -591,9 +587,9 @@ async function viewSettings() {
   <section class="box"><h2>Your devices</h2><p class="settings-note">${libsync.syncState()?'Your library syncs with your other devices.':'Keep your likes and playlists the same on your phone and computer. No account.'}</p><button class="btn primary small" data-act="link-devices">${libsync.syncState()?'Link another device':'Link a device'}</button></section>
   <section class="box"><h2>Notifications</h2>${notify.permission()==='unsupported'?'<p class="settings-note">This browser can’t show notifications. On iPhone, add Spot+ to your Home Screen first.</p>':notify.permission()==='granted'?'':`<p class="settings-note">${notify.permission()==='denied'?'Notifications are blocked for Spot+. Allow them in your browser or phone settings.':'Get a heads-up about new music and updates. Never more than two a day, and nothing at night.'}</p>${notify.permission()==='default'?'<button class="btn primary small" data-act="notify-enable">Turn on notifications</button>':''}`}
   ${toggle('notifyReleases','New releases','When an artist you follow drops a song or album.')}${toggle('notifyStats','Weekly recap','Sunday evening: your minutes and most-played artist.')}${toggle('notifyUpdates','App updates','When a new version of Spot+ is ready.')}</section>
-  <section class="box"><h2>Appearance</h2>${themeModeSwitch(s)}<p class="settings-note">Light, dark, automatic, or clear. Clear keeps your wallpaper visible, with panels you can still read.</p><div class="row-btns"><a class="btn" href="#/themes">Themes</a><a class="btn" href="#/backgrounds">Background</a></div><label class="field"><span>Library and track spacing</span>${sel('density',[['comfortable','Comfortable'],['compact','Compact']])}</label><label class="field"><span>Text size</span>${sel('textSize',[['normal','Default'],['large','Larger']])}</label><label class="field"><span>Motion</span>${sel('motion',[['system','Follow system'],['reduced','Reduced']])}</label></section>
+  <section class="box"><h2>Appearance</h2>${themeModeSwitch(s)}<p class="settings-note">Light, dark or automatic, with 19 color themes and custom wallpapers.</p><div class="row-btns"><a class="btn" href="#/themes">Themes</a><a class="btn" href="#/backgrounds">Background</a></div><label class="field"><span>Library and track spacing</span>${sel('density',[['comfortable','Comfortable'],['compact','Compact']])}</label><label class="field"><span>Text size</span>${sel('textSize',[['normal','Default'],['large','Larger']])}</label><label class="field"><span>Motion</span>${sel('motion',[['system','Follow system'],['reduced','Reduced']])}</label></section>
   <section class="box"><h2>Playback</h2>
-    <label class="field"><span>Audio source<small>Full tracks depend on reachable audio servers. Preview mode plays short samples only.</small></span>${sel('source', [['auto', 'Automatic'], ['piped', 'Piped'], ['invidious', 'Invidious'],['audius','Audius public releases'],['preview','Deezer previews (30 sec)']])}</label>
+    <label class="field"><span>Audio source<small>Automatic tries audio servers first, then the YouTube player or a 30-second preview.</small></span>${sel('source', [['auto', 'Automatic'], ['youtube', 'YouTube player'], ['piped', 'Piped'], ['invidious', 'Invidious'],['audius','Audius public releases'],['preview','Deezer previews (30 sec)']])}</label>
     <label class="field"><span>Streaming quality</span>${sel('quality', [['high', 'High'], ['low', 'Data saver']])}</label>
     ${toggle('smartRadio','Smart Radio','When your queue ends, keep playing similar songs. It learns from what you skip.')}
     <label class="field"><span>AutoMix<small>${player.crossfadeSupported?'Blend each song into the next, like a DJ. Off while effects are on.':'Blending songs isn’t possible on iPhone and iPad (Safari doesn’t let apps fade audio).'}</small></span>${sel('automix',[['0','Off'],['3','3 seconds'],['6','6 seconds'],['9','9 seconds']])}</label>
@@ -665,7 +661,7 @@ const routes = [
   [/^#\/spotify-account\/playlist\/([a-zA-Z0-9]{22})$/, viewSpotifyAccountList],
   [/^#\/spotify\/(playlist|album|artist|track)\/([a-zA-Z0-9]{22})$/, viewSpotifyCollection],
   [/^#\/themes$/, viewThemes],
-  [/^#\/backgrounds(?:\/([a-z0-9-]+))?$/, viewBackgrounds],
+  [/^#\/backgrounds(?:\/([A-Za-z]+))?$/, viewBackgrounds],
   [/^#\/linked\/([A-Za-z0-9]{22})$/, viewLinked],
   [/^#\/jam$/, viewJam],
   [/^#\/jam\/([A-Za-z0-9]{6})$/, joinJamFromLink],
@@ -692,10 +688,10 @@ async function route({ keepScroll = false } = {}) {
       if (my !== routeTok) return;
       lists.forEach((_, k) => { if (+k.slice(1) <= startSeq) lists.delete(k); });
       view.innerHTML = html;
+      scene.mount(view, { onFocus: (focus) => { const cur = scene.normalizeScene(store.getSettings().scene); if (cur) store.setSettings({ scene: { ...cur, x: focus.x, y: focus.y } }); } });
       hydrateStatistics(view);syncAvatars();if(view.querySelector('[data-live]'))refreshLive();if(view.querySelector('#devCredits'))refreshDev();if(location.hash==='#/rewind')hydrateRewind(view);
       syncVoices();
       view.setAttribute('aria-busy','false');
-      if (view.querySelector('.bg-studio')) scene.mount(view, {onFocus(focus){const current=scene.normalizeScene(store.getSettings().scene);if(!current)return;store.setSettings({scene:{...current,...focus}});scene.apply(store.getSettings());}});
       renderSidebar();
       syncPlayer();
       main.scrollTop = keepScroll ? scroll : 0;
@@ -847,16 +843,10 @@ async function handleAct(act, el) {
     case 'account-paste-field': {const text=$('#accountPasteField')?.value||'';closeSheet();await applyPastedLibrary(text);break;}
     case 'account-disconnect': if(await confirmBox('Remove this Spotify connection?', 'This removes the Spotify library copy from this device. Your local Spot+ music and Spotify account are kept.')){pendingAccount=null;store.clearSpotifyAccount();toast('Spotify copy removed from this device');}break;
     case 'theme-preset': {const t=themes.presets.find(x=>x.id===el.dataset.id);store.setSettings({themePreset:el.dataset.id,themeCustom:null,...(t?.mode?{themeMode:t.mode}:{})});route({keepScroll:true});break;}
-    case 'bg-pick': {const prev=scene.normalizeScene(store.getSettings().scene);store.setSettings({scene:{kind:el.dataset.kind==='upload'?'upload':'catalog',id:el.dataset.id,x:prev?.x??.5,y:prev?.y??.42}});scene.apply(store.getSettings());route({keepScroll:true});break;}
-    case 'bg-clear': store.setSettings({scene:null});scene.apply(store.getSettings());route({keepScroll:true});break;
-    case 'bg-upload': $('#bgUpload')?.click();break;
-    case 'bg-delete': {await scene.removeUpload(el.dataset.id);if(store.getSettings().scene?.id===el.dataset.id)store.setSettings({scene:null});scene.apply(store.getSettings());route({keepScroll:true});break;}
     case 'go-back': if(history.length>1)history.back();else go('#/home');break;
     case 'expand-section': {const sec=el.closest('.collapsible');const open=!sec.classList.contains('expanded');sec.classList.toggle('expanded',open);el.textContent=open?'See less':(sec.classList.contains('artist-releases')?'See discography':'See more');break;}
     case 'artist-more': {const a=activeArtist;if(!a)break;openSheet({head:`<div class="sheet-title">${esc(a.name)}</div>`,items:[{icon:I.radio,label:'Go to artist radio',fn:()=>go('#/radio/'+a.id)},{icon:I.play,label:'Play essentials',fn:()=>go('#/essentials/'+a.id)},{icon:I.share||I.arrow,label:'Share',fn:()=>{const url=location.origin+location.pathname+'#/artist/'+a.id;if(navigator.share)navigator.share({title:a.name,url}).catch(()=>{});else navigator.clipboard?.writeText(url).then(()=>toast('Link copied'));}},{icon:I.arrow,label:'Find on Spotify',fn:()=>window.open('https://open.spotify.com/search/'+encodeURIComponent(a.name)+'/artists','_blank','noopener')}]});break;}
     case 'theme-mode': store.setSettings({themeMode:el.dataset.mode});route({keepScroll:true});break;
-    case 'profile-photo': $('#profilePhoto')?.click();break;
-    case 'profile-photo-spotify': clearPhoto().then(()=>{syncAvatars();route({keepScroll:true});toast(spotifyPhoto()?'Using your Spotify photo':'Photo removed');});break;
     case 'theme-undo': if(themeUndo){store.setSettings(themeUndo);route({keepScroll:true});}break;
     case 'theme-remix': {const color=themes.presets[Math.floor(Math.random()*themes.presets.length)];store.setSettings({themePreset:color.id,themeCustom:null,cornerRadius:[0,8,16][Math.floor(Math.random()*3)]});route({keepScroll:true});break;}
     case 'theme-save': {const name=await ask({title:'Save your theme',placeholder:'Theme name',ok:'Save'});if(name){const s=store.getSettings();store.saveTheme({id:'theme'+Date.now(),name,settings:themeSettings(s)});route({keepScroll:true});toast('Theme saved');}break;}
@@ -891,6 +881,8 @@ async function handleAct(act, el) {
     case 'mute': if(player.el.volume>0){lastVolume=player.el.volume;player.setVolume(0);}else player.setVolume(lastVolume||.7);vol.value=player.el.volume*100;vol.style.setProperty('--p',vol.value+'%');el.setAttribute('aria-label',player.el.volume?'Mute':'Unmute');el.classList.toggle('on',!player.el.volume);break;
     case 'retry-playback': player.retry();break;
     case 'dismiss-playback-error': player.state.error=null;syncPlayer();break;
+    case 'yt-preview': player.fallbackToPreview();break;
+    case 'yt-hide': player.hideEmbed(true);break;
     case 'np-lyrics': openNP('lyrics');break;
     case 'q-up': player.moveQueue(+el.dataset.qi,+el.dataset.qi-1);break;
     case 'q-down': player.moveQueue(+el.dataset.qi,+el.dataset.qi+1);break;
@@ -973,7 +965,7 @@ async function handleAct(act, el) {
     case 'jam-leave': if(await confirmBox(jam.host?'End this Jam?':'Leave this Jam?',jam.host?'Everyone will stop listening along.':'Your music keeps playing on this device.',jam.host?'End Jam':'Leave'))jam.leave();break;
     case 'jam-share': {const url=jamLink(jam.code);if(navigator.share)navigator.share({title:'Join my Jam on Spot+',text:'Listen along with me: code '+jam.code,url}).catch(()=>{});else navigator.clipboard?.writeText(url).then(()=>toast('Jam link copied'));break;}
     case 'links-add': {const field=$('#spotifyLinksField'),status=$('#linksStatus');if(!field?.value.trim())return toast('Paste a Spotify link first.');el.disabled=true;status.textContent='Reading from Spotify…';
-      try{const added=await addLinks(field.value);field.value='';toast('Linked: '+added.join(', '));await refreshSpotifyPhoto(true);await route({keepScroll:true});syncAvatars();}catch(e){status.textContent=e.message;}finally{el.disabled=false;}break;}
+      try{const added=await addLinks(field.value);field.value='';toast('Linked: '+added.join(', '));await route({keepScroll:true});syncAvatars();}catch(e){status.textContent=e.message;}finally{el.disabled=false;}break;}
     case 'links-paste': {const field=$('#spotifyLinksField');try{const text=await navigator.clipboard.readText();if(!/spotify/i.test(text))return toast('Copy a Spotify link first, then tap Paste.');field.value=(field.value.trim()+'\n'+text).trim();$('[data-act="links-add"]')?.click();}catch{toast('Long-press the box and choose Paste.');field.focus();}break;}
     case 'notify-enable': {const p=await Notification.requestPermission().catch(()=>'denied');toast(p==='granted'?'Notifications are on.':'Notifications stay off. You can allow them later in your settings.');if(p==='granted')notify.show({title:'Notifications are on',body:'You’ll hear about new releases and your weekly recap.'},'welcome');route({keepScroll:true});break;}
     case 'open-landing': showLanding({qr:landingQR,getPrompt:()=>installEvt,usedPrompt:()=>{installEvt=null;},standalone:isStandalone(),onShow:()=>refreshLive()});break;
@@ -1019,8 +1011,8 @@ async function handleAct(act, el) {
       }catch{t.set('Couldn’t check right now. Try again in a moment.');t.close(3000);}
       break;}
     case 'follow-show': {const s=await spoken.show(el.dataset.feed).catch(()=>null);if(s){const on=spoken.toggleFollow({...s,feed:el.dataset.feed});toast(on?'Following':'Unfollowed');route({keepScroll:true});}break;}
-    case 'skip-back': player.seek((player.el.currentTime||0)-15); break;
-    case 'skip-fwd': player.seek((player.el.currentTime||0)+30); break;
+    case 'skip-back': player.seek(player.position()-15); break;
+    case 'skip-fwd': player.seek(player.position()+30); break;
     case 'np-more': { const t = player.current(); if (t) trackSheet(t); break; }
     case 'np-tab': setNPMode(el.dataset.mode); break;
     case 'canvas-cover': canvasPreference=false;setCanvasEnabled(false);setNPMode('art');break;
@@ -1057,6 +1049,27 @@ async function handleAct(act, el) {
     case 'install':
       if (installEvt) { installEvt.prompt(); await installEvt.userChoice.catch(() => {}); installEvt = null; el.hidden = true; }
       break;
+    case 'bg-pick': {
+      const cur = scene.normalizeScene(store.getSettings().scene);
+      store.setSettings({ scene: { kind: el.dataset.kind, id: el.dataset.id, x: cur?.x ?? 0.5, y: cur?.y ?? 0.42 } });
+      route({ keepScroll: true });
+      break;
+    }
+    case 'bg-clear':
+      store.setSettings({ scene: null });
+      route({ keepScroll: true });
+      break;
+    case 'bg-upload':
+      $('#bgUpload').click();
+      break;
+    case 'bg-delete': {
+      const id = el.dataset.id;
+      await scene.removeUpload(id);
+      if (store.getSettings().scene?.id === id) store.setSettings({ scene: null });
+      route({ keepScroll: true });
+      toast('Background removed');
+      break;
+    }
   }
 }
 
@@ -1109,14 +1122,19 @@ function syncPlayer() {
   if(s.error)error.innerHTML=`<p>${esc(s.error)}</p><button class="btn small" data-act="retry-playback">Retry</button><a class="btn small" href="#/settings">Audio sources</a><button class="icon" data-act="dismiss-playback-error" aria-label="Dismiss playback error">${I.close}</button>`;
   $$('[data-role=play]').forEach(b=>{setIcon(b,player.isPlaying()?'pause':'play');b.disabled=!t;b.setAttribute('aria-label',s.loading?'Cancel loading':player.isPlaying()?'Pause':'Play');});
   $$('[data-role=like],[data-role=shuffle],[data-role=repeat],[data-act=prev],[data-act=next],[data-act=np-open],[data-act=np-lyrics]').forEach(b=>b.disabled=!t);
-  $$('[data-role=seek]').forEach(b=>b.disabled=!t||s.loading||!!s.error||!player.el.src||player.el.src.startsWith('data:'));
+  $$('[data-role=seek]').forEach(b=>b.disabled=!t||!player.canSeek());
+  const ytDock=$('#ytDock');
+  if(ytDock){const embed=player.isEmbed();ytDock.hidden=!embed;ytDock.classList.toggle('visible',embed&&s.needsTap&&!s.ytHidden);}
   if (!t) {$('#barArt').src='icons/icon-192.png';$('#barTitle').textContent='Choose something to play';$('#barArtist').textContent='Spot+';$$('[data-role=like]').forEach(b=>setIcon(b,'plus'));$$('[data-role=repeat]').forEach(b=>setIcon(b,'repeat'));return;}
   if (bar.dataset.id !== t.id) {
     bar.dataset.id = t.id;
     $('#barArt').src = t.cover || 'icons/icon-192.png';
     $('#barTitle').textContent = t.title;
     $('#barArtist').textContent = t.artist;
-    playerColors.setTrack(t);
+  }
+  if (!s.loading && bar.dataset.colorId !== t.id) {
+    bar.dataset.colorId = t.id;
+    (globalThis.requestIdleCallback || setTimeout)(() => { if (player.current()?.id === t.id) playerColors.setTrack(t); }, 0);
   }
   const playing = player.isPlaying();
   $$('[data-role=play]').forEach((b) => setIcon(b, playing ? 'pause' : 'play'));
@@ -1131,7 +1149,7 @@ function syncPlayer() {
 let seeking = false;
 function syncTime() {
   const d = player.duration();
-  const c = player.el.currentTime || player.restoredPosition() || 0;
+  const c = player.position() || player.restoredPosition() || 0;
   const pct = d ? Math.min(100,(c / d) * 100) : 0;
   $('#barProg').style.width = pct + '%';
   if (!seeking) $$('[data-role=seek]').forEach((r) => { r.value = d ? Math.round((c / d) * 1000) : 0; r.style.setProperty('--p', pct + '%'); });
@@ -1167,7 +1185,7 @@ const playerColors=new PlayerColors(p=>{
   syncStatusColor();
 });
 const listeningMeter=new ListeningMeter(record=>saveHistory([record]).catch(()=>{}));
-const trackListening=()=>spoken.isSpoken(player.current())?null:listeningMeter.tick(player.current(),{sessionKey:player.current()?.id+':'+player.state.playbackId,time:player.el.currentTime||0,playing:player.isPlaying()&&!player.state.loading});
+const trackListening=()=>spoken.isSpoken(player.current())?null:listeningMeter.tick(player.current(),{sessionKey:player.current()?.id+':'+player.state.playbackId,time:player.position(),playing:player.isPlaying()&&!player.state.loading});
 player.on('time',trackListening);player.on('state',trackListening);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)listeningMeter.flush();});
 window.addEventListener('pagehide',()=>listeningMeter.flush());
@@ -1222,12 +1240,15 @@ function syncNP() {
     $('#npTitle').textContent = t.title;
     $('#npArtist').textContent = t.artist;
     $('#npPlays').textContent='';
+  }
+  if (!s.loading && np.dataset.statsId !== t.id) {
+    np.dataset.statsId = t.id;
     getTrackStats(t).then(data=>{if(player.current()?.id!==t.id)return;const count=matchPlayCount(t,data);$('#npPlays').textContent=count?count.plays.toLocaleString()+' plays on Spotify':'';});
   }
-  $('#npSrc').textContent = s.offline ? (t.local?'Local audio · On this device':'Downloaded audio · On this device') : s.source?.preview ? '30-second preview · Deezer' : s.source ? `Audio · ${api.host(s.source.instance)}` : s.loading ? 'Finding audio… Tap play to cancel.' : s.error?'Audio unavailable. Retry or change audio source.':'Ready to play';
+  $('#npSrc').textContent = s.offline ? (t.local?'Local audio · On this device':'Downloaded audio · On this device') : s.source?.preview ? '30-second preview · Deezer' : s.source?.kind === 'youtube-embed' ? (s.needsTap ? 'YouTube player · Tap play above to start' : 'Full track · YouTube player') : s.source ? `Audio · ${api.host(s.source.instance)}` : s.loading ? 'Finding audio… Tap play to cancel.' : s.error?'Audio unavailable. Retry or change audio source.':'Ready to play';
   syncCanvas();
   if (npMode === 'queue') renderQueue();
-  loadLyrics();
+  if (!s.loading) loadLyrics();
 }
 let canvasPreference=canvasEnabled({reducedMotion:matchMedia('(prefers-reduced-motion:reduce)').matches||document.body.dataset.motion==='reduced',saveData:navigator.connection?.saveData});
 const canvasPlayer=new CanvasPlayer($('#npCanvas'),{media:clipSource,lookup:(track,signal,options)=>findVisualLoop(track,signal,{...options,source:player.state.source}),onState:(state,clip)=>{
@@ -1309,7 +1330,7 @@ async function loadLyrics() {
 }
 function syncLyrics() {
   if (!lyr.lines || !npOpen || npMode === 'queue' || player.current()?.id !== lyr.id) return;
-  const now = (player.el.currentTime || 0) + 0.3;
+  const now = player.position() + 0.3;
   let i = lyr.lines.findIndex((l) => l.t > now);
   i = (i === -1 ? lyr.lines.length : i) - 1;
   if (i === lyr.active) return;
@@ -1333,9 +1354,9 @@ function karaokeLoop() {
   const tick = () => {
     const i = lyr.active, line = box.querySelector(`[data-li="${i}"]`);
     if (!line || !npOpen || player.current()?.id !== lyr.id) return;
-    const start = lyr.lines[i].t, end = lyr.lines[i + 1]?.t ?? start + 4, now = player.el.currentTime || 0;
+    const start = lyr.lines[i].t, end = lyr.lines[i + 1]?.t ?? start + 4, now = player.position();
     line.style.setProperty('--k', Math.max(0, Math.min(1, (now - start) / Math.max(0.5, (end - start) * 0.92))).toFixed(3));
-    if (!player.el.paused) karaokeFrame = requestAnimationFrame(tick);
+    if (!player.isPaused()) karaokeFrame = requestAnimationFrame(tick);
   };
   tick();
 }
@@ -1397,7 +1418,6 @@ function applyPreferences(){
   const s=store.getSettings();
   document.body.dataset.density=s.density;delete document.body.dataset.accent;document.body.dataset.motion=s.motion;document.body.dataset.textSize=s.textSize;
   const palette=themes.applyTheme(s);
-  scene.install(() => store.getSettings());
   if(typeof syncStatusColor==='function')queueMicrotask(()=>syncStatusColor());
   syncStatusColor();
   if($('#themeLiveName'))$('#themeLiveName').textContent=s.themeCustom?'Your mix':palette.name;
@@ -1406,6 +1426,7 @@ function applyPreferences(){
   document.documentElement.style.setProperty('--sidebar',`${width}px`);
   $('#libraryResize').setAttribute('aria-valuenow',String(width));
   document.body.classList.toggle('library-collapsed',!!s.libraryCollapsed);
+  scene.install(() => store.getSettings());
   syncAvatars();
   $('#networkNotice').hidden=navigator.onLine;
   renderSidebar();
@@ -1417,27 +1438,15 @@ function browseHome(){
 // Profile pictures follow your Spotify account photo when a library is connected;
 // otherwise they show your initial.
 function profileName(){const s=store.getSettings(),custom=s.displayName&&s.displayName!=='Your library'?s.displayName.trim():'';return custom||store.getSpotifyAccount()?.account?.name||cachedLinks()?.profile?.name||'Listener';}
-function spotifyUserId(){const id=store.getSpotifyAccount()?.account?.id||cachedLinks()?.profile?.id||'';return /^[A-Za-z0-9._-]{1,64}$/.test(id)?id:'';}
-function spotifyPhoto(){const url=store.getSpotifyAccount()?.account?.avatar||store.getSpotifyStats().account?.avatar||cachedLinks()?.profile?.avatar||'';return url?safeImage(url):'';}
-function profilePhoto(remote=false){if(!remote){const mine=customPhotoURL();if(mine)return mine;}return spotifyPhoto();}
+function profilePhoto(){const url=store.getSpotifyAccount()?.account?.avatar||store.getSpotifyStats().account?.avatar||cachedLinks()?.profile?.avatar;return url?safeImage(url):'';}
 function syncAvatars(){
   const photo=profilePhoto(),letter=(profileName().trim()[0]||'S').toUpperCase();
   $$('.avatar').forEach(el=>{
-    if(photo&&el.dataset.photo!==photo){el.dataset.photo=photo;el.replaceChildren();const im=new Image();im.alt='';im.decoding='async';im.referrerPolicy='no-referrer';im.src=photo;im.onerror=()=>{if(el.dataset.photo===photo){el.dataset.photo='';el.classList.remove('has-photo');el.textContent=letter;}};el.append(im);el.classList.add('has-photo');}
-    else if(!photo){el.dataset.photo='';el.classList.remove('has-photo');el.replaceChildren(document.createTextNode(letter));}
+    if(photo&&el.dataset.photo!==photo){el.dataset.photo=photo;el.replaceChildren();const im=new Image();im.alt='';im.decoding='async';im.src=photo;im.onerror=()=>{el.dataset.photo='';el.textContent=letter;};el.append(im);el.classList.add('has-photo');}
+    else if(!photo){el.dataset.photo='';el.classList.remove('has-photo');el.textContent=letter;}
   });
 }
-async function refreshSpotifyPhoto(force=false){
-  const id=spotifyUserId(),avatar=store.getSpotifyAccount()?.account?.avatar||cachedLinks()?.profile?.avatar||'';
-  let checkedAt=0;try{checkedAt=Number(localStorage.getItem('spotplus.photoAt'))||0;}catch{}
-  if(!shouldRefreshPhoto({id,avatar,checkedAt,force}))return;
-  try{
-    const data=await fetchPublic({user:id});
-    if(data?.avatar){store.rememberAccountAvatar(data.avatar);await rememberProfileAvatar(data.avatar);syncAvatars();}
-    try{localStorage.setItem('spotplus.photoAt',String(Date.now()));}catch{}
-  }catch{ /* A private profile has no public photo. A chosen photo still works. */ }
-}
-function viewProfile(){const spotifyProfile=store.getSpotifyAccount()?.account;return `<div class="profile-hero"><button type="button" class="avatar" data-act="profile-photo" aria-label="Change profile photo">${esc((profileName()[0]||'S').toUpperCase())}</button><div><div class="kicker">Profile</div><h1>${esc(profileName())}</h1><div class="row-btns"><button type="button" class="btn" data-act="profile-photo">Change photo</button>${hasCustomPhoto()?'<button type="button" class="btn" data-act="profile-photo-spotify">Use Spotify photo</button>':'<a class="link" href="#/settings">Edit name</a>'}</div></div></div><div class="stat-row"><div><b>${store.getPlaylists().length}</b>Playlists</div><div><b>${store.getLikes().length}</b>Liked songs</div><div><b>${store.getArtists().length}</b>Following</div></div><p class="muted">Your library is saved in this browser. Export a backup in Settings to keep a copy.</p>${spotifyProfile?`<section class="box">${spotifyProfileHtml(spotifyProfile)}<a class="link" href="#/spotify-account">Manage Spotify library</a></section>`:''}${shelf('Following',store.getArtists().map(artistCard))}<h2>Your playlists</h2>${renderLibraryItems()}`;}
+function viewProfile(){const s=store.getSettings(),spotifyProfile=store.getSpotifyAccount()?.account;return `<div class="profile-hero"><div class="avatar">${esc((profileName()[0]||'S').toUpperCase())}</div><div><div class="kicker">Profile</div><h1>${esc(profileName())}</h1><a class="link" href="#/settings">Edit profile</a></div></div><div class="stat-row"><div><b>${store.getPlaylists().length}</b>Playlists</div><div><b>${store.getLikes().length}</b>Liked songs</div><div><b>${store.getArtists().length}</b>Following</div></div><p class="muted">Your library is saved in this browser. Export a backup in Settings to keep a copy.</p>${spotifyProfile?`<section class="box">${spotifyProfileHtml(spotifyProfile)}<a class="link" href="#/spotify-account">Manage Spotify library</a></section>`:''}${shelf('Following',store.getArtists().map(artistCard))}<h2>Your playlists</h2>${renderLibraryItems()}`;}
 function viewRecent(){const recent=store.getRecent(),k=reg(recent);return `<h1 class="settings-top">Recently played</h1>${recent.length?trackRows(recent,k):emptyState('Your listening starts here','Play something and it will appear here.','Browse music','#/search')}`;}
 function viewLocal(){const tracks=store.getLocalFiles(),k=reg(tracks);return `<h1 class="settings-top">Local files</h1><p class="muted">Audio you choose from your phone or computer, stored in this browser.</p><button class="btn white" data-act="import-local">Add audio files</button>${tracks.length?actions(k)+trackRows(tracks,k):emptyState('Bring your own music','Choose audio files you have permission to play. They stay on this device.')}`;}
 function homeDJ(){return `<div class="home-dj"><a class="dj-orb-small" href="#/dj" aria-label="Open Spot+ DJ"></a><form id="homeDJRequest"><label for="homeDJPrompt" class="sr-only">Tell DJ what to play</label><input id="homeDJPrompt" maxlength="300" placeholder="Tell DJ what to play" enterkeyhint="go"><button class="icon" type="button" data-act="dj-mic" aria-label="Talk to DJ">${I.mic}</button></form></div>`;}
@@ -1521,7 +1530,7 @@ const fxBadge=()=>{$('.np-fx')?.classList.toggle('on',fx.isActive(fx.get()));con
 $('.np-fx')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();fxSheet();});
 player.on('state',fxBind);fx.onChange(fxBadge);fxBadge();
 addEventListener('spotplus:music-play',fx.resume);document.addEventListener('visibilitychange',()=>{if(!document.hidden)fx.resume();});
-function sleepMenu(){openSheet({head:'<div class="sheet-title">Sleep timer</div>',items:[...[5,15,30,60].map(minutes=>({icon:I.history,label:`${minutes} minutes`,fn:()=>{clearTimeout(sleepTimer);sleepTimer=setTimeout(()=>{player.el.pause();dj.stop();toast('Sleep timer ended');},minutes*60000);toast(`Playback will pause in ${minutes} minutes`);}})),{icon:I.close,label:'Turn off timer',fn:()=>{clearTimeout(sleepTimer);sleepTimer=null;toast('Sleep timer off');}}]});}
+function sleepMenu(){openSheet({head:'<div class="sheet-title">Sleep timer</div>',items:[...[5,15,30,60].map(minutes=>({icon:I.history,label:`${minutes} minutes`,fn:()=>{clearTimeout(sleepTimer);sleepTimer=setTimeout(()=>{player.pause();dj.stop();toast('Sleep timer ended');},minutes*60000);toast(`Playback will pause in ${minutes} minutes`);}})),{icon:I.close,label:'Turn off timer',fn:()=>{clearTimeout(sleepTimer);sleepTimer=null;toast('Sleep timer off');}}]});}
 function trapFocus(e,root){if(e.key!=='Tab')return;const focusable=$$('button:not(:disabled),a[href],input:not(:disabled),select,textarea,[tabindex="0"]',root).filter(el=>el.getClientRects().length);if(!focusable.length)return;const first=focusable[0],last=focusable.at(-1);if(e.shiftKey&&(document.activeElement===first||!root.contains(document.activeElement))){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}
 document.addEventListener('keydown',e=>{if(!sheet.hidden)trapFocus(e,sheet);else if(npOpen&&matchMedia(MOBILE_QUERY).matches)trapFocus(e,np);if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();go('#/search');}if(!e.target.closest('input,textarea,select,button')&&e.altKey){if(e.key==='ArrowRight'){e.preventDefault();player.next();}if(e.key==='ArrowLeft'){e.preventDefault();player.prev();}}});
 document.addEventListener('submit',e=>{if(e.target.id==='catalogSearch'){e.preventDefault();clearTimeout(searchTimer);runSearch($('#q').value.trim());$('#q').blur();}});
@@ -1545,7 +1554,7 @@ $('#spotifyImport').addEventListener('change',async e=>{
   }catch(error){progress.set(error.message);progress.close(6000);}finally{e.target.value='';}
 });
 $('#themeImport').addEventListener('change',async e=>{try{const file=e.target.files[0];if(!file)return;if(file.size>100000)throw new Error('Choose a Spot+ theme JSON file under 100 KB.');store.setSettings(themes.normalizeTheme(JSON.parse(await file.text())));route({keepScroll:true});toast('Theme applied');}catch(error){toast(error.message);}finally{e.target.value='';}});
-$('#profilePhoto').addEventListener('change',async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{await savePhoto(file);syncAvatars();toast('Profile photo updated');const h=location.hash;if(h==='#/profile'||h==='#/settings')route({keepScroll:true});}catch(error){toast(error.message);}});
+$('#bgUpload').addEventListener('change',async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{const rec=await scene.saveUpload(file);store.setSettings({scene:{kind:'upload',id:rec.id,x:0.5,y:0.42}});route({keepScroll:true});toast('Background saved');}catch(err){toast(err.message);}});
 // Start finding the audio the moment a finger or mouse touches a song, before the tap finishes.
 // On computers, hovering a song for a moment also starts finding it.
 let hoverTimer=0;document.addEventListener('pointerover',e=>{if(e.pointerType!=='mouse')return;const row=e.target.closest?.('.trow[data-list]');clearTimeout(hoverTimer);if(!row)return;hoverTimer=setTimeout(()=>{const t=listOf(row.dataset.list)?.tracks?.[Number(row.dataset.i)];if(t)api.prewarm(t);},180);},{passive:true});
@@ -1648,7 +1657,7 @@ async function reviewSpotifyAccount(raw){
     const readNotice=accountReadNotice(snapshot);
     const message=`${snapshot.account.name}: ${plural(snapshot.likes.length,'liked song')}, ${plural(snapshot.playlists.length,'playlist')}, ${plural(snapshot.albums.length,'album')} and ${plural(snapshot.artists.length,'artist')}. ${changed?'This replaces the other Spotify account’s copy on this device. ':''}${readNotice?readNotice+' ':''}Complete collections replace the Spotify copy, including removed songs. Your local Spot+ playlists and likes are kept. No changes are sent to Spotify.`;
     if(!await confirmBox('Apply this Spotify library?',message,'Apply library'))return false;
-    store.setSpotifyAccount(snapshot);await store.flushSpotifyAccount();refreshSpotifyPhoto(true).catch(()=>{});
+    store.setSpotifyAccount(snapshot);await store.flushSpotifyAccount();
     saveHistory(recentPlaysAsHistory(store.getSpotifyAccount())).catch(()=>{}); // Rewind grows automatically.awaitingPaste=false;toast('Spotify library saved on this device');go('#/spotify-account');return true;
   }catch(e){toast(e.message);return false;}finally{accountReviewBusy=false;}
 }
@@ -1728,18 +1737,18 @@ async function viewSpotify(){
   ${store.getSpotifyLinks().length?shelf('Saved links',store.getSpotifyLinks().map(spotifyCard)):''}`;
 }
 async function viewSpotifyCollection(type,id){const known=spotify.collections.find(p=>p.id===id)||store.getSpotifyLinks().find(p=>p.id===id);let p;try{p=await spotify.metadata({type,id,...known});}catch{p={type,id,title:known?.title||'Spotify '+type,cover:known?.cover||''};}return header({cover:p.cover,kicker:'Spotify · '+type,title:p.title,sub:'Official Spotify player · Content and playback are provided by Spotify.'})+(type==='artist'?'<p class="spotify-counter" data-counter="artist" data-spotify-artist-id="'+id+'">Loading Spotify listeners…</p>':'')+`<div class="actions"><button class="btn white spotify-open" data-act="spotify-open-player" data-type="${type}" data-id="${id}">${I.play}Open Spotify player</button><button class="btn" data-act="spotify-save" data-type="${type}" data-id="${id}">${I.plus}Save link</button><a class="btn" href="${spotify.urlFor({type,id})}" target="_blank" rel="noopener">Open in Spotify ${I.arrow}</a></div><div id="spotifyPlayer"></div><p class="settings-note">Spotify’s player has its own queue. To bring your own playlist tracks into the Spot+ player, import your Spotify data from <a href="#/spotify">Spotify collections</a>.</p>`;}
-function themeSettings(s){const p=themes.palette(s);return {themePreset:s.themePreset||'pine',themeMode:themes.MODES.includes(s.themeMode)?s.themeMode:'dark',themeCustom:{accent:p.accent,surface:p.surface,raised:p.raised},amoled:s.amoled!==false,cornerRadius:p.radius,coverStyle:s.coverStyle||'square',density:s.density,textSize:s.textSize,motion:s.motion};}
+function themeSettings(s){const p=themes.palette(s);return {themePreset:s.themePreset||'pine',themeCustom:{accent:p.accent,surface:p.surface,raised:p.raised},amoled:s.amoled!==false,cornerRadius:p.radius,coverStyle:s.coverStyle||'square',density:s.density,textSize:s.textSize,motion:s.motion};}
 function downloadJson(data,name){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000);}
 function themeModeSwitch(s){
   const mode=themes.MODES.includes(s.themeMode)?s.themeMode:(themes.presets.find(t=>t.id===s.themePreset)?.mode||'dark');
-  return `<div class="mode-switch" role="group" aria-label="Appearance">${[['light','Light'],['dark','Dark'],['system','Auto'],['clear','Clear']].map(([value,label])=>`<button type="button" data-act="theme-mode" data-mode="${value}" aria-pressed="${mode===value}">${label}</button>`).join('')}</div>`;
+  return `<div class="mode-switch" role="group" aria-label="Appearance">${[['light','Light'],['dark','Dark'],['system','Auto']].map(([value,label])=>`<button data-act="theme-mode" data-mode="${value}" aria-pressed="${mode===value}">${label}</button>`).join('')}</div>`;
 }
 function themePresetGroups(s,p){
   const groups=[['Signature',t=>!t.material],['Material',t=>t.material&&!t.mode],['Light',t=>t.mode==='light']];
   return groups.map(([title,test])=>`<section><h2>${title}</h2><div class="theme-presets">${themes.presets.filter(test).map(t=>{const x=themes.palette({...s,themePreset:t.id,themeCustom:null,themeMode:t.mode||s.themeMode});const on=!s.themeCustom&&t.id===p.id;return `<button class="theme-preset${on?' selected':''}" data-act="theme-preset" data-id="${t.id}" aria-pressed="${on}"><div class="theme-swatch" style="--swatch-surface:${x.surface};--swatch-raised:${x.raised};--swatch-accent:${x.accent}"><span></span><i></i><b></b></div><strong>${t.name}</strong><small>${t.note}</small></button>`;}).join('')}</div></section>`).join('');
 }
-async function viewBackgrounds(category){
-  return scene.page({category, settings: store.getSettings(), uploads: scene.listUploads(), viewport: scene.readViewport(), esc});
+function viewBackgrounds(category = '') {
+  return scene.page({ category, settings: store.getSettings(), uploads: scene.listUploads(), esc });
 }
 function viewThemes(){
   const s=store.getSettings(),p=themes.palette(s);if(!themeUndo)themeUndo={...themeSettings(s),density:s.density,textSize:s.textSize,motion:s.motion};
@@ -1769,7 +1778,7 @@ async function pullSpotifyStats({force=false}={}){
   return changed;
 }
 setTimeout(()=>pullSpotifyStats(),1200);
-loadLinks().then(state=>{loadPhoto().then(()=>syncAvatars());refreshSpotifyPhoto().catch(()=>{});if(!state)return;syncAvatars();if(['','#/home','#/profile','#/settings'].includes(location.hash))route({keepScroll:true});
+loadLinks().then(state=>{if(!state)return;syncAvatars();if(location.hash===''||location.hash==='#/home')route({keepScroll:true});
   syncLinks().then(changed=>{if(changed&&['#/rewind','#/home',''].includes(location.hash))route({keepScroll:true});syncAvatars();}).catch(()=>{});});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncLinks().then(changed=>{if(changed&&location.hash==='#/rewind')route({keepScroll:true});}).catch(()=>{});});
 // Load listening history in the background so Rewind opens instantly.
@@ -1778,7 +1787,7 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)pullSpotif
 
 /* ---------------- Jam ---------------- */
 const jam=new Jam(player,{onToast:msg=>toast(msg),onChange:()=>{document.body.dataset.jam=jam.active?(jam.host?'host':'guest'):'';syncJamChip();if(location.hash==='#/jam')route({keepScroll:true});}});
-function jamProfile(){return {name:profileName().slice(0,40),avatar:profilePhoto(true)};}
+function jamProfile(){return {name:profileName().slice(0,40),avatar:profilePhoto()};}
 function jamGuestControl(action){
   if(!jam.active||jam.host)return false;
   if(!jam.guestControl){toast('Only the host can control playback in this Jam.');return true;}
@@ -1899,18 +1908,6 @@ async function runNotifyChecks(){
 setTimeout(runNotifyChecks,8000);setInterval(runNotifyChecks,3*3600000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout(runNotifyChecks,3000);});
 
-$('#bgUpload')?.addEventListener('change', async (e) => {
-  const file = e.target.files?.[0];
-  e.target.value = '';
-  if (!file) return;
-  try {
-    const rec = await scene.saveUpload(file);
-    store.setSettings({scene: {kind: 'upload', id: rec.id, x: .5, y: .42}});
-    scene.apply(store.getSettings());
-    if (location.hash.startsWith('#/backgrounds')) route({keepScroll: true});
-    toast('Background updated');
-  } catch (err) { toast(err.message); }
-});
 player.restore();
 applyPreferences();
 vol.value=Math.round(player.el.volume*100);

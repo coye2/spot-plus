@@ -1,19 +1,76 @@
-// Spot+ service worker: offline app shell + cached cover art. Audio downloads live in their own cache.
+// Spot+ service worker: offline app shell, cached cover art, and HTTP Range support for cached audio.
 // v40 includes version 2 account snapshots and incomplete-collection preservation.
-const SHELL_CACHE = 'spotplus-shell-v89';
+const SHELL_CACHE = 'spotplus-shell-v86';
 const IMG_CACHE = 'spotplus-img-v1';
-const KEEP = [SHELL_CACHE, IMG_CACHE, 'spotplus-audio-v1', 'spotplus-live-voice-v1'];
+const AUDIO_CACHE = 'spotplus-audio-v1';
+const KEEP = [SHELL_CACHE, IMG_CACHE, AUDIO_CACHE, 'spotplus-live-voice-v1'];
 const SHELL = [
-  './js/audio-selection.js','./js/player-colors.js','./js/spotify-stats.js','./js/listening-history.js','./js/history-import-worker.js','./js/rewind.js','./js/stats-api.js','./js/canvas-cache.js','./js/jam.js','./js/jam-mesh.js','./js/relay-sync.js','./js/spotify-links.js','./js/vendor/nostr-sign.js','./js/onboarding.js','./js/notify.js','./js/landing.js','./js/fx.js','./js/spoken.js','./js/generator.js','./js/mixes.js','./js/library-sync.js','./js/live-stats.js','./js/changelog.js','./js/cors-probe.js','./js/pitch-worklet.js','./js/boot.js','./css/landing.css','./icons/shot-home.webp','./icons/shot-coll.webp','./icons/shot-jam.webp','./js/vendor/qrcode.js','./css/rewind.css','./css/polish.css','./css/backgrounds.css','./js/backgrounds.js','./js/background-catalog.js',
+  './js/playback-telemetry.js', './js/source-router.js', './js/memory-engine.js', './js/buffer-engine.js', './js/predictive-pipeline.js',
+  './js/backgrounds.js', './js/background-catalog.js', './css/backgrounds.css',
+  './js/audio-selection.js','./js/player-colors.js','./js/spotify-stats.js','./js/listening-history.js','./js/history-import-worker.js','./js/rewind.js','./js/stats-api.js','./js/canvas-cache.js','./js/jam.js','./js/jam-mesh.js','./js/relay-sync.js','./js/spotify-links.js','./js/vendor/nostr-sign.js','./js/onboarding.js','./js/notify.js','./js/landing.js','./js/fx.js','./js/spoken.js','./js/generator.js','./js/mixes.js','./js/library-sync.js','./js/live-stats.js','./js/changelog.js','./js/cors-probe.js','./js/pitch-worklet.js','./js/boot.js','./css/landing.css','./icons/shot-home.webp','./icons/shot-coll.webp','./icons/shot-jam.webp','./js/vendor/qrcode.js','./css/rewind.css','./css/polish.css',
   './js/playback-policy.js',
   './js/canvas.js','./js/video-loops.js','./js/player-gestures.js','./js/account-setup.js','./js/dj-recognition.js','./js/live-voice.js','./js/live-voice-worker.js','./js/dj-dialogue.js','./js/vendor/supertonic-text.js',
   ...['afterhours','daylight','classic'].map(host=>'./audio/dj/'+host+'/preview.mp3'),
   './css/app-shell.css','./css/dj-voice.css','./js/shell.js','./js/dj-voice.js','./js/dj-hosts.js','./js/audio-buffer.js',
   './js/folders.js',
-  './css/account.css', './js/spotify-account.js', './js/spotify-reader.js', './js/profile-photo.js',
-  './', './index.html', './css/style.css', './css/experience.css', './css/themes.css', './css/refinements.css', './css/fonts.css', './fonts/inter-latin-wght-normal.woff2', './js/app.js', './js/api.js', './js/player.js', './js/store.js', './js/library.js', './js/dj.js', './js/local-model.js', './js/model-worker.js', './js/themes.js', './js/spotify.js', './js/spotify-import.js', './js/spotify-import-worker.js', './js/vendor/fflate.js',
+  './css/account.css', './js/spotify-account.js', './js/spotify-reader.js',
+  './', './index.html', './css/style.css', './css/experience.css', './css/themes.css', './css/refinements.css', './css/fonts.css', './fonts/inter-latin-wght-normal.woff2', './js/app.js', './js/api.js', './js/player.js', './js/yt-embed.js', './js/store.js', './js/library.js', './js/dj.js', './js/local-model.js', './js/model-worker.js', './js/themes.js', './js/spotify.js', './js/spotify-import.js', './js/spotify-import-worker.js', './js/vendor/fflate.js',
   './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png', './icons/apple-touch-icon.png',
 ];
+const SHELL_PATHS = new Set(SHELL.map((path) => new URL(path, self.location.href).pathname));
+
+function parseByteRange(header, total) {
+  if (!header || !/^bytes=/i.test(header)) return null;
+  const spec = header.replace(/^bytes=/i, '').split(',')[0].trim();
+  const match = /^(\d*)-(\d*)$/.exec(spec);
+  if (!match || (!match[1] && !match[2])) return { invalid: true };
+  let start, end;
+  if (!match[1]) {
+    const suffix = Number(match[2]);
+    if (!Number.isFinite(suffix) || suffix <= 0) return { invalid: true };
+    start = Math.max(0, total - suffix);
+    end = total - 1;
+  } else {
+    start = Number(match[1]);
+    end = match[2] ? Math.min(total - 1, Number(match[2])) : total - 1;
+  }
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || start >= total || start > end) {
+    return { unsatisfiable: true };
+  }
+  return { start, end };
+}
+
+async function serveCachedAudioRange(req) {
+  const cache = await caches.open(AUDIO_CACHE);
+  const hit = await cache.match(req.url);
+  if (!hit) return new Response('Not found', { status: 404 });
+  const rangeHeader = req.headers?.get?.('Range');
+  const contentType = hit.headers?.get?.('Content-Type') || 'audio/mp4';
+  if (!rangeHeader) {
+    const headers = new Headers(hit.headers);
+    headers.set('Accept-Ranges', 'bytes');
+    return new Response(hit.body, { status: 200, headers });
+  }
+  const blob = await hit.blob();
+  const total = blob.size;
+  const parsed = parseByteRange(rangeHeader, total);
+  if (!parsed || parsed.invalid || parsed.unsatisfiable) {
+    return new Response(null, {
+      status: 416,
+      headers: { 'Content-Range': `bytes */${total}`, 'Accept-Ranges': 'bytes' },
+    });
+  }
+  const slice = blob.slice(parsed.start, parsed.end + 1, contentType);
+  return new Response(slice, {
+    status: 206,
+    headers: {
+      'Content-Type': contentType,
+      'Content-Range': `bytes ${parsed.start}-${parsed.end}/${total}`,
+      'Content-Length': String(parsed.end - parsed.start + 1),
+      'Accept-Ranges': 'bytes',
+    },
+  });
+}
 
 self.addEventListener('install', (e) => {
   // A new shell must bypass the browser's still-fresh copies from the old release.
@@ -38,7 +95,10 @@ self.addEventListener('fetch', (e) => {
 
   // Versioned app shell: open immediately from cache; a new worker installs the next complete version.
   if (url.origin === self.location.origin) {
-    if (url.pathname.includes('/__offline/')) return;
+    if (url.pathname.includes('/__offline/')) {
+      e.respondWith(serveCachedAudioRange(req));
+      return;
+    }
     // Opening a userscript is a document navigation too. It must return the
     // actual script, never the app shell (which renders broken at a /js/ URL).
     // Ignore both old cache entries and HTTP cache when installing/updating it.
@@ -48,11 +108,18 @@ self.addEventListener('fetch', (e) => {
       return;
     }
     e.respondWith((async () => {
-      const cache = await caches.open(SHELL_CACHE);
       const appDocument = req.mode === 'navigate' && [base.pathname,new URL('index.html',base).pathname].includes(url.pathname);
+      if (!SHELL_PATHS.has(url.pathname) && !appDocument) {
+        try { return await fetch(req); } catch { return new Response('Offline', { status: 503 }); }
+      }
+      const cache = await caches.open(SHELL_CACHE);
       const hit = await cache.match(req, { ignoreSearch: true }) || (appDocument ? await cache.match('./index.html') : null);
       if (hit && !(req.mode==='cors' && hit.type==='opaque')) return hit;
-      try {const res=await fetch(req);if(res.ok)await cache.put(req,res.clone());return res;}catch{return new Response('Offline',{status:503});}
+      try {
+        const res = await fetch(req);
+        if (res.ok) { try { await cache.put(req, res.clone()); } catch { /* iOS quota full */ } }
+        return res;
+      } catch { return new Response('Offline', { status: 503 }); }
     })());
     return;
   }
@@ -65,7 +132,7 @@ self.addEventListener('fetch', (e) => {
       if (hit && !(req.mode==='cors' && hit.type==='opaque')) return hit;
       try {
         const res = await fetch(req);
-        cache.put(req, res.clone()).then(() => trim(IMG_CACHE, 600));
+        if (res.ok) cache.put(req, res.clone()).then(() => trim(IMG_CACHE, 600)).catch(() => {});
         return res;
       } catch { return Response.error(); }
     })());

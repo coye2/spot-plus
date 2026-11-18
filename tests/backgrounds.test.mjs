@@ -1,38 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {CATALOG, CATEGORIES} from '../js/background-catalog.js';
-import {coverCrop, deviceTier, sourceForDevice, targetPixels, wallpaperURLs, positionOf, normalizeScene, searchWallpapers, categoryFrom, page} from '../js/backgrounds.js';
+import {coverCrop, deviceTier, sourceForDevice, targetPixels, wallpaperURLs, positionOf, normalizeScene} from '../js/backgrounds.js';
 
 const phone = {width: 390, height: 844, dpr: 3};
 const desktop = {width: 1920, height: 1080, dpr: 2};
 
-test('Alpha Coders catalog covers the site categories and direct image URLs', () => {
-  assert.ok(CATALOG.length >= 2000);
-  assert.ok(CATEGORIES.length >= 60);
-  assert.ok(CATEGORIES.some(item => item.slug === 'nature' && item.name === 'Nature'));
-  assert.ok(CATEGORIES.some(item => item.slug === 'sci-fi'));
-  const names = new Set(CATEGORIES.map(item => item.name));
+test('Alpha Coders catalog is 4K-class and every image URL is direct', () => {
+  assert.ok(CATALOG.length >= 30);
+  assert.ok(CATEGORIES.includes('Nature') && CATEGORIES.includes('Abstract'));
   for (const item of CATALOG) {
-    assert.ok(names.has(item.category), item.category);
     assert.ok(item.w >= 1920 && item.h >= 1080, item.name);
     const urls = wallpaperURLs(item);
     assert.match(urls.full, new RegExp(`^https://${item.host}\\.alphacoders\\.com/${item.folder}/${item.id}\\.${item.ext}$`));
     assert.match(urls.fhd, /thumb-1920-/);
-    assert.match(urls.preview, /thumbbig-/);
+    assert.match(urls.preview, /thumb-350-/);
   }
-});
-
-test('search reaches every category and a named wallpaper', () => {
-  const nature = categoryFrom('nature');
-  assert.equal(nature.name, 'Nature');
-  const listed = searchWallpapers({category: 'nature'});
-  assert.ok(listed.length >= 10);
-  assert.ok(listed.every(item => item.category === 'Nature'));
-  const sample = searchWallpapers({});
-  assert.ok(new Set(sample.map(item => item.category)).size >= 60);
-  const hit = CATALOG.find(item => item.name.length > 6);
-  const found = searchWallpapers({query: hit.name.slice(0, 6)});
-  assert.ok(found.some(item => item.id === hit.id));
 });
 
 test('crop size follows the device and phones do not pull the 4K file', () => {
@@ -58,21 +41,6 @@ test('cover crop stays inside the photo and matches the frame', () => {
   const edge = coverCrop(1000, 1000, 500, 200, {x: 0, y: 1});
   assert.equal(edge.x, 0);
   assert.ok(edge.y + edge.height <= 1000.1);
-});
-
-test('the wallpaper screen is a grid inside its own list, with Clear in the appearance switch', () => {
-  const html = page({viewport: phone, settings: {themeMode: 'clear'}});
-  assert.match(html, /class="bg-studio"/);
-  assert.match(html, /class="bg-tools"/);
-  assert.match(html, /id="bgList"/);
-  assert.match(html, /class="bg-grid"/);
-  assert.match(html, /id="bgSearch"/);
-  assert.match(html, /id="bgStage"/);
-  assert.match(html, /data-mode="clear" aria-pressed="true"/);
-  assert.match(html, /class="bg-row/);
-  assert.match(html, /class="bg-group"/);
-  assert.equal(html.includes('<table'), false);
-  assert.equal(html.includes('overflow'), false);
 });
 
 test('a saved background keeps a clamped crop point', () => {

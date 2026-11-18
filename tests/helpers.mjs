@@ -1,10 +1,11 @@
 export function storageMock(){const values=new Map();return {getItem:k=>values.has(k)?values.get(k):null,setItem:(k,v)=>values.set(k,String(v)),removeItem:k=>values.delete(k),clear:()=>values.clear()};}
 export class FakeAudio extends EventTarget {
-  constructor(){super();this.src='';this.currentTime=0;this.duration=180;this.volume=1;this.paused=true;this.preload='';}
+  constructor(){super();this.src='';this.crossOrigin=null;this.currentTime=0;this.duration=180;this.volume=1;this.paused=true;this.preload='';}
   canPlayType(){return 'probably';}
   async play(){this.paused=false;this.dispatchEvent(new Event('play'));this.dispatchEvent(new Event('playing'));}
   pause(){const changed=!this.paused;this.paused=true;if(changed)this.dispatchEvent(new Event('pause'));}
   load(){}
+  setAttribute(name,value){if(name==='crossorigin')this.crossOrigin=value;}
   removeAttribute(name){if(name==='src')this.src='';if(name==='crossorigin')this.crossOrigin=null;}
 }
 export function browserMocks(){

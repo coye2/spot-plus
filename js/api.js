@@ -4,13 +4,16 @@
 //   Lyrics   : LRCLib (time-synced)
 // Requests go from the listener's browser to public providers; availability and CORS vary.
 import { getSettings, getVideoCache, setVideoCache } from './store.js';
-import {loopQuality} from './playback-policy.js';
+import {loopQuality, prefersAac} from './playback-policy.js';
 import {rankAudioMatches,chooseAudioFormat,raceAudioSources} from './audio-selection.js';
-import {prefersAac} from './playback-policy.js';
-import {corsOK} from './cors-probe.js';
+import {corsOK, knownCors} from './cors-probe.js';
+import { router, validateSourceCandidate, isVerifiedEquivalent } from './source-router.js';
+import { memoryEngine } from './memory-engine.js';
+import { bufferEngine } from './buffer-engine.js';
 
 const DEEZER = 'https://api.deezer.com';
 const LRCLIB = 'https://lrclib.net/api';
+memoryEngine.ready().catch(() => {});
 
 /* =========================== Deezer (metadata) =========================== */
 const memo = new Map();
@@ -49,13 +52,12 @@ function jsonpNetwork(path, qs) {
     qs.set('output', 'jsonp');
     qs.set('callback', cb);
     const s = document.createElement('script');
-    const done = () => { clearTimeout(timer); window[cb] = () => {}; s.remove?.(); const later = setTimeout(() => { try { delete window[cb]; } catch {} }, 30000); later.unref?.(); };
+    const done = () => { clearTimeout(timer); window[cb] = () => {}; s.remove?.(); setTimeout(() => { try { delete window[cb]; } catch {} }, 30000).unref?.(); };
     const timer = setTimeout(() => { done(); reject(new Error('Deezer took too long to answer')); }, 12000);
     window[cb] = (data) => { done(); if (data && data.error) reject(new Error(data.error.message || 'Deezer error')); else resolve(data); };
     s.onerror = () => { done(); reject(new Error('Could not reach Deezer')); };
     s.src = `${DEEZER}${path}?${qs}`;
-    try { document.head.appendChild(s); }
-    catch (e) { done(); reject(e instanceof Error ? e : new Error('Could not reach Deezer')); }
+    try { (document.head || document.documentElement || document.body).appendChild(s); } catch (err) { done(); reject(err); }
   });
 }
 function jsonp(path, params = {}) {
@@ -241,13 +243,14 @@ export function instances(force = false) {
   return force ? instancePromise : Promise.resolve(instanceSnapshot);
 }
 
-// Shared match lookup on the Spot+ bridge: one fast, edge-cached search for every user.
+// Shared match & stream lookup on the Spot+ bridge: edge-cached search and stream resolution.
 export const MATCH_ENDPOINT = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/match';
 export const STREAM_ENDPOINT = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/stream';
 let matchDown = 0;
+let streamDown = 0;
 async function bridgeMatches(t, signal) {
   if (matchDown > Date.now()) throw new Error('Match lookup paused');
-  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 2500);
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 3500);
   try {
     const r = await fetch(MATCH_ENDPOINT + '?q=' + encodeURIComponent(query(t)), {signal: signal ? AbortSignal.any([signal, ctl.signal]) : ctl.signal, credentials: 'omit'});
     if (r.status === 404) matchDown = Date.now() + 3600e3;
@@ -257,18 +260,42 @@ async function bridgeMatches(t, signal) {
     return matches;
   } finally { clearTimeout(timer); }
 }
-/** InstantPlay: resolve a known recording to a direct audio URL via the Spot+ bridge (no public mirrors). */
-export async function bridgeStream(videoId, {signal, preferAac = prefersAac()} = {}) {
-  if (!/^[\w-]{11}$/.test(videoId || '')) return null;
-  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 900);
+export async function bridgeStream(videoId, { signal, preferAac = false, timeoutMs = 900 } = {}) {
+  if (!videoId || streamDown > Date.now() || !router.isAvailable(STREAM_ENDPOINT)) return null;
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), timeoutMs);
+  const combined = signal ? AbortSignal.any([signal, ctl.signal]) : ctl.signal;
+  let onAbort = null;
+  const abortPromise = new Promise((_, reject) => {
+    onAbort = () => reject(new DOMException('Aborted', 'AbortError'));
+    if (combined.aborted) onAbort();
+    else combined.addEventListener('abort', onAbort, { once: true });
+  });
+  const started = performance.now();
   try {
-    const r = await fetch(`${STREAM_ENDPOINT}?id=${encodeURIComponent(videoId)}${preferAac ? '&aac=1' : ''}`, {
-      signal: signal ? AbortSignal.any([signal, ctl.signal]) : ctl.signal,
-      credentials: 'omit',
-    });
-    if (!r.ok) return null;
+    router.claimHalfOpen(STREAM_ENDPOINT);
+    const r = await Promise.race([
+      fetch(`${STREAM_ENDPOINT}?id=${encodeURIComponent(videoId)}${preferAac ? '&aac=1' : ''}`, {
+        signal: combined,
+        credentials: 'omit',
+      }),
+      abortPromise,
+    ]);
+    if (r.status === 404) {
+      streamDown = Date.now() + 10 * 60e3;
+      router.recordResolution(STREAM_ENDPOINT, performance.now() - started, false, { fatal: true });
+      return null;
+    }
+    if (!r.ok) {
+      if (r.status >= 500) streamDown = Date.now() + 30e3;
+      router.recordResolution(STREAM_ENDPOINT, performance.now() - started, false, { fatal: r.status >= 500 });
+      return null;
+    }
     const data = await r.json();
-    if (!data?.url || !/^https:\/\//.test(data.url)) return null;
+    if (!data?.url || !/^https:\/\//.test(data.url)) {
+      router.recordResolution(STREAM_ENDPOINT, performance.now() - started, false);
+      return null;
+    }
+    router.recordResolution(STREAM_ENDPOINT, performance.now() - started, true);
     return {
       url: data.url,
       mime: data.mime || 'audio/mp4',
@@ -280,17 +307,32 @@ export async function bridgeStream(videoId, {signal, preferAac = prefersAac()} =
       itag: data.itag || null,
       alternatives: Array.isArray(data.alternatives) ? data.alternatives : [],
     };
-  } catch { return null; }
-  finally { clearTimeout(timer); }
+  } catch {
+    if (!signal?.aborted) router.recordResolution(STREAM_ENDPOINT, performance.now() - started, false);
+    return null;
+  } finally {
+    clearTimeout(timer);
+    if (onAbort) combined.removeEventListener('abort', onAbort);
+  }
 }
 const goodKey = 'spotplus.goodInstance';
 const failedInstances = new Map();
 function lastGood() { try { return JSON.parse(localStorage.getItem(goodKey) || '{}'); } catch { return {}; } }
 function markGood(kind, base) { const g = lastGood(); g[kind] = base; try { localStorage.setItem(goodKey, JSON.stringify(g)); } catch {} }
-export function reportPlaybackSource(source, ok = true) {
-  if (!source?.instance || !['piped','invidious'].includes(source.kind)) return;
-  if (ok) { failedInstances.delete(source.instance); markGood(source.kind,source.instance); }
-  else { failedInstances.set(source.instance,Date.now()+60000); for (const [key,value] of streamCache) if (value.stream.instance===source.instance) forget(key); }
+export function reportPlaybackSource(source, ok = true, meta = {}) {
+  if (!source?.instance || !['piped','invidious','bridge','audius'].includes(source.kind)) return;
+  const hostKey = source.kind === 'bridge' ? STREAM_ENDPOINT : source.instance;
+  router.recordPlayback(hostKey, { ok, startupMs: meta.startupMs, stalled: !!meta.stalled });
+  if (ok) {
+    failedInstances.delete(source.instance);
+    if (source.kind === 'bridge') streamDown = 0;
+    else if (['piped','invidious'].includes(source.kind)) markGood(source.kind, source.instance);
+  } else {
+    failedInstances.set(source.instance, Date.now() + (source.kind === 'bridge' ? 30e3 : 60e3));
+    if (source.kind === 'bridge') streamDown = Date.now() + 20e3;
+    bufferEngine.recordFailure();
+    memoryEngine.forgetByInstance(source.instance);
+  }
 }
 
 // Each server's typical answer time (moving average), so the fastest ones are asked first.
@@ -298,9 +340,12 @@ const SPEED_KEY='spotplus.instanceSpeed';
 let speeds=null;
 function speedTable(){if(!speeds){try{speeds=JSON.parse(localStorage.getItem(SPEED_KEY)||'{}');}catch{speeds={};}}return speeds;}
 export function recordSpeed(base,ms,ok){
+  bufferEngine.recordLatency(ms);
+  router.recordResolution(base,ms,ok);
   const table=speedTable(),old=table[base];const sample=ok?ms:Math.max(ms,6000)+4000;
   table[base]=Math.round(old?old*.6+sample*.4:sample);
   clearTimeout(recordSpeed.t);recordSpeed.t=setTimeout(()=>{try{localStorage.setItem(SPEED_KEY,JSON.stringify(Object.fromEntries(Object.entries(table).sort((a,b)=>a[1]-b[1]).slice(0,80))));}catch{}},1500);
+  recordSpeed.t.unref?.();
 }
 export function rankBySpeed(list,{custom=[],failed=()=>false,table=speedTable()}={}){
   const cost=base=>failed(base)?1e9:custom.includes(base)?-1:(table[base]??2500);
@@ -309,15 +354,16 @@ export function rankBySpeed(list,{custom=[],failed=()=>false,table=speedTable()}
 function orderedInstances(kind, inst, set) {
   const custom = (kind === 'piped' ? set.customPiped : set.customInvidious).split(/[\s,]+/).filter((x) => /^https?:\/\//.test(x)).map(clean);
   const list = uniq([...custom, lastGood()[kind], ...(kind==='invidious'?INV_FALLBACK.slice(0,1):[]), ...(inst[kind] || [])]);
-  return rankBySpeed(list,{custom,failed:base=>(failedInstances.get(base)||0)>Date.now()});
+  const routerRanked = router.rank(list, { custom });
+  return rankBySpeed(routerRanked,{custom,failed:base=>(failedInstances.get(base)||0)>Date.now() || !router.isAvailable(base)});
 }
 
 const best = rankAudioMatches;
 const query = (t) => `${t.artist} ${t.title}`.trim();
 
-async function pipedSearch(base, t, signal) {
+async function pipedSearch(base, t, signal, ms = 2800) {
   for (const filter of ['music_songs', 'videos']) {
-    const d = await fetchJSON(`${base}/search?q=${encodeURIComponent(query(t))}&filter=${filter}`, 3200, signal);
+    const d = await fetchJSON(`${base}/search?q=${encodeURIComponent(query(t))}&filter=${filter}`, ms, signal);
     const items = (d.items || [])
       .filter((x) => x && typeof x.url === 'string' && x.url.includes('v='))
       .map((x) => ({ id: new URL(x.url, 'https://youtube.com').searchParams.get('v'), title: x.title, duration: x.duration, channel: x.uploaderName }));
@@ -325,8 +371,8 @@ async function pipedSearch(base, t, signal) {
   }
   throw new Error('no results');
 }
-async function invSearch(base, t, signal) {
-  const d = await fetchJSON(`${base}/api/v1/search?q=${encodeURIComponent(query(t))}&type=video&fields=videoId,title,lengthSeconds,author`, 3200, signal);
+async function invSearch(base, t, signal, ms = 2800) {
+  const d = await fetchJSON(`${base}/api/v1/search?q=${encodeURIComponent(query(t))}&type=video&fields=videoId,title,lengthSeconds,author`, ms, signal);
   const items = (Array.isArray(d) ? d : []).filter((x) => x.videoId).map((x) => ({ id: x.videoId, title: x.title, duration: x.lengthSeconds, channel: x.author }));
   if (!items.length) throw new Error('no results');
   const matches=best(items,t);if(!matches.length)throw new Error('No matching recording');return matches;
@@ -341,15 +387,15 @@ function pickFormat(list) {
   const other=chooseAudioFormat(rest,{quality:getSettings().quality,canPlay:mime=>!!probe?.canPlayType(mime)});if(other)alternatives.unshift(other);
   return {...picked,alternatives};
 }
-async function pipedStream(base, id, signal, track) {
-  const d = await fetchJSON(`${base}/streams/${id}`, 3200, signal);
+async function pipedStream(base, id, signal, track, ms = 2800) {
+  const d = await fetchJSON(`${base}/streams/${id}`, ms, signal);
   if(d.livestream || (track&&d.title&&!best([{title:d.title,channel:d.uploader,duration:d.duration}],track).length))throw new Error('Recording did not match');
   const list = (d.audioStreams || []).filter((s) => s.url && s.videoOnly!==true).map((s) => ({ url: s.url, mime: s.mimeType || '', codec:s.codec||'', bitrate: Number(s.bitrate) || parseFloat(s.quality)*1000 || 0 }));
   if (!list.length) throw new Error(d.error || d.message || 'no audio streams');
   return pickFormat(list);
 }
-async function invStream(base, id, signal, track) {
-  const d = await fetchJSON(`${base}/api/v1/videos/${id}?fields=adaptiveFormats,error,title,author,lengthSeconds,liveNow`, 3200, signal);
+async function invStream(base, id, signal, track, ms = 2800) {
+  const d = await fetchJSON(`${base}/api/v1/videos/${id}?fields=adaptiveFormats,error,title,author,lengthSeconds,liveNow`, ms, signal);
   if(d.liveNow || (track&&d.title&&!best([{title:d.title,channel:d.author,duration:d.lengthSeconds}],track).length))throw new Error('Recording did not match');
   const list = (d.adaptiveFormats || [])
     .filter((f) => (f.type || '').startsWith('audio/'))
@@ -408,120 +454,197 @@ export async function resolveVideoLoop(track, {signal, source, skip = []} = {}) 
 }
 
 function kinds(s = getSettings().source) {
-  return s === 'piped' ? ['piped'] : s === 'invidious' ? ['invidious'] : s==='audius'?['audius']:['invidious','piped','audius'];
+  return s === 'piped' ? ['piped'] : s === 'invidious' ? ['invidious'] : s === 'audius' ? ['audius'] : s === 'youtube' ? ['youtube'] : ['invidious', 'piped', 'audius'];
+}
+
+export async function previewStream(t) {
+  // Signed preview URLs expire; refresh persisted tracks through the catalog when possible.
+  let track = null;
+  try {
+    track = t.spotifyId || t.provider === 'spotify-import' || !/^\d+$/.test(String(t.id || ''))
+      ? await matchCatalogTrack(t)
+      : normTrack(await jsonp(`/track/${encodeURIComponent(t.id)}`));
+  } catch (e) {
+    if (/^https:\/\//.test(t?.preview || '')) track = t;
+    else throw e;
+  }
+  if (!track?.preview) throw new Error('No preview is available for this song');
+  return { url: track.preview, mime: 'audio/mpeg', bitrate: 128000, kind: 'preview', instance: DEEZER, preview: true };
+}
+
+function youtubeEmbedStream(matches, t) {
+  const ids = uniq((matches || []).map((m) => m?.id).filter((id) => /^[\w-]{11}$/.test(id || '')));
+  if (!ids.length) return null;
+  setVideoCache(t.id, { id: ids[0], manual: !!getVideoCache(t.id)?.manual, matchVersion: 3 });
+  return {
+    url: `https://www.youtube.com/embed/${ids[0]}`,
+    videoId: ids[0],
+    videoIds: ids,
+    mime: 'audio/mp4',
+    bitrate: 128000,
+    kind: 'youtube-embed',
+    instance: 'youtube.com',
+    alternatives: [],
+  };
 }
 
 /** Find a playable audio URL for a track. Returns { url, mime, bitrate, videoId, instance, kind }. */
-async function resolveUncached(t, { skip = [], signal, cors = false } = {}, _retry = false) {
+async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed = false } = {}, _retry = false) {
   const set = getSettings();
   if (t.local) throw new Error('This local file is no longer stored on this device. Import it again.');
-  if (set.source === 'preview') {
-    // Signed preview URLs expire; refresh persisted tracks through the catalog.
-    const track = t.spotifyId || t.provider==='spotify-import' ? await matchCatalogTrack(t) : normTrack(await jsonp(`/track/${encodeURIComponent(t.id)}`));
-    if (!track.preview) throw new Error('No preview is available for this song');
-    return {url:track.preview, mime:'audio/mpeg', bitrate:128000, kind:'preview', instance:DEEZER, preview:true};
-  }
-  const inst = await instances();
+  if (set.source === 'preview') return previewStream(t);
+
   const stored = getVideoCache(t.id);
-  const cached = stored?.manual || stored?.matchVersion===3 ? stored : null;
-  const control=new AbortController();
-  const deadline=setTimeout(()=>control.abort(),18000);
-  const combined=signal?AbortSignal.any([signal,control.signal]):control.signal;
+  const cached = stored?.manual || stored?.matchVersion === 3 ? stored : null;
+  const control = new AbortController();
+  const isAuto = set.source === 'auto';
+  const deadline = setTimeout(() => control.abort(), isAuto ? 10000 : 18000);
+  const combined = signal ? AbortSignal.any([signal, control.signal]) : control.signal;
   // Ask the shared lookup once; every server below can skip its own search when it answers first.
-  const shared=cached?null:bridgeMatches(t,combined);shared?.catch(()=>{});
+  let sharedMatches = cached ? [cached] : null;
+  const shared = cached ? null : bridgeMatches(t, combined).then((m) => { sharedMatches = m; return m; });
+  shared?.catch(() => {});
+
+  if (set.source === 'youtube') {
+    try {
+      if (!allowEmbed) throw new Error('YouTube player requires interactive playback.');
+      const matches = cached ? [cached] : await shared;
+      const embed = youtubeEmbedStream(matches, t);
+      if (embed) return embed;
+    } catch (e) {
+      if (signal?.aborted) throw new DOMException('Playback cancelled', 'AbortError');
+      if (isAuto) { /* unreachable here */ }
+      else if (allowEmbed && _retry !== 'catalog') {
+        const canonical = await canonicalTrack(t).catch(() => null);
+        if (canonical) return resolveUncached({ ...t, title: canonical.title, searchTitle: canonical.searchTitle || canonical.title, artist: canonical.artist, duration: t.duration || canonical.duration }, { skip, signal, cors, allowEmbed }, 'catalog');
+      }
+      if (!allowEmbed) throw e;
+    } finally { clearTimeout(deadline); }
+    throw new Error('Could not find a playable YouTube recording for this track.');
+  }
+
+  const inst = await instances();
   // Fast path: Invidious servers have a fixed audio address for every recording. With the recording
   // known (saved, or from the shared lookup) and a server that worked for you recently, start playing
   // right away instead of asking a server for the audio links first. Failures fall back to the full search.
-  if(!_retry&&!skip.length){
-    try{
-      const fast=await fastStream(t,{cached,shared,set,cors,skip,signal:combined});
-      if(fast){clearTimeout(deadline);return fast;}
-    }catch{ /* use the full search */ }
+  if (!_retry && !skip.length) {
+    try {
+      const fast = await fastStream(t, { cached, shared, set, cors, skip, signal: combined });
+      if (fast) { clearTimeout(deadline); return fast; }
+    } catch { /* use the full search */ }
   }
+  const hasCustom = !!(set.customPiped?.trim() || set.customInvidious?.trim());
+  const perKind = isAuto && !hasCustom ? 4 : 10;
+  const reqMs = isAuto && !hasCustom ? 2400 : 3400;
+  const raceControl = new AbortController();
+  const raceSignal = AbortSignal.any([combined, raceControl.signal]);
+  const raceCap = isAuto && !hasCustom ? setTimeout(() => raceControl.abort(), 4200) : null;
   try {
-    const streamGroups=kinds(set.source).filter(k=>k!=='audius').map(kind=>orderedInstances(kind,inst,set).slice(0,10).map(base=>({kind,base})));
-    const sources=[];for(let i=0;i<10;i++)for(const group of streamGroups)if(group[i]&&!skip.includes(group[i].base))sources.push(group[i]);
-    if(kinds(set.source).includes('audius'))sources.push({kind:'audius',base:'https://api.audius.co'});
-    const result=await raceAudioSources(sources,async({kind,base})=>{
-      combined.throwIfAborted();
-      if(kind==='audius')return audiusStream(t,combined);
-      const began=performance.now();
-      try{let value=await attemptServer(kind,base);recordSpeed(base,performance.now()-began,true);
-        if(cors&&!(await corsOK(value.url))){const alt=(value.alternatives||[]).find(x=>x.url);if(alt&&await corsOK(alt.url))value={...value,...alt,alternatives:[]};else throw new Error('Effects not supported by this server');}
-        return value;}
-      catch(error){
-        if(!combined.aborted){
-          recordSpeed(base,performance.now()-began,false);
-          // Dead/blocked mirrors waste InstantPlay retries — skip them for a while.
-          if(/HTTP 403|HTTP 404|HTTP 502|HTTP 503|HTTP 500|forbidden|Endpoint disabled|timed out/i.test(error?.message||''))
-            failedInstances.set(base,Date.now()+30*60e3);
+    const streamGroups = kinds(set.source).filter((k) => k !== 'audius' && k !== 'youtube').map((kind) => orderedInstances(kind, inst, set).slice(0, perKind).map((base) => ({ kind, base })));
+    const sources = []; for (let i = 0; i < perKind; i++) for (const group of streamGroups) if (group[i] && !skip.includes(group[i].base)) sources.push(group[i]);
+    if (kinds(set.source).includes('audius')) sources.push({ kind: 'audius', base: 'https://api.audius.co' });
+    const result = await raceAudioSources(sources, async ({ kind, base }) => {
+      raceSignal.throwIfAborted();
+      if (kind === 'audius') return audiusStream(t, raceSignal);
+      const began = performance.now();
+      try {
+        let value = await attemptServer(kind, base); recordSpeed(base, performance.now() - began, true);
+        if (cors && !(await corsOK(value.url))) {
+          const alt = (value.alternatives || []).find((x) => x.url);
+          if (alt && await corsOK(alt.url)) value = { ...value, ...alt, alternatives: [] };
+          else throw new Error('Effects not supported by this server');
         }
+        return value;
+      } catch (error) {
+        if (!raceSignal.aborted) recordSpeed(base, performance.now() - began, false);
         throw error;
       }
-    },{signal:combined,quality:set.quality,concurrency:8,qualityWait:250});
-    async function attemptServer(kind,base){
-      const choices=cached?[cached]:(await Promise.any([shared,ENGINES[kind].search(base,t,combined)].filter(Boolean))).slice(0,2);
-      for(const choice of choices){
-        try {const stream=await ENGINES[kind].stream(base,choice.id,combined,cached?.manual?null:t);combined.throwIfAborted();return {...stream,videoId:choice.id,instance:base,kind};}
-        catch(error){
-          combined.throwIfAborted();
-          const videoError=/Recording did not match|no audio streams|No compatible audio format|HTTP 404/i.test(error?.message||'');
-          if(!videoError||choice===choices.at(-1))throw error;
+    }, { signal: raceSignal, quality: set.quality, concurrency: 8, qualityWait: 250 });
+    async function attemptServer(kind, base) {
+      router.claimHalfOpen(base);
+      const choices = cached ? [cached] : (await Promise.any([shared, ENGINES[kind].search(base, t, raceSignal, reqMs)].filter(Boolean))).slice(0, 2);
+      for (const choice of choices) {
+        try {
+          const stream = await ENGINES[kind].stream(base, choice.id, raceSignal, cached?.manual ? null : t, reqMs);
+          raceSignal.throwIfAborted();
+          const candidate = { ...stream, videoId: choice.id, instance: base, kind };
+          const check = validateSourceCandidate(candidate, { canPlay: mime => !!probe?.canPlayType(mime) });
+          if (!check.ok) throw new Error('Incompatible stream candidate');
+          return candidate;
+        } catch (error) {
+          raceSignal.throwIfAborted();
+          const videoError = /Recording did not match|no audio streams|No compatible audio format|Incompatible stream|HTTP 404/i.test(error?.message || '');
+          if (!videoError || choice === choices.at(-1)) throw error;
         }
       }
     }
     combined.throwIfAborted();
-    if(result.videoId)setVideoCache(t.id,{id:result.videoId,manual:!!cached?.manual,matchVersion:3});
+    if (result.videoId) setVideoCache(t.id, { id: result.videoId, manual: !!cached?.manual, matchVersion: 3 });
     return result;
   } catch {
-    if(signal?.aborted)throw new DOMException('Playback cancelled','AbortError');
-    if(cached&&!cached.manual&&!_retry){setVideoCache(t.id,null);return resolveUncached(t,{skip,signal,cors},true);}
-    // Rescue: songs from Spotify can spell artists differently from YouTube ("Jala, Buba Corelli" vs
-    // "Jala Brat & Buba Corelli"). Look the song up in the catalog and try again with its spelling.
-    if(_retry!=='catalog'){
-      const canonical=await canonicalTrack(t).catch(()=>null);
-      if(canonical)return resolveUncached({...t,title:canonical.title,searchTitle:canonical.searchTitle||canonical.title,artist:canonical.artist,duration:t.duration||canonical.duration},{skip,signal,cors},'catalog');
-    }
-    // Last InstantPlay attempt: match on the bridge, then resolve audio there too (mirrors may all be down).
-    if(_retry!=='bridge'){
-      try{
-        const matches=await bridgeMatches(t,signal);
-        const bridged=await bridgeStream(matches[0].id,{signal,preferAac:prefersAac()||set.quality==='low'});
-        if(bridged&&(!cors||await corsOK(bridged.url))){
-          setVideoCache(t.id,{id:matches[0].id,manual:false,matchVersion:3});
-          return bridged;
+    if (signal?.aborted) throw new DOMException('Playback cancelled', 'AbortError');
+    if (cached && !cached.manual && !_retry) { setVideoCache(t.id, null); return resolveUncached(t, { skip, signal, cors, allowEmbed }, true); }
+    if (!skip.length && _retry !== 'bridge' && streamDown <= Date.now()) {
+      try {
+        const matches = sharedMatches?.length ? sharedMatches : (shared ? await Promise.race([shared, new Promise((_, rej) => setTimeout(() => rej(new Error('slow')), 1500))]) : []);
+        const vid = matches?.[0]?.id;
+        if (vid) {
+          const bridged = await bridgeStream(vid, { signal, preferAac: prefersAac() || set.quality === 'low', timeoutMs: 1400 });
+          if (bridged && (!cors || await corsOK(bridged.url))) {
+            setVideoCache(t.id, { id: vid, manual: false, matchVersion: 3 });
+            return bridged;
+          }
         }
-      }catch{ /* fall through */ }
+      } catch { /* fall through */ }
     }
-    const rescued=await previewRescue(t);
-    if(rescued)return rescued;
+    if (!sharedMatches?.length && _retry !== 'catalog') {
+      const canonical = await canonicalTrack(t).catch(() => null);
+      if (canonical) return resolveUncached({ ...t, title: canonical.title, searchTitle: canonical.searchTitle || canonical.title, artist: canonical.artist, duration: t.duration || canonical.duration }, { skip, signal, cors, allowEmbed }, 'catalog');
+    }
+    if (isAuto) {
+      if (allowEmbed) {
+        if (!sharedMatches?.length && shared) await Promise.race([shared, new Promise((r) => setTimeout(r, 1500))]).catch(() => {});
+        const embed = youtubeEmbedStream(sharedMatches, t);
+        if (embed) return embed;
+      }
+      const rescued = await previewRescue(t);
+      if (rescued) return rescued;
+    }
     throw new Error('No audio server answered. Try another source in Settings, a 30-second preview, or a local audio file.');
-  } finally {clearTimeout(deadline);control.abort();}
+  } finally { clearTimeout(raceCap); clearTimeout(deadline); control.abort(); }
 }
 
-function previewSource(url){
-  return /^https:\/\//.test(url||'')?{url,mime:'audio/mpeg',bitrate:128000,kind:'preview',instance:DEEZER,preview:true}:null;
+function previewSource(url) {
+  return /^https:\/\//.test(url || '') ? { url, mime: 'audio/mpeg', bitrate: 128000, kind: 'preview', instance: DEEZER, preview: true, alternatives: [] } : null;
 }
+
 /** When every full-track server is down, start the catalog sample so the song is not a dead error. */
-async function previewRescue(t){
-  const ready=previewSource(t?.preview);
-  if(ready)return ready;
-  if(!globalThis.document?.head)return null;
-  try{
-    const found=await Promise.race([
-      (async()=>{
-        const rows=data(await jsonp('/search',{q:`${t.artist} ${t.searchTitle||t.title}`,limit:8})).map(x=>normTrack(x));
-        return rows.find(x=>previewSource(x.preview)&&best([{title:x.title,channel:x.artist,duration:x.duration,verified:true}],t).length)||null;
+async function previewRescue(t) {
+  const ready = previewSource(t?.preview);
+  if (ready) return ready;
+  if (!globalThis.document?.head) return null;
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(null), 2000);
+  });
+  try {
+    const direct = await Promise.race([previewStream(t).catch(() => null), timeout]);
+    if (direct?.url) return direct;
+    const found = await Promise.race([
+      (async () => {
+        const rows = data(await jsonp('/search', { q: `${t.artist} ${t.searchTitle || t.title}`, limit: 8 })).map((x) => normTrack(x));
+        return rows.find((x) => previewSource(x.preview) && best([{ title: x.title, channel: x.artist, duration: x.duration, verified: true }], t).length) || null;
       })(),
-      new Promise(resolve=>setTimeout(()=>resolve(null),2000)),
+      timeout,
     ]);
     return previewSource(found?.preview);
-  }catch{return null;}
+  } catch { return null; } finally { clearTimeout(timer); }
 }
+
 export const FAST_ITAGS={opus:251,aac:140};
 // Servers that stuttered recently aren't used for fast starts (they stream audio through themselves).
 const choppy=new Map();
-export function reportChoppy(source){if(source?.fast&&source.instance){choppy.set(source.instance,Date.now()+3*3600e3);for(const [key,value] of streamCache)if(value.stream.instance===source.instance&&value.stream.fast)forget(key);}}
+export function reportChoppy(source){if(source?.fast&&source.instance){choppy.set(source.instance,Date.now()+3*3600e3);router.recordPlayback(source.instance,{stalled:true});memoryEngine.forgetByInstance(source.instance);}}
 // H.264 video itags by height: plays everywhere, including iPhone.
 export const VIDEO_ITAGS={1080:137,720:136,480:135,360:134};
 /** Loops, fast path: one cached search for the official video, then a fixed address on a server that works for you. */
@@ -538,14 +661,16 @@ export async function fastVideoLoop(track,{signal,skip=[],target=720}={}){
     return musicVideoLoop({kind:'music-video',engine:'invidious',instance:base,url:`${base}/latest_version?id=${match.id}&itag=${VIDEO_ITAGS[height]}&local=true`,videoId:match.id,title:match.title,duration:match.duration,height,fast:true});
   }catch{return null;}finally{clearTimeout(timer);}
 }
-function mirrorBases(set, skip) {
+function mirrorBases(set, skip, includeFallback = false) {
   const custom = (set.customInvidious || '').split(/[\s,]+/).map(clean).filter(x => /^https:\/\//.test(x));
   const now = Date.now();
-  return uniq([lastGood().invidious, ...custom, ...INV_FALLBACK]).filter(base =>
-    base && !skip.includes(base) && (failedInstances.get(base) || 0) <= now && (choppy.get(base) || 0) <= now);
+  const list = includeFallback ? [lastGood().invidious, ...custom, ...INV_FALLBACK] : [lastGood().invidious, ...custom];
+  const raw = uniq(list).filter(base =>
+    base && !skip.includes(base) && (failedInstances.get(base) || 0) <= now && (choppy.get(base) || 0) <= now && router.isAvailable(base));
+  return router.rank(raw, { custom });
 }
 /** Direct audio URLs for a known recording — no extra “get the links” request. */
-export function instantMirrors(videoId, bases, {opus = false} = {}) {
+export function instantMirrors(videoId, bases, { opus = false } = {}) {
   const itag = opus ? FAST_ITAGS.opus : FAST_ITAGS.aac;
   const mime = opus ? 'audio/webm; codecs="opus"' : 'audio/mp4';
   return bases.map(base => ({
@@ -559,61 +684,56 @@ export function instantMirrors(videoId, bases, {opus = false} = {}) {
   }));
 }
 async function fastStream(t,{cached,shared,set,cors,skip,signal}){
-  if(['piped','audius','preview'].includes(set.source))return null;
+  if(['piped','audius','preview','youtube'].includes(set.source))return null;
   let id=cached?.id;
   // Don't sit on a slow match: a cached recording starts immediately, a fresh one waits briefly.
   if(!id&&shared){
-    try{id=(await Promise.race([shared,new Promise((_,reject)=>setTimeout(()=>reject(new Error('slow')),700))]))[0]?.id;}
-    catch{id=null;}
+    let slowTimer;
+    try{id=(await Promise.race([shared,new Promise((_,reject)=>{slowTimer=setTimeout(()=>reject(new Error('slow')),700);})]))[0]?.id;}
+    catch{id=null;}finally{clearTimeout(slowTimer);}
   }
   if(!id||!/^[\w-]{11}$/.test(id))return null;
   signal?.throwIfAborted();
   const opus=!prefersAac()&&set.quality!=='low'&&!!probe?.canPlayType('audio/webm; codecs="opus"');
-  const mirrors=instantMirrors(id, mirrorBases(set, skip), {opus});
-  // Give the bridge a short head start, then play a direct mirror URL anyway.
-  // A dead /stream must not add seconds before the song starts.
-  const bridged=cors?null:await Promise.race([
-    bridgeStream(id,{signal,preferAac:!opus}),
-    new Promise(resolve=>setTimeout(()=>resolve(null),280)),
-  ]);
+  const mirrors=instantMirrors(id, mirrorBases(set, skip, false), {opus});
+  // Give the Cloudflare /stream bridge a short, abortable head start; fall back to verified mirrors if slow/offline.
+  let bridged = null;
+  if (!cors && streamDown <= Date.now() && router.isAvailable(STREAM_ENDPOINT)) {
+    bridged = await bridgeStream(id, { signal, preferAac: !opus, timeoutMs: 450 });
+  }
   if(!cached?.id)setVideoCache(t.id,{id,manual:false,matchVersion:3});
-  const asAlt=source=>({url:source.url,mime:source.mime,bitrate:source.bitrate,instance:source.instance,kind:source.kind,fast:true});
-  if(bridged?.url)return {...bridged,alternatives:mirrors.map(asAlt)};
+  const asAlt=source=>({url:source.url,mime:source.mime,bitrate:source.bitrate,instance:source.instance,kind:source.kind,fast:true,videoId:id});
+  if(bridged?.url){
+    const extraMirrors=instantMirrors(id, mirrorBases(set, skip, true), {opus}).map(asAlt);
+    return {...bridged,alternatives:[...(bridged.alternatives||[]),...extraMirrors]};
+  }
   const [first,...rest]=mirrors;
   if(!first)return null;
   if(cors&&!(await corsOK(first.url)))return null;
   const alternatives=rest.map(asAlt);
-  if(opus)alternatives.unshift({url:first.url.replace(`itag=${FAST_ITAGS.opus}`,`itag=${FAST_ITAGS.aac}`),mime:'audio/mp4',bitrate:128000,instance:first.instance,kind:'invidious',fast:true});
+  if(opus)alternatives.unshift({url:first.url.replace(`itag=${FAST_ITAGS.opus}`,`itag=${FAST_ITAGS.aac}`),mime:'audio/mp4',bitrate:128000,instance:first.instance,kind:'invidious',fast:true,videoId:id});
   return {...first,alternatives};
 }
 
-// Keep short-lived results in memory. Resolve the next queued song after playback
-// starts, so skip/next usually does not wait for a fresh provider search.
-const streamCache=new Map(),warmups=new Map(),warmControllers=new Map();
-export const streamKey=(t,s=getSettings(),videoId=getVideoCache(t.id)?.id||'')=>[t.id,s.source,s.quality,s.customPiped,s.customInvidious,videoId].join('|');
-const STREAMS_KEY='spotplus.streams.v2';
+// Keep short-lived results in L1 memory + L2 IndexedDB without synchronous localStorage blocking.
+const warmups=new Map(),warmControllers=new Map();
+export const streamKey=(t,s=getSettings(),videoId=getVideoCache(t.id)?.id||'')=>[t.id,s.source,s.quality,s.customPiped,s.customInvidious,videoId,prefersAac()?'aac':'any'].join('|');
 export function streamExpiry(url,now=Date.now()){
-  const exp=Number(String(url||'').match(/[?&]expire=(\d{9,11})/)?.[1]||0)*1000;
-  return Math.min(exp?exp-10*60e3:now+45*60e3,now+3*3600e3);
+  return memoryEngine.computeExpiry(url,now);
 }
-function persisted(){try{return JSON.parse(localStorage.getItem(STREAMS_KEY)||'{}');}catch{return {};}}
 function remember(key,stream){
-  const until=streamExpiry(stream.url);
-  streamCache.set(key,{time:Date.now(),until,stream});if(streamCache.size>40)streamCache.delete(streamCache.keys().next().value);
-  if(stream.preview||/^blob:/.test(stream.url))return;
-  const all=persisted(),now=Date.now();all[key]={until,stream};
-  const kept=Object.entries(all).filter(([,v])=>v.until>now).sort((a,b)=>b[1].until-a[1].until).slice(0,60);
-  try{localStorage.setItem(STREAMS_KEY,JSON.stringify(Object.fromEntries(kept)));}catch{}
+  memoryEngine.putStream(key,stream);
 }
 function cachedStream(key){
-  const now=Date.now(),hit=streamCache.get(key);
-  if(hit&&(hit.until||hit.time+120000)>now)return hit.stream;
-  const saved=persisted()[key];
-  if(saved?.until>now&&!((failedInstances.get(saved.stream.instance)||0)>now)){streamCache.set(key,{time:now,until:saved.until,stream:saved.stream});return saved.stream;}
-  return null;
+  const stream=memoryEngine.getStream(key);
+  if(!stream)return null;
+  if((failedInstances.get(stream.instance)||0)>Date.now()||!router.isAvailable(stream.instance))return null;
+  const check=validateSourceCandidate(stream,{canPlay:mime=>!!probe?.canPlayType(mime)});
+  if(!check.ok){memoryEngine.forgetStream(key);return null;}
+  return stream;
 }
-function forget(key){streamCache.delete(key);const all=persisted();if(all[key]){delete all[key];try{localStorage.setItem(STREAMS_KEY,JSON.stringify(all));}catch{}}}
-export function clearStreamCache(){streamCache.clear();for(const c of warmControllers.values())c.abort();warmups.clear();warmControllers.clear();}
+function forget(key){memoryEngine.forgetStream(key);}
+export function clearStreamCache(){streamDown=0;matchDown=0;failedInstances.clear();choppy.clear();router.reset();memoryEngine.clearStreams();for(const c of warmControllers.values())c.abort();warmups.clear();warmControllers.clear();}
 export function cancelPrewarm(except) {
   const keep = except && streamKey(except);
   for (const [key,controller] of warmControllers) if (key !== keep) { controller.abort(); warmControllers.delete(key); warmups.delete(key); }
@@ -635,31 +755,44 @@ function preconnect(url) {
   connectedOrigins.add(origin);
   const link=document.createElement('link');link.rel='preconnect';link.href=origin;link.crossOrigin='anonymous';document.head.append(link);
 }
+export function warmConnections(){
+  preconnect(MATCH_ENDPOINT);
+  for (const base of Object.values(lastGood())) preconnect(base);
+}
 export async function resolve(t,options={}) {
   // Podcasts and audiobooks come with their own direct audio link.
-  if(t?.direct){options.signal?.throwIfAborted();return {url:t.direct,mime:t.mime||'audio/mpeg',bitrate:128000,kind:'direct',instance:host(t.direct)};}
+  if(t?.direct){options.signal?.throwIfAborted();return {url:t.direct,mime:t.mime||'audio/mpeg',bitrate:128000,kind:'direct',instance:host(t.direct),cacheLayer:'direct'};}
   const settings=getSettings(),key=streamKey(t,settings),hit=!options.skip?.length&&cachedStream(key);
-  if(hit&&(!options.cors||await corsOK(hit.url))){options.signal?.throwIfAborted();return hit;}
+  if(hit&&(options.allowEmbed||hit.kind!=='youtube-embed')&&(!options.cors||(hit.kind!=='youtube-embed'&&await corsOK(hit.url)))){options.signal?.throwIfAborted();return {...hit,cacheLayer:'memory'};}
   if(options.skip?.length)forget(key);
   const warm=warmups.get(key);
-  if(warm&&!options.skip?.length){try {const stream=await abortable(warm,options.signal);options.signal?.throwIfAborted();if(!options.cors||await corsOK(stream.url))return stream;}catch {options.signal?.throwIfAborted();}}
+  if(warm&&!options.skip?.length){try {const stream=await abortable(warm,options.signal);options.signal?.throwIfAborted();if((options.allowEmbed||stream.kind!=='youtube-embed')&&(!options.cors||(stream.kind!=='youtube-embed'&&await corsOK(stream.url)))){const check=validateSourceCandidate(stream,{canPlay:mime=>!!probe?.canPlayType(mime),requireCors:options.cors,corsKnown:knownCors});if(check.ok)return {...stream,cacheLayer:'prewarm'};}}catch {options.signal?.throwIfAborted();}}
   // With effects on, prefer servers that allow them; if none do, play the song normally.
   let stream;
   if(options.cors){try{stream=await resolveUncached(t,options);}catch(e){if(options.signal?.aborted)throw e;stream=await resolveUncached(t,{...options,cors:false});}}
   else stream=await resolveUncached(t,options);
   options.signal?.throwIfAborted();
   remember(streamKey(t,settings,stream.videoId||getVideoCache(t.id)?.id||''),stream);
-  return stream;
+  if(stream.kind!=='youtube-embed')preconnect(stream.url);
+  return {...stream,cacheLayer:'network'};
+}
+export async function resolveEquivalent(t, options = {}) {
+  const candidate = await resolve(t, options);
+  if (candidate.kind === 'youtube-embed') return candidate;
+  if (!isVerifiedEquivalent(t, candidate)) {
+    throw new Error('Could not find a verified equivalent recording.');
+  }
+  return candidate;
 }
 export function prewarm(t){
   if(!t||t.local||t.direct||navigator.connection?.saveData||/2g/.test(navigator.connection?.effectiveType||''))return;
   const settings=getSettings(),key=streamKey(t,settings);if(warmups.has(key))return warmups.get(key);
-  const hit=cachedStream(key);if(hit)return Promise.resolve(hit);
-  for (const base of Object.values(lastGood())) preconnect(base);
-  // InstantPlay keeps up to three predictive resolves (current restore + next + next+1).
+  const hit=cachedStream(key);if(hit)return Promise.resolve({...hit,cacheLayer:'memory'});
+  warmConnections();
+  // Keep up to three predictive resolves (restore + next + next+1).
   if(warmControllers.size>=3){const oldest=warmControllers.keys().next().value;warmControllers.get(oldest).abort();warmControllers.delete(oldest);warmups.delete(oldest);}
   const controller=new AbortController();warmControllers.set(key,controller);
-  const promise=resolveUncached(t,{signal:controller.signal}).then(stream=>{controller.signal.throwIfAborted();remember(streamKey(t,settings,stream.videoId||getVideoCache(t.id)?.id||''),stream);preconnect(stream.url);return stream;}).finally(()=>{if(warmControllers.get(key)===controller){warmups.delete(key);warmControllers.delete(key);}});
+  const promise=resolveUncached(t,{signal:controller.signal,allowEmbed:true}).then(stream=>{controller.signal.throwIfAborted();remember(streamKey(t,settings,stream.videoId||getVideoCache(t.id)?.id||''),stream);if(stream.kind!=='youtube-embed')preconnect(stream.url);return stream;}).finally(()=>{if(warmControllers.get(key)===controller){warmups.delete(key);warmControllers.delete(key);}});
   warmups.set(key,promise);promise.catch(()=>{});
   return promise;
 }

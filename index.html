@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#000000">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://api.deezer.com https://itunes.apple.com https://cdn.jsdelivr.net 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https: wss: blob: data:; font-src 'self' data:; worker-src 'self' blob:; frame-src https://open.spotify.com; object-src 'none'; base-uri 'self'; form-action 'self'; manifest-src 'self'; upgrade-insecure-requests">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://api.deezer.com https://itunes.apple.com https://cdn.jsdelivr.net 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https: wss: blob: data:; font-src 'self' data:; worker-src 'self' blob:; frame-src https://open.spotify.com https://www.youtube.com https://www.youtube-nocookie.com; object-src 'none'; base-uri 'self'; form-action 'self'; manifest-src 'self'; upgrade-insecure-requests">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <script src="js/boot.js"></script>
 <meta name="description" content="Spot+ — the free Spotify alternative. Spotify’s playlists, Rewind stats, Jams and an AI DJ in one app for any phone or computer.">
@@ -25,18 +25,18 @@
 <link rel="stylesheet" href="css/dj-voice.css">
 <link rel="stylesheet" href="css/rewind.css">
 <link rel="stylesheet" href="css/polish.css">
-<link rel="stylesheet" href="css/backgrounds.css">
 <link rel="stylesheet" href="css/landing.css">
+<link rel="stylesheet" href="css/backgrounds.css">
 <link rel="preconnect" href="https://api.deezer.com">
 <link rel="preconnect" href="https://e-cdns-images.dzcdn.net">
+<link rel="preconnect" href="https://spot-plus-canvas.pwr97pnmkn.workers.dev" crossorigin>
 <script src="js/shell.js" defer></script>
 </head>
 <body>
-<div id="sceneBg" class="scene-bg" hidden><img alt=""></div>
-<input type="file" id="bgUpload" accept="image/*" hidden>
 <div class="splash" id="splash" aria-hidden="true"><div><img src="icons/icon-192.png" alt=""></div></div>
 <input type="file" id="welcomeBackup" accept="application/json,.json" hidden>
 <a href="#main" class="skip-link" data-act="focus-main">Skip to content</a>
+<div id="sceneBg" class="scene-bg" hidden><img alt=""></div>
 <div class="app">
   <header class="topbar">
     <a class="brand" href="#/home" aria-label="Spot Plus Home"><img src="icons/icon-192.png" alt=""><span>Spot+</span></a>
@@ -89,6 +89,8 @@
     </div>
   </div>
 </div>
+
+<div id="ytDock" class="yt-dock" hidden><div class="yt-dock-bar"><span>Full track · Tap play to start</span><button type="button" class="btn small" data-act="yt-preview">30s preview</button><button type="button" class="icon" data-act="yt-hide" aria-label="Hide player">&times;</button></div><div id="ytEmbedBox" class="yt-embed-box"></div></div>
 
 <div id="np" class="np" hidden data-mode="art" aria-label="Now playing" tabindex="-1">
   <div class="np-bg" id="npBg"></div>
@@ -152,7 +154,7 @@
 <input type="file" id="spotifyImport" accept=".zip,.json,application/zip,application/json" multiple hidden>
 <input type="file" id="spotifyAccountImport" accept=".json,application/json" hidden>
 <input type="file" id="themeImport" accept=".json,application/json" hidden>
-<input type="file" id="profilePhoto" accept="image/*" hidden>
+<input type="file" id="bgUpload" accept="image/*" hidden>
 <div id="toasts" role="status" aria-live="polite" aria-atomic="true"></div>
 <script type="module" src="js/app.js"></script>
 </body>
