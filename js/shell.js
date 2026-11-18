@@ -21,7 +21,15 @@ for (const type of ['gesturestart', 'gesturechange']) document.addEventListener(
 document.addEventListener('touchmove', event => { if (event.touches.length > 1) event.preventDefault(); }, { passive: false });
 
 const splash = document.getElementById('splash');
-const hideSplash = () => { splash?.classList.add('leaving'); setTimeout(() => splash?.remove(), 220); };
+const hideSplash = () => {
+  if (root.dataset.maintenance === 'checking') {
+    root.dataset.maintenance = '1';
+    const maint = document.getElementById('maintenanceScreen');
+    if (maint) maint.hidden = false;
+  }
+  splash?.classList.add('leaving');
+  setTimeout(() => splash?.remove(), 220);
+};
 // Never keep a listener waiting for catalog requests or an unavailable module.
 // Show the splash for at least ~1.6s so it reads as a proper launch screen, but never longer than 3s.
 const shownAt = performance.now(), MIN_SPLASH = 1600;

@@ -433,3 +433,41 @@ details.settings-more{padding:16px 0}details.settings-more>summary,.connection-h
 @keyframes livingGlow{from{opacity:.75}to{opacity:1}}
 @media (prefers-reduced-motion:reduce){.np.living .np-canvas::before,.np.living .np-canvas::after{animation:none}}
 .np.living .np-canvas-status,.np.living #npCanvasStatus{visibility:hidden}
+
+/* Maintenance gate: completely hide app chrome until allowed or maintenance ends. */
+html[data-maintenance] .app,
+html[data-maintenance] #np,
+html[data-maintenance] #ytDock,
+html[data-maintenance] #sheet,
+html[data-maintenance] #dlg,
+html[data-maintenance] #sceneBg,
+html[data-maintenance] #toasts,
+html[data-maintenance] .lp,
+html[data-maintenance] .onboard{display:none!important}
+html[data-maintenance="1"] #splash{display:none!important}
+.maint-screen{position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;padding:calc(24px + var(--st)) 20px calc(24px + var(--sb));overflow-y:auto;background:radial-gradient(120% 80% at 50% 0%,rgba(27,94,70,.42) 0%,#060b09 58%,#000 100%);color:#f4f7f5}
+.maint-card{width:min(460px,100%);padding:36px 28px 28px;border-radius:28px;background:rgba(15,23,19,.86);border:1px solid rgba(255,255,255,.1);box-shadow:0 30px 90px rgba(0,0,0,.65);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);text-align:center}
+.maint-brand{display:inline-flex;align-items:center;gap:14px;margin-bottom:20px;padding:10px 14px;border-radius:22px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+.maint-brand img{width:52px;height:52px;border-radius:14px;box-shadow:0 10px 26px rgba(27,94,70,.45)}
+.maint-eq{display:flex;align-items:flex-end;gap:4px;height:24px;padding-right:2px}
+.maint-eq i{display:block;width:4px;height:10px;border-radius:4px;background:#2fd395;animation:maintEq 1.2s ease-in-out infinite}
+.maint-eq i:nth-child(2){height:20px;animation-delay:.18s}
+.maint-eq i:nth-child(3){height:14px;animation-delay:.36s}
+.maint-eq i:nth-child(4){height:22px;animation-delay:.54s}
+@keyframes maintEq{0%,100%{transform:scaleY(.45);opacity:.65}50%{transform:scaleY(1);opacity:1}}
+.maint-kicker{margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#6be6b6}
+.maint-card h1{margin:0 0 12px;font-size:clamp(26px,5.5vw,34px);line-height:1.12;letter-spacing:-.03em;color:#fff}
+.maint-copy{margin:0 0 18px;font-size:15px;line-height:1.55;color:rgba(244,247,245,.78)}
+.maint-meta{font-size:13px;color:rgba(244,247,245,.56);padding:12px 14px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07)}
+.maint-access{margin-top:20px;text-align:center}
+.maint-access summary{display:inline-block;cursor:pointer;font-size:12px;color:rgba(244,247,245,.42);list-style:none;padding:4px 8px;border-radius:8px;transition:color .15s}
+.maint-access summary:hover{color:rgba(244,247,245,.75)}
+.maint-access summary::-webkit-details-marker{display:none}
+.maint-form{margin-top:12px;text-align:left;padding:14px;border-radius:16px;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.08)}
+.maint-form label{display:block;margin-bottom:8px;font-size:12px;color:rgba(244,247,245,.66)}
+.maint-row{display:flex;gap:8px}
+.maint-row input{flex:1;min-width:0;height:40px;background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.14);color:#fff}
+.maint-row .btn.primary{height:40px;padding:0 16px;background:#1b5e46;color:#fff;flex:none}
+.maint-error{margin:8px 0 0;font-size:12px;color:#ff8a8a}
+@media (prefers-reduced-motion:reduce){.maint-eq i{animation:none}}
+

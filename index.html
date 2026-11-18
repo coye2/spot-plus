@@ -34,6 +34,29 @@
 </head>
 <body>
 <div class="splash" id="splash" aria-hidden="true"><div><img src="icons/icon-192.png" alt=""></div></div>
+<section id="maintenanceScreen" class="maint-screen" role="main" aria-labelledby="maintTitle" hidden>
+  <div class="maint-card">
+    <div class="maint-brand">
+      <img src="icons/icon-192.png" alt="Spot+">
+      <div class="maint-eq" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    </div>
+    <p class="maint-kicker">Under maintenance</p>
+    <h1 id="maintTitle">We’ll return momentarily</h1>
+    <p class="maint-copy">Spot+ is currently paused while active updates and playback improvements are underway. Your library, playlists, and settings remain safely saved on this device.</p>
+    <div class="maint-meta">Access is temporarily restricted until the next stable release.</div>
+    <details class="maint-access">
+      <summary>Developer access</summary>
+      <form id="maintAccessForm" class="maint-form">
+        <label for="maintAccessInput">Spotify handle or profile link</label>
+        <div class="maint-row">
+          <input id="maintAccessInput" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Spotify username">
+          <button type="submit" class="btn primary">Continue</button>
+        </div>
+        <p id="maintAccessError" class="maint-error" role="alert" hidden></p>
+      </form>
+    </details>
+  </div>
+</section>
 <input type="file" id="welcomeBackup" accept="application/json,.json" hidden>
 <input type="file" id="profilePhotoInput" accept="image/*,.heic,.heif" hidden aria-label="Choose profile photo">
 <a href="#main" class="skip-link" data-act="focus-main">Skip to content</a>
@@ -157,6 +180,6 @@
 <input type="file" id="themeImport" accept=".json,application/json" hidden>
 <input type="file" id="bgUpload" accept="image/*" hidden>
 <div id="toasts" role="status" aria-live="polite" aria-atomic="true"></div>
-<script type="module" src="js/app.js"></script>
+<script type="module" src="js/gate.js"></script>
 </body>
 </html>

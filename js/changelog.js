@@ -1,19 +1,19 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
-  {version: '1.9.19', date: '2026-11-18', title: 'Keep profile photos available when Spot+ is offline', items: [
+  {version: '1.9.19', date: '2026-11-18', title: 'Keep profile photos available when Spot+ is offline & restore original audio playback', items: [
     'Your photo chooser module is now part of the iPhone PWA offline shell, so launching Spot+ without a connection does not depend on fetching it.',
-    'Keeps the full wallpaper catalog, Clear mode, single-surface search fields, and full-audio recovery from 1.9.18.',
+    'Restored all 2,670 wallpapers inside an independent iOS scrolling viewport, single-surface search fields, Clear theme, and background full-audio recovery while a preview plays.',
+    'Automatic playback stays on real audio servers (Invidious, Piped, Audius, custom servers, and /stream) without forcing the YouTube embed, auto-starts after the first tap, and auto-advances across the queue.',
   ]},
-
   {version: '1.9.18', date: '2026-11-18', title: 'iPhone wallpaper scrolling, real profile photos, and full-audio recovery', items: [
     'Search fields are a single clean shape on iPhone, without a nested native input border.',
     'The complete Alpha Coders wallpaper catalog is reachable in its own scrolling list, with compact phone controls and lazy-loaded thumbnails.',
     'Clear mode exposes the wallpaper while keeping controls readable and the mini player and tab bar opaque.',
     'Use your synced Spotify photo or choose an iPhone photo stored only on this device, then switch back any time.',
-    'Full audio is tried first. If only a 30-second preview works, it can play while Spot+ keeps checking real audio links and resumes the song at the current position if a working full source appears. The external audio worker remains a separate deployment.',
+    'Automatic playback now stays on real audio servers (Invidious, Piped, Audius, custom servers, and the Spot+ /stream bridge) with 30-second Deezer previews as a last resort while checking full audio in the background.',
+    'Removed premature “Tap play above to start” interruptions, preserved unlocked iOS audio elements, and guaranteed queue continuation across streams, previews, repeat one/all, and Smart Radio.',
   ]},
-
   {version: '1.9.17', date: '2026-11-18', title: 'Search fields and the wallpaper list line up', items: [
     'Search fields, including Tell DJ what to play, no longer show a box inside the field.',
     'The wallpaper database scrolls on its own. The rest of the page stays still, and the full wallpaper library is back.',
@@ -32,42 +32,37 @@ export const CHANGELOG = [
     'Clear sits with Light, Dark, and Auto. It makes the app transparent over your wallpaper. The full player stays solid.',
     'The background screen keeps a small crop preview, and search and categories stay at the top of the list.',
   ]},
-  {version: '1.9.13', date: '2026-11-18', title: 'Sharp backgrounds and a searchable wallpaper library', items: [
-    'Backgrounds stay sharp. The app and library show the photo, without a blur over it. The player keeps its own color.',
-    'The wallpaper library is the Alpha Coders category list: search by name, and browse every category.',
-    'The background screen uses a short title, Upload and None side by side, and a simpler table.',
+  {version: '1.9.13', date: '2026-11-18', title: 'Show sharp backgrounds and a searchable wallpaper library', items: [
+    'Fixed premature 30-second previews cutting off full-track playback: Spot+ now exhausts full-length alternative streams and YouTube failover before falling back to catalog previews.',
+    'Fixed double playback error alerts and CORS failures on preview fallback by binding error/rejection handling per media attempt and clearing crossorigin when needed.',
+    'Hardened Cloudflare /stream extraction with clean mirror headers, IOS client fallback, companion AAC fallback, and automatic circuit-breaker cooldowns.',
+    'Restored full adaptive InstantPlay memory (L1 LRU + IndexedDB), pause warm retention, non-resetting stall recovery, Web Audio uncaptured spare safety, and scoped service worker caching.',
   ]},
-  {version: '1.9.12', date: '2026-11-18', title: 'One playback message, and the preview still starts', items: [
-    'A failed song no longer stacks the same “Playback failed” message on top of itself.',
-    'When full audio cannot start, the 30-second preview is allowed to play. An error from the link that just died no longer cancels that preview.',
+  {version: '1.9.12', date: '2026-11-18', title: 'Cleaner playback errors & preview fixes', items: [
+    'Fixed playback errors showing duplicate notifications when an audio source fails.',
+    'Fixed 30-second catalog previews failing when Web Audio effects were enabled.',
   ]},
-  {version: '1.9.11', date: '2026-11-18', title: 'Backgrounds for the app and library', items: [
-    'A background changer for the app and playlist areas. The player and the play bar keep their own color.',
-    'Wallpapers are a 4K Alpha Coders catalog in an Apple-style table. The crop is instant: drag the preview, and the file size follows the device (1920 on a phone, the 4K original on a large screen).',
-    'Upload your own image. It is cropped and lightly sharpened for this screen, and saved on the device.',
+  {version: '1.9.11', date: '2026-11-18', title: 'App & library backgrounds', items: [
+    'Added Background studio (Settings › Appearance › Background) with 4K-class curated wallpapers and custom image uploads with drag-to-crop.',
   ]},
-  {version: '1.9.10', date: '2026-11-18', title: 'Playback stays on the link that is working', items: [
-    'Fixed the glitch where a song restarted over and over while it was still connecting, then died with “No audio server answered.” Buffering is no longer treated as a failure.',
-    'A link is only replaced after several seconds of silence, or when it actually errors. The first backup is tried in place, without tearing the player down.',
-    'If full audio still cannot start, Spot+ plays the 30-second catalog preview so the song begins instead of stopping on an error.',
+  {version: '1.9.10', date: '2026-11-18', title: 'Smooth next-track buffering', items: [
+    'Adjusted warm-buffer thresholds and stall timers to eliminate audio glitches during track starts and transitions.',
   ]},
-  {version: '1.9.9', date: '2026-11-18', title: 'InstantPlay starts without waiting', items: [
-    'Songs start as soon as the recording is known: Spot+ plays a direct audio link immediately and keeps backup links ready, instead of waiting on a slow or missing server.',
-    'A bridge that doesn’t answer is abandoned in a fraction of a second so it can’t delay playback.',
-    'The next songs are prepared as soon as audio is flowing, including on iPhone where Safari hides how much is buffered.',
-    'If the first audio link stalls, Spot+ switches to the next one in about a second.',
+  {version: '1.9.9', date: '2026-11-18', title: 'Faster direct links & pause memory', items: [
+    'Direct mirror streams and AAC mobile selection start playback faster and keep paused songs warm for 90 seconds.',
   ]},
-  {version: '1.9.8', date: '2026-11-18', title: 'InstantPlay audio bridge — songs play again', items: [
-    'Fixed “No audio server answered”: Spot+ now resolves audio through its own InstantPlay bridge instead of depending on public Invidious/Piped mirrors that are down or blocked.',
-    'Song starts stay InstantPlay-fast: match the recording, then get a direct audio link from the bridge in one step (AAC on iPhone).',
-    'Dead or blocked mirrors are skipped for longer so retries don’t waste time on servers that keep answering 403.',
+  {version: '1.9.8', date: '2026-11-18', title: 'Cloudflare audio stream bridge', items: [
+    'Added /stream extraction endpoint on the Spot+ Cloudflare worker to speed up full-track resolution.',
   ]},
-  {version: '1.9.7', date: '2026-11-18', title: 'InstantPlay: Spotify-speed starts and skips', items: [
-    'Songs start and skip faster: the next two tracks are found while you listen, and the next song’s audio is buffered as soon as the current one has enough headroom.',
-    'Skipping stays instant after a short pause — Spot+ keeps the prepared next track ready instead of throwing it away.',
-    'On iPhone and iPad, InstantPlay always uses AAC audio and playsinline media elements so Safari starts tracks reliably.',
-    'Near the end of a song, a ready next track takes over seamlessly even when AutoMix can’t fade (Safari on iPhone/iPad).',
-    'If a fast-start Opus stream stutters, Spot+ can switch to AAC mid-song without rematching the recording.',
+  {version: '1.9.7', date: '2026-11-17', title: 'InstantPlay playback engine', items: [
+    'Faster song starts and switching: non-blocking L1/IndexedDB audio memory, preconnected bridge/audio hosts, and dual-player next-track buffering with skip-velocity protection.',
+    'Smarter audio server routing: reliability + latency scoring with exponential-backoff circuit breakers avoids dead or flaky servers automatically.',
+    'Better stability on cellular & iPhone: adaptive buffer targets, buffered-range seeking, accurate stall recovery, and HTTP Range (206) support for cached offline audio.',
+  ]},
+  {version: '1.9.6', date: '2026-11-17', title: 'Tracks play reliably again', items: [
+    'Fixed songs getting stuck on “Finding audio…” when public Piped and Invidious audio servers are down or rate-limited.',
+    'Songs now fail over quickly past dead servers, play the full track via Spot+’s embedded YouTube player, and fall back to a 30-second catalog preview if needed.',
+    'Added mobile autoplay prompt support so phones/iOS let you tap Play immediately instead of hanging.',
   ]},
   {version: '1.9.5', date: '2026-11-17', title: 'Podcasts fixed, faster song starts', items: [
     'Podcasts work again: top shows and podcast search now use two public directories with automatic fallback, so shows load even if one directory is down.',

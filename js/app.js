@@ -589,9 +589,9 @@ async function viewSettings() {
   <section class="box"><h2>Your devices</h2><p class="settings-note">${libsync.syncState()?'Your library syncs with your other devices.':'Keep your likes and playlists the same on your phone and computer. No account.'}</p><button class="btn primary small" data-act="link-devices">${libsync.syncState()?'Link another device':'Link a device'}</button></section>
   <section class="box"><h2>Notifications</h2>${notify.permission()==='unsupported'?'<p class="settings-note">This browser can’t show notifications. On iPhone, add Spot+ to your Home Screen first.</p>':notify.permission()==='granted'?'':`<p class="settings-note">${notify.permission()==='denied'?'Notifications are blocked for Spot+. Allow them in your browser or phone settings.':'Get a heads-up about new music and updates. Never more than two a day, and nothing at night.'}</p>${notify.permission()==='default'?'<button class="btn primary small" data-act="notify-enable">Turn on notifications</button>':''}`}
   ${toggle('notifyReleases','New releases','When an artist you follow drops a song or album.')}${toggle('notifyStats','Weekly recap','Sunday evening: your minutes and most-played artist.')}${toggle('notifyUpdates','App updates','When a new version of Spot+ is ready.')}</section>
-  <section class="box"><h2>Appearance</h2>${themeModeSwitch(s)}<p class="settings-note">Light, dark, automatic, or clear. Clear keeps your wallpaper visible.</p><div class="row-btns"><a class="btn" href="#/themes">Themes</a><a class="btn" href="#/backgrounds">Background</a></div><label class="field"><span>Library and track spacing</span>${sel('density',[['comfortable','Comfortable'],['compact','Compact']])}</label><label class="field"><span>Text size</span>${sel('textSize',[['normal','Default'],['large','Larger']])}</label><label class="field"><span>Motion</span>${sel('motion',[['system','Follow system'],['reduced','Reduced']])}</label></section>
+  <section class="box"><h2>Appearance</h2>${themeModeSwitch(s)}<p class="settings-note">Light, dark, automatic, or clear. Clear keeps your wallpaper in view while panels stay readable.</p><div class="row-btns"><a class="btn" href="#/themes">Themes</a><a class="btn" href="#/backgrounds">Background</a></div><label class="field"><span>Library and track spacing</span>${sel('density',[['comfortable','Comfortable'],['compact','Compact']])}</label><label class="field"><span>Text size</span>${sel('textSize',[['normal','Default'],['large','Larger']])}</label><label class="field"><span>Motion</span>${sel('motion',[['system','Follow system'],['reduced','Reduced']])}</label></section>
   <section class="box"><h2>Playback</h2>
-    <label class="field"><span>Audio source<small>Automatic tries audio servers first, then the YouTube player or a 30-second preview.</small></span>${sel('source', [['auto', 'Automatic'], ['youtube', 'YouTube player'], ['piped', 'Piped'], ['invidious', 'Invidious'],['audius','Audius public releases'],['preview','Deezer previews (30 sec)']])}</label>
+    <label class="field"><span>Audio source<small>Automatic tries audio servers first (Invidious, Piped, Audius, and the Spot+ bridge), with a 30-second preview as a last resort.</small></span>${sel('source', [['auto', 'Automatic'], ['youtube', 'YouTube player'], ['piped', 'Piped'], ['invidious', 'Invidious'],['audius','Audius public releases'],['preview','Deezer previews (30 sec)']])}</label>
     <label class="field"><span>Streaming quality</span>${sel('quality', [['high', 'High'], ['low', 'Data saver']])}</label>
     ${toggle('smartRadio','Smart Radio','When your queue ends, keep playing similar songs. It learns from what you skip.')}
     <label class="field"><span>AutoMix<small>${player.crossfadeSupported?'Blend each song into the next, like a DJ. Off while effects are on.':'Blending songs isn’t possible on iPhone and iPad (Safari doesn’t let apps fade audio).'}</small></span>${sel('automix',[['0','Off'],['3','3 seconds'],['6','6 seconds'],['9','9 seconds']])}</label>
@@ -883,7 +883,7 @@ async function handleAct(act, el) {
     case 'mute': if(player.el.volume>0){lastVolume=player.el.volume;player.setVolume(0);}else player.setVolume(lastVolume||.7);vol.value=player.el.volume*100;vol.style.setProperty('--p',vol.value+'%');el.setAttribute('aria-label',player.el.volume?'Mute':'Unmute');el.classList.toggle('on',!player.el.volume);break;
     case 'retry-playback': player.retry();break;
     case 'dismiss-playback-error': player.state.error=null;syncPlayer();break;
-    case 'yt-preview': player.fallbackToPreview();break;
+    case 'yt-preview': player.fallbackToPreview('', { allowPreview: true });break;
     case 'yt-hide': player.hideEmbed(true);break;
     case 'np-lyrics': openNP('lyrics');break;
     case 'q-up': player.moveQueue(+el.dataset.qi,+el.dataset.qi-1);break;
@@ -1135,7 +1135,7 @@ function syncPlayer() {
   $$('[data-role=like],[data-role=shuffle],[data-role=repeat],[data-act=prev],[data-act=next],[data-act=np-open],[data-act=np-lyrics]').forEach(b=>b.disabled=!t);
   $$('[data-role=seek]').forEach(b=>b.disabled=!t||!player.canSeek());
   const ytDock=$('#ytDock');
-  if(ytDock){const embed=player.isEmbed();ytDock.hidden=!embed;ytDock.classList.toggle('visible',embed&&s.needsTap&&!s.ytHidden);}
+  if(ytDock){const embed=player.isEmbed()&&store.getSettings().source==='youtube';ytDock.hidden=!embed;ytDock.classList.toggle('visible',embed&&s.needsTap&&!s.ytHidden);}
   if (!t) {$('#barArt').src='icons/icon-192.png';$('#barTitle').textContent='Choose something to play';$('#barArtist').textContent='Spot+';$$('[data-role=like]').forEach(b=>setIcon(b,'plus'));$$('[data-role=repeat]').forEach(b=>setIcon(b,'repeat'));return;}
   if (bar.dataset.id !== t.id) {
     bar.dataset.id = t.id;

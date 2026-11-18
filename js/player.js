@@ -82,7 +82,17 @@ export const duration = () => (yt.active ? (isFinite(yt.duration) && yt.duration
 export const position = () => (yt.active ? yt.currentTime : (audio.currentTime || 0));
 export const isPaused = () => (yt.active ? yt.paused : audio.paused);
 export const canSeek = () => !state.loading && !state.error && (yt.active ? yt.ready : isRealSrc());
-export function pause() { if (yt.active) yt.pause(); else audio.pause(); }
+export function pause() {
+  userPaused = true;
+  pendingPlay = false;
+  if (state.loading) {
+    cancelLoad?.abort();
+    ++token;
+    clearStall();
+    setPhase(STATES.IDLE);
+  }
+  if (yt.active) yt.pause(); else audio.pause();
+}
 export function hideEmbed(hidden = true) { state.ytHidden = !!hidden; emit('state'); }
 export const getMetrics = () => ({
   phase: state.phase,
@@ -101,9 +111,11 @@ let objUrl = null;
 let restorePos = 0;
 let cancelLoad = null;
 let pendingPlay = true;
+let userPaused = false;
 const nextBuffer = new NextAudioBuffer();
 const skipTracker = new SkipTracker();
 const activation = new ActivationTracker();
+let unlockedPrimary = audio;
 let prefetchTimer = 0, warmGeneration = 0, startedAt = 0, activeGen = 0, pauseClearTimer = 0;
 let volumeLevel = 1;
 let stallTimer = null;
@@ -162,7 +174,8 @@ function playAssigned(nextSource) {
   // A preview (or non-effects failover) must not inherit a restrictive CORS mode from a failed link.
   if (nextSource.preview || !effectsOn()) audio.removeAttribute('crossorigin');
   const ticket = assignSrc(nextSource.url);
-  if (!pendingPlay) {
+  if (nextSource.preview) { try { audio.currentTime = 0; } catch {} }
+  if (!pendingPlay || userPaused) {
     setPhase(STATES.IDLE);
     emit('state');
     return;
@@ -174,12 +187,30 @@ function playAssigned(nextSource) {
   if (nextSource.preview) schedulePreviewUpgrade(1600);
   audio.play().then(() => {
     if (ticket !== mediaTicket) return;
+    activation.markUnlocked(audio);
+    unlockedPrimary = audio;
     telemetry.markStage(activeGen, 'playResolved');
   }).catch((e) => {
     if (ticket !== liveAttempt) return;
-    if (e?.name === 'NotAllowedError' || e?.name === 'AbortError') {
+    if (e?.name === 'NotAllowedError') {
+      if (unlockedPrimary && unlockedPrimary !== audio && activation.isUnlocked(unlockedPrimary)) {
+        const previous = audio;
+        previous.pause();
+        previous.removeAttribute('src');
+        previous.load();
+        audio = unlockedPrimary;
+        el = audio;
+        bindAudio(audio);
+        audio.volume = volumeLevel * (ducks.size ? .18 : 1);
+        playAssigned(nextSource);
+        return;
+      }
       clearStall();
-      if (e.name === 'NotAllowedError') activation.noteAutoAdvanceBlocked();
+      activation.noteAutoAdvanceBlocked();
+      setPhase(STATES.IDLE);
+      emit('state');
+    } else if (e?.name === 'AbortError') {
+      clearStall();
       setPhase(STATES.IDLE);
       emit('state');
     } else {
@@ -320,21 +351,28 @@ function recoverMedia(mediaErr = null) {
     return;
   }
 
-  // Full-length catalog preview fallback only after full-track servers + alternatives are exhausted.
+  // 30s catalog preview fallback only after full-track servers + alternatives are exhausted in auto mode.
   const previewUrl = cur?.preview;
-  if (!state.offline && !failed?.preview && /^https:\/\//.test(previewUrl || '')) {
-    startupSwaps = 0;
-    telemetry.endRecovery(recStart, true);
-    playAssigned({
-      url: previewUrl,
-      mime: 'audio/mpeg',
-      bitrate: 128000,
-      kind: 'preview',
-      instance: 'https://api.deezer.com',
-      preview: true,
-      alternatives: [],
-    });
-    return;
+  if (!state.offline && !failed?.preview && store.getSettings().source === 'auto') {
+    if (/^https:\/\//.test(previewUrl || '')) {
+      startupSwaps = 0;
+      telemetry.endRecovery(recStart, true);
+      playAssigned({
+        url: previewUrl,
+        mime: 'audio/mpeg',
+        bitrate: 128000,
+        kind: 'preview',
+        instance: 'https://api.deezer.com',
+        preview: true,
+        alternatives: [],
+      });
+      return;
+    }
+    if (!cur.local) {
+      telemetry.endRecovery(recStart, true);
+      fallbackToPreview('', { allowPreview: true });
+      return;
+    }
   }
 
   telemetry.endRecovery(recStart, false);
@@ -402,8 +440,8 @@ const yt = new YouTubeEmbedPlayer({
   onNeedsTap: (needed) => {
     if (ytToken !== token) return;
     state.loading = false;
-    state.needsTap = !!needed;
-    if (needed) state.ytHidden = false;
+    state.needsTap = store.getSettings().source === 'youtube' && !!needed;
+    if (state.needsTap) state.ytHidden = false;
     emit('state');
   },
   onPlaying: () => {
@@ -434,8 +472,15 @@ const yt = new YouTubeEmbedPlayer({
   onEnded: () => {
     if (ytToken !== token) return;
     telemetry.noteListeningStop();
+    if (userPaused) {
+      setPhase(STATES.IDLE);
+      emit('state');
+      return;
+    }
     if (state.repeat === 'one') {
       state.playbackId = (state.playbackId || 0) + 1;
+      pendingPlay = true;
+      userPaused = false;
       yt.seek(0);
       yt.play();
       emit('state');
@@ -450,15 +495,15 @@ const yt = new YouTubeEmbedPlayer({
   },
 });
 
-export async function fallbackToPreview(reason = '') {
+export async function fallbackToPreview(reason = '', { allowPreview = store.getSettings().source === 'auto' } = {}) {
   const t = current();
   const gen = token;
   if (!t) return;
-  if (store.getSettings().source === 'auto') {
+  if (allowPreview) {
     try {
       const preview = await api.previewStream(t);
       if (gen !== token || current()?.id !== t.id) return;
-      load({ keepSkip: true, startAt: 0, sourceOverride: preview });
+      await load({ keepSkip: true, startAt: 0, sourceOverride: preview });
       return;
     } catch { /* fall through to error state */ }
   }
@@ -516,15 +561,18 @@ function unlock() {
     plainSpare.setAttribute?.('playsinline', '');
     bindAudio(plainSpare);
     unlockElement(plainSpare);
+  } else {
+    unlockElement(plainSpare);
   }
   if (audio.src) return;
   audio.src = SILENT;
   audio.play().then(() => {
     activation.markUnlocked(audio);
+    unlockedPrimary = audio;
     if (audio.src === SILENT) audio.pause();
   }).catch(() => {});
 }
-window.addEventListener('pointerdown', unlock, { once: true, capture: true });
+window.addEventListener('pointerdown', unlock, { capture: true, passive: true });
 const isRealSrc = () => audio.src && !audio.src.startsWith('data:');
 /** Stop every Spot+ sound when the app is closed for good (iOS can keep a closed web app's audio alive). */
 window.addEventListener('pagehide', (e) => {
@@ -562,6 +610,7 @@ async function load(opts = {}) {
   cancelLoad = new AbortController();
   const controller = cancelLoad;
   pendingPlay = opts.autoplay !== false;
+  userPaused = false;
   ++warmGeneration;
   clearTimeout(prefetchTimer);
   api.cancelPrewarm(t);
@@ -658,8 +707,12 @@ async function load(opts = {}) {
     } else {
       if (objUrl) { URL.revokeObjectURL(objUrl); objUrl = null; }
       telemetry.markStage(my, 'resolveStart');
-      const r = opts.sourceOverride || await api.resolve(t, { skip: skipList, signal: controller.signal, cors: effectsOn(), allowEmbed: true });
+      const allowEmbed = store.getSettings().source === 'youtube';
+      const r = opts.sourceOverride || await api.resolve(t, { skip: skipList, signal: controller.signal, cors: effectsOn(), allowEmbed });
       if (my !== token) return;
+      if (r.kind === 'youtube-embed' && !allowEmbed) {
+        throw new Error('No audio server answered. Try another source in Settings, a 30-second preview, or a local audio file.');
+      }
       state.source = r;
       src = r.url;
       telemetry.markStage(my, 'resolveEnd', {
@@ -724,18 +777,32 @@ async function load(opts = {}) {
       restorePos = 0;
     }
 
-    if (pendingPlay) {
+    if (pendingPlay && !userPaused) {
       const ticket = mediaTicket;
       setPhase(STATES.BUFFERING);
       emit('state');
       watchStall();
       await audio.play().then(() => {
         if (my !== token || ticket !== mediaTicket) return;
+        activation.markUnlocked(audio);
+        unlockedPrimary = audio;
         telemetry.markStage(my, 'playResolved');
         activation.noteAutoAdvanceSuccess();
       }).catch((e) => {
         if (my !== token || ticket !== liveAttempt) return;
         if (e.name === 'NotAllowedError') {
+          if (unlockedPrimary && unlockedPrimary !== audio && activation.isUnlocked(unlockedPrimary)) {
+            const previous = audio;
+            previous.pause();
+            previous.removeAttribute('src');
+            previous.load();
+            audio = unlockedPrimary;
+            el = audio;
+            bindAudio(audio);
+            audio.volume = volumeLevel * (ducks.size ? .18 : 1);
+            playAssigned(state.source);
+            return;
+          }
           clearStall();
           activation.noteAutoAdvanceBlocked();
           setPhase(STATES.IDLE);
@@ -900,13 +967,24 @@ function bindAudio(media) {
   listen('ended', () => {
     clearStall();
     telemetry.noteListeningStop();
+    if (userPaused) {
+      setPhase(STATES.IDLE);
+      emit('state');
+      return;
+    }
     setPhase(STATES.ENDED);
     if (state.repeat === 'one') {
       state.playbackId = (state.playbackId || 0) + 1;
+      pendingPlay = true;
+      userPaused = false;
+      if (linkExpired()) {
+        load({ startAt: 0, trigger: 'repeat-one' });
+        return;
+      }
       audio.currentTime = 0;
       setPhase(STATES.PLAYING);
       emit('state');
-      audio.play().catch(() => {});
+      audio.play().catch(() => load({ startAt: 0, trigger: 'repeat-one' }));
     } else {
       onFinish(current());
       if (!mixing) next(false);
@@ -966,22 +1044,32 @@ export function toggle() {
     setPhase(STATES.IDLE);
     state.needsTap = false;
     pendingPlay = false;
+    userPaused = true;
     audio.pause();
     audio.removeAttribute('src');
     audio.load();
     emit('state');
     return;
   }
-  if (isEmbed()) { if (yt.paused) yt.play(); else yt.pause(); return; }
+  if (isEmbed()) {
+    if (yt.paused) { userPaused = false; pendingPlay = true; yt.play(); }
+    else { userPaused = true; pendingPlay = false; yt.pause(); }
+    return;
+  }
   if (!isRealSrc()) { const at = restorePos; restorePos = 0; load({ startAt: at, trigger: 'resume' }); return; }
   if (audio.paused) {
     if (!isRealSrc()) { const at = restorePos; restorePos = 0; load({ startAt: at, trigger: 'resume' }); }
     else if (linkExpired()) load({ startAt: audio.currentTime || 0, trigger: 'refresh-expired' });
     else {
+      userPaused = false;
       pendingPlay = true;
-      audio.play().catch(() => {});
+      audio.play().then(() => {
+        activation.markUnlocked(audio);
+        unlockedPrimary = audio;
+      }).catch(() => {});
     }
   } else {
+    userPaused = true;
     pendingPlay = false;
     audio.pause();
   }

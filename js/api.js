@@ -353,7 +353,7 @@ export function rankBySpeed(list,{custom=[],failed=()=>false,table=speedTable()}
 }
 function orderedInstances(kind, inst, set) {
   const custom = (kind === 'piped' ? set.customPiped : set.customInvidious).split(/[\s,]+/).filter((x) => /^https?:\/\//.test(x)).map(clean);
-  const list = uniq([...custom, lastGood()[kind], ...(kind==='invidious'?INV_FALLBACK.slice(0,1):[]), ...(inst[kind] || [])]);
+  const list = uniq([...custom, lastGood()[kind], ...(inst[kind] || [])]);
   const routerRanked = router.rank(list, { custom });
   return rankBySpeed(routerRanked,{custom,failed:base=>(failedInstances.get(base)||0)>Date.now() || !router.isAvailable(base)});
 }
@@ -492,7 +492,10 @@ function youtubeEmbedStream(matches, t) {
 async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed = false, fullOnly = false } = {}, _retry = false) {
   const set = getSettings();
   if (t.local) throw new Error('This local file is no longer stored on this device. Import it again.');
-  if (set.source === 'preview') return previewStream(t);
+  if (set.source === 'preview') {
+    if (fullOnly) throw new Error('Preview mode cannot probe full audio.');
+    return previewStream(t);
+  }
 
   const stored = getVideoCache(t.id);
   const cached = stored?.manual || stored?.matchVersion === 3 ? stored : null;
@@ -516,7 +519,7 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
       if (isAuto) { /* unreachable here */ }
       else if (allowEmbed && _retry !== 'catalog') {
         const canonical = await canonicalTrack(t).catch(() => null);
-        if (canonical) return resolveUncached({ ...t, title: canonical.title, searchTitle: canonical.searchTitle || canonical.title, artist: canonical.artist, duration: t.duration || canonical.duration }, { skip, signal, cors, allowEmbed, fullOnly }, 'catalog');
+        if (canonical) return resolveUncached({ ...t, title: canonical.title, searchTitle: canonical.searchTitle || canonical.title, artist: canonical.artist, duration: t.duration || canonical.duration }, { skip, signal, cors, allowEmbed }, 'catalog');
       }
       if (!allowEmbed) throw e;
     } finally { clearTimeout(deadline); }
@@ -602,15 +605,10 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
       if (canonical) return resolveUncached({ ...t, title: canonical.title, searchTitle: canonical.searchTitle || canonical.title, artist: canonical.artist, duration: t.duration || canonical.duration }, { skip, signal, cors, allowEmbed, fullOnly }, 'catalog');
     }
     if (isAuto && !fullOnly) {
-      if (allowEmbed) {
-        if (!sharedMatches?.length && shared) await Promise.race([shared, new Promise((r) => setTimeout(r, 1500))]).catch(() => {});
-        const embed = youtubeEmbedStream(sharedMatches, t);
-        if (embed) return embed;
-      }
       const rescued = await previewRescue(t);
       if (rescued) return rescued;
     }
-    throw new Error('No audio server answered. Try another source in Settings, a 30-second preview, or a local audio file.');
+    throw new Error('No audio server answered. Try adding your own server in Settings, Audius, the YouTube player, a 30-second preview, or a local audio file.');
   } finally { clearTimeout(raceCap); clearTimeout(deadline); control.abort(); }
 }
 
@@ -661,10 +659,11 @@ export async function fastVideoLoop(track,{signal,skip=[],target=720}={}){
     return musicVideoLoop({kind:'music-video',engine:'invidious',instance:base,url:`${base}/latest_version?id=${match.id}&itag=${VIDEO_ITAGS[height]}&local=true`,videoId:match.id,title:match.title,duration:match.duration,height,fast:true});
   }catch{return null;}finally{clearTimeout(timer);}
 }
+const isAllowedCustomOrigin = (u) => /^https:\/\//.test(u) || /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/.test(u);
 function mirrorBases(set, skip, includeFallback = false) {
-  const custom = (set.customInvidious || '').split(/[\s,]+/).map(clean).filter(x => /^https:\/\//.test(x));
+  const custom = (set.customInvidious || '').split(/[\s,]+/).map(clean).filter(isAllowedCustomOrigin);
   const now = Date.now();
-  const list = includeFallback ? [lastGood().invidious, ...custom, ...INV_FALLBACK] : [lastGood().invidious, ...custom];
+  const list = includeFallback ? [...custom, lastGood().invidious, ...INV_FALLBACK] : [...custom, lastGood().invidious];
   const raw = uniq(list).filter(base =>
     base && !skip.includes(base) && (failedInstances.get(base) || 0) <= now && (choppy.get(base) || 0) <= now && router.isAvailable(base));
   return router.rank(raw, { custom });
@@ -685,11 +684,15 @@ export function instantMirrors(videoId, bases, { opus = false } = {}) {
 }
 async function fastStream(t,{cached,shared,set,cors,skip,signal}){
   if(['piped','audius','preview','youtube'].includes(set.source))return null;
+  const customMirrors = (set.customInvidious || '').split(/[\s,]+/).map(clean).filter(isAllowedCustomOrigin);
+  const hasMirrorCandidate = !!(customMirrors.length || lastGood().invidious);
+  const bridgeReady = !cors && streamDown <= Date.now() && router.isAvailable(STREAM_ENDPOINT);
+  if (!hasMirrorCandidate && !bridgeReady) return null;
   let id=cached?.id;
   // Don't sit on a slow match: a cached recording starts immediately, a fresh one waits briefly.
   if(!id&&shared){
     let slowTimer;
-    try{id=(await Promise.race([shared,new Promise((_,reject)=>{slowTimer=setTimeout(()=>reject(new Error('slow')),700);})]))[0]?.id;}
+    try{id=(await Promise.race([shared,new Promise((_,reject)=>{slowTimer=setTimeout(()=>reject(new Error('slow')),900);})]))[0]?.id;}
     catch{id=null;}finally{clearTimeout(slowTimer);}
   }
   if(!id||!/^[\w-]{11}$/.test(id))return null;
@@ -698,8 +701,8 @@ async function fastStream(t,{cached,shared,set,cors,skip,signal}){
   const mirrors=instantMirrors(id, mirrorBases(set, skip, false), {opus});
   // Give the Cloudflare /stream bridge a short, abortable head start; fall back to verified mirrors if slow/offline.
   let bridged = null;
-  if (!cors && streamDown <= Date.now() && router.isAvailable(STREAM_ENDPOINT)) {
-    bridged = await bridgeStream(id, { signal, preferAac: !opus, timeoutMs: 450 });
+  if (bridgeReady) {
+    bridged = await bridgeStream(id, { signal, preferAac: !opus, timeoutMs: 650 });
   }
   if(!cached?.id)setVideoCache(t.id,{id,manual:false,matchVersion:3});
   const asAlt=source=>({url:source.url,mime:source.mime,bitrate:source.bitrate,instance:source.instance,kind:source.kind,fast:true,videoId:id});
@@ -762,16 +765,17 @@ export function warmConnections(){
 export async function resolve(t,options={}) {
   // Podcasts and audiobooks come with their own direct audio link.
   if(t?.direct){options.signal?.throwIfAborted();return {url:t.direct,mime:t.mime||'audio/mpeg',bitrate:128000,kind:'direct',instance:host(t.direct),cacheLayer:'direct'};}
-  const settings=getSettings(),key=streamKey(t,settings),hit=!options.skip?.length&&cachedStream(key);
-  if(hit&&(!options.fullOnly||(!hit.preview&&hit.kind!=='youtube-embed'))&&(options.allowEmbed||hit.kind!=='youtube-embed')&&(!options.cors||(hit.kind!=='youtube-embed'&&await corsOK(hit.url)))){options.signal?.throwIfAborted();return {...hit,cacheLayer:'memory'};}
+  const settings=getSettings(),allowEmbed=!!(options.allowEmbed&&settings.source==='youtube'),key=streamKey(t,settings),hit=!options.skip?.length&&cachedStream(key);
+  if(hit&&(!options.fullOnly||(!hit.preview&&hit.kind!=='youtube-embed'))&&(allowEmbed||hit.kind!=='youtube-embed')&&(!options.cors||(hit.kind!=='youtube-embed'&&await corsOK(hit.url)))){options.signal?.throwIfAborted();return {...hit,cacheLayer:'memory'};}
   if(options.skip?.length)forget(key);
   const warm=warmups.get(key);
-  if(warm&&!options.skip?.length){try {const stream=await abortable(warm,options.signal);options.signal?.throwIfAborted();if((!options.fullOnly||(!stream.preview&&stream.kind!=='youtube-embed'))&&(options.allowEmbed||stream.kind!=='youtube-embed')&&(!options.cors||(stream.kind!=='youtube-embed'&&await corsOK(stream.url)))){const check=validateSourceCandidate(stream,{canPlay:mime=>!!probe?.canPlayType(mime),requireCors:options.cors,corsKnown:knownCors});if(check.ok)return {...stream,cacheLayer:'prewarm'};}}catch {options.signal?.throwIfAborted();}}
+  if(warm&&!options.skip?.length){try {const stream=await abortable(warm,options.signal);options.signal?.throwIfAborted();if((!options.fullOnly||(!stream.preview&&stream.kind!=='youtube-embed'))&&(allowEmbed||stream.kind!=='youtube-embed')&&(!options.cors||(stream.kind!=='youtube-embed'&&await corsOK(stream.url)))){const check=validateSourceCandidate(stream,{canPlay:mime=>!!probe?.canPlayType(mime),requireCors:options.cors,corsKnown:knownCors});if(check.ok)return {...stream,cacheLayer:'prewarm'};}}catch {options.signal?.throwIfAborted();}}
   // With effects on, prefer servers that allow them; if none do, play the song normally.
   let stream;
-  if(options.cors){try{stream=await resolveUncached(t,options);}catch(e){if(options.signal?.aborted)throw e;stream=await resolveUncached(t,{...options,cors:false});}}
-  else stream=await resolveUncached(t,options);
-  options.signal?.throwIfAborted();
+  const opts={...options,allowEmbed};
+  if(opts.cors){try{stream=await resolveUncached(t,opts);}catch(e){if(opts.signal?.aborted)throw e;stream=await resolveUncached(t,{...opts,cors:false});}}
+  else stream=await resolveUncached(t,opts);
+  opts.signal?.throwIfAborted();
   remember(streamKey(t,settings,stream.videoId||getVideoCache(t.id)?.id||''),stream);
   if(stream.kind!=='youtube-embed')preconnect(stream.url);
   return {...stream,cacheLayer:'network'};
@@ -792,13 +796,13 @@ export async function resolveEquivalent(t, options = {}) {
 }
 export function prewarm(t){
   if(!t||t.local||t.direct||navigator.connection?.saveData||/2g/.test(navigator.connection?.effectiveType||''))return;
-  const settings=getSettings(),key=streamKey(t,settings);if(warmups.has(key))return warmups.get(key);
-  const hit=cachedStream(key);if(hit)return Promise.resolve({...hit,cacheLayer:'memory'});
+  const settings=getSettings(),allowEmbed=settings.source==='youtube',key=streamKey(t,settings);if(warmups.has(key))return warmups.get(key);
+  const hit=cachedStream(key);if(hit&&(allowEmbed||hit.kind!=='youtube-embed'))return Promise.resolve({...hit,cacheLayer:'memory'});
   warmConnections();
   // Keep up to three predictive resolves (restore + next + next+1).
   if(warmControllers.size>=3){const oldest=warmControllers.keys().next().value;warmControllers.get(oldest).abort();warmControllers.delete(oldest);warmups.delete(oldest);}
   const controller=new AbortController();warmControllers.set(key,controller);
-  const promise=resolveUncached(t,{signal:controller.signal,allowEmbed:true}).then(stream=>{controller.signal.throwIfAborted();remember(streamKey(t,settings,stream.videoId||getVideoCache(t.id)?.id||''),stream);if(stream.kind!=='youtube-embed')preconnect(stream.url);return stream;}).finally(()=>{if(warmControllers.get(key)===controller){warmups.delete(key);warmControllers.delete(key);}});
+  const promise=resolveUncached(t,{signal:controller.signal,allowEmbed}).then(stream=>{controller.signal.throwIfAborted();remember(streamKey(t,settings,stream.videoId||getVideoCache(t.id)?.id||''),stream);if(stream.kind!=='youtube-embed')preconnect(stream.url);return stream;}).finally(()=>{if(warmControllers.get(key)===controller){warmups.delete(key);warmControllers.delete(key);}});
   warmups.set(key,promise);promise.catch(()=>{});
   return promise;
 }

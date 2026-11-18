@@ -290,7 +290,6 @@ export function wallpaperGroups({category = '', query = ''} = {}) {
   const q = String(query || '').trim().toLowerCase();
   let items = active ? CATALOG.filter(item => item.category === active.name) : CATALOG;
   if (q) items = items.filter(item => `${item.name} ${item.category}`.toLowerCase().includes(q));
-
   const names = [];
   const buckets = new Map();
   for (const item of items) {

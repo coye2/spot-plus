@@ -75,10 +75,27 @@ const api = await import('../js/api.js');
 const player = await import('../js/player.js');
 const { YouTubeEmbedPlayer } = await import('../js/yt-embed.js');
 
-test('auto mode falls back to youtube-embed when allowEmbed is true and download/cors never receives embed', async () => {
+test('auto mode never uses youtube-embed and falls back to preview when servers fail; youtube mode uses youtube-embed', async () => {
   localStorage.clear();
   localStorage.setItem('spotplus.settings', JSON.stringify({ source: 'auto' }));
   const prevFetch = globalThis.fetch;
+  dom.setJsonpResponder((url) => {
+    if (url.pathname === '/track/yt-fb-1') return { data: [] };
+    if (url.pathname === '/search') {
+      return {
+        data: [
+          {
+            id: 9901,
+            title: 'Blinding Lights',
+            duration: 200,
+            artist: { name: 'The Weeknd' },
+            preview: 'https://cdnt-preview.dzcdn.net/api/1/1/blinding.mp3'
+          }
+        ]
+      };
+    }
+    return { data: [] };
+  });
   globalThis.fetch = async (url) => {
     url = String(url);
     if (url.includes('/match')) {
@@ -92,20 +109,29 @@ test('auto mode falls back to youtube-embed when allowEmbed is true and download
     return new Response('down', { status: 503 });
   };
   try {
-    const embed = await api.resolve(
+    const autoRes = await api.resolve(
       { id: 'yt-fb-1', title: 'Blinding Lights', artist: 'The Weeknd', duration: 200 },
+      { allowEmbed: true }
+    );
+    assert.notEqual(autoRes.kind, 'youtube-embed');
+    assert.equal(autoRes.kind, 'preview');
+
+    // Explicit youtube source uses youtube-embed, while download / cors never receives embed
+    localStorage.setItem('spotplus.settings', JSON.stringify({ source: 'youtube' }));
+    const embed = await api.resolve(
+      { id: 'yt-fb-2', title: 'Blinding Lights', artist: 'The Weeknd', duration: 200 },
       { allowEmbed: true }
     );
     assert.equal(embed.kind, 'youtube-embed');
     assert.equal(embed.videoId, '4NRXx6U8ABQ');
     assert.deepEqual(embed.videoIds, ['4NRXx6U8ABQ', 'fHI8X4OXluQ']);
 
-    // Download / CORS callers must NOT receive the cached youtube-embed result
     await assert.rejects(
-      () => api.resolve({ id: 'yt-fb-1', title: 'Blinding Lights', artist: 'The Weeknd', duration: 200 }, { cors: true }),
-      /No audio server/
+      () => api.resolve({ id: 'yt-fb-2', title: 'Blinding Lights', artist: 'The Weeknd', duration: 200 }, { cors: true }),
+      /requires interactive playback/
     );
   } finally {
+    dom.setJsonpResponder(null);
     globalThis.fetch = prevFetch;
   }
 });
@@ -141,7 +167,7 @@ test('auto mode falls back to Deezer preview if /match also fails', async () => 
   }
 });
 
-test('YouTubeEmbedPlayer handles lifecycle messages, candidate rotation, seek, pause, and stop', () => {
+test('YouTubeEmbedPlayer handles lifecycle messages, candidate rotation, seek, pause, dedupes ended, and stop', () => {
   const beforeCount = dom.iframes.length;
   const events = [];
   const yt = new YouTubeEmbedPlayer({
@@ -183,17 +209,18 @@ test('YouTubeEmbedPlayer handles lifecycle messages, candidate rotation, seek, p
   assert.ok(frame.posted.some(p => p.msg.func === 'seekTo' && p.msg.args[0] === 42));
   assert.ok(frame.posted.some(p => p.msg.func === 'pauseVideo'));
 
-  // Ended + stop
+  // Duplicate ended signals for the same generation emit onEnded once
+  dom.emitMessage('https://www.youtube.com', { event: 'infoDelivery', info: { playerState: 0 } });
   dom.emitMessage('https://www.youtube.com', { event: 'onStateChange', info: 0 });
-  assert.ok(events.includes('ended'));
+  assert.equal(events.filter(e => e === 'ended').length, 1);
   yt.stop();
   assert.equal(yt.active, false);
   assert.equal(frame.src, 'about:blank');
 });
 
-test('player unifies position, pause, seek, and preview fallback when playing youtube-embed', async () => {
+test('player unifies position, pause, seek, and preview fallback only when YouTube player is selected', async () => {
   localStorage.clear();
-  localStorage.setItem('spotplus.settings', JSON.stringify({ source: 'auto' }));
+  localStorage.setItem('spotplus.settings', JSON.stringify({ source: 'youtube' }));
   const prevFetch = globalThis.fetch;
   dom.setJsonpResponder((url) => {
     if (url.pathname === '/track/9002') {
@@ -228,8 +255,8 @@ test('player unifies position, pause, seek, and preview fallback when playing yo
     player.toggle();
     assert.equal(player.isPaused(), true);
 
-    // If YouTube reports non-embeddable error, fallbackToPreview loads Deezer 30s preview
-    dom.emitMessage('https://www.youtube.com', { event: 'onError', info: 101 });
+    // Explicitly invoking 30s preview button (or fallback in auto mode) switches to preview
+    await player.fallbackToPreview('unembeddable', { allowPreview: true });
     await settle();
     assert.equal(player.state.source?.kind, 'preview');
     assert.equal(player.isEmbed(), false);

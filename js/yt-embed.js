@@ -21,6 +21,7 @@ export class YouTubeEmbedPlayer {
     this.loadTimer = null;
     this.pollTimer = null;
     this.gen = 0;
+    this.endedGen = 0;
     this._onMessage = (e) => this.handleMessage(e);
     if (typeof globalThis.window?.addEventListener === 'function') {
       globalThis.window.addEventListener('message', this._onMessage);
@@ -113,14 +114,6 @@ export class YouTubeEmbedPlayer {
       if (!this.tryNextCandidate(gen)) this.hooks.onError?.('YouTube player did not answer');
     }, 7000);
     this.loadTimer.unref?.();
-    if (this.autoplay) {
-      this.tapTimer = setTimeout(() => {
-        if (gen !== this.gen || !this.active || !this.paused) return;
-        this.needsTap = true;
-        this.hooks.onNeedsTap?.(true);
-      }, 1700);
-      this.tapTimer.unref?.();
-    }
   }
 
   tryNextCandidate(gen) {
@@ -191,14 +184,17 @@ export class YouTubeEmbedPlayer {
       if (wasPlaying) this.hooks.onPause?.();
     } else if (st === 0) {
       this.paused = true;
+      clearTimeout(this.tapTimer);
+      if (this.endedGen === gen) return;
+      this.endedGen = gen;
       this.hooks.onEnded?.();
-    } else if (st === 3) {
+    } else if (st === 3 && this.ready && this.autoplay) {
       clearTimeout(this.tapTimer);
       this.tapTimer = setTimeout(() => {
         if (gen !== this.gen || !this.active || !this.paused) return;
         this.needsTap = true;
         this.hooks.onNeedsTap?.(true);
-      }, 2500);
+      }, 3000);
       this.tapTimer.unref?.();
     }
   }

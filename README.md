@@ -106,6 +106,8 @@ npm run build    # production build in dist/
 
 Pushing to `main` builds and publishes to GitHub Pages automatically.
 
+> **Mandatory workflow:** While active development is in progress, keep `MAINTENANCE_MODE = true` in `js/maintenance.js` and `var MAINTENANCE = true;` in `js/boot.js`. Only turn maintenance mode off when development is complete and the maintainer declares the build **stable**.
+
 ### Project layout
 
 ```

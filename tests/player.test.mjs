@@ -36,3 +36,70 @@ test('preview fallback clears crossOrigin so CORS-strict previews still play',as
   await settle();
   assert.equal(player.el.crossOrigin,null);
 });
+
+test('ended auto-advances queue (including preview paths), wraps repeat-all, restarts repeat-one, and continues radio',async()=>{
+  player.state.repeat='off';
+  const radioTracks=[];
+  player.setQueueHooks({continueQueue:async()=>{const nextTrack={id:'radio-1',title:'Radio 1',artist:'Unit',duration:180,local:true};radioTracks.push(nextTrack);return [nextTrack];}});
+  const q=[
+    {id:'q1',title:'Song 1',artist:'Unit',duration:30,preview:'https://cdnt-preview.dzcdn.net/stream/1.mp3'},
+    {id:'q2',title:'Song 2',artist:'Unit',duration:180,local:true},
+  ];
+  globalThis.fetch=async()=>new Response('no',{status:404});
+  player.playList(q,0,{shuffle:false});
+  await settle();
+  assert.equal(player.current().id,'q1');
+  assert.equal(player.state.source?.kind,'preview');
+  assert.ok(player.isPlaying());
+
+  // Preview finishes -> loads q2 and starts playing without user tap
+  player.el.dispatchEvent(new Event('ended'));
+  await settle();
+  assert.equal(player.current().id,'q2');
+  assert.ok(player.isPlaying());
+
+  // Repeat one restarts q2 without advancing
+  player.state.repeat='one';
+  player.el.currentTime=120;
+  player.el.dispatchEvent(new Event('ended'));
+  await settle();
+  assert.equal(player.current().id,'q2');
+  assert.equal(player.el.currentTime,0);
+  assert.ok(player.isPlaying());
+
+  // Repeat all wraps queue back to q1
+  player.state.repeat='all';
+  player.el.dispatchEvent(new Event('ended'));
+  await settle();
+  assert.equal(player.current().id,'q1');
+  assert.ok(player.isPlaying());
+
+  // End of queue with repeat off continues into radio
+  player.state.repeat='off';
+  player.el.dispatchEvent(new Event('ended'));
+  await settle();
+  assert.equal(player.current().id,'q2');
+  player.el.dispatchEvent(new Event('ended'));
+  await settle();
+  assert.equal(player.current().id,'radio-1');
+  assert.equal(radioTracks.length,1);
+  assert.ok(player.isPlaying());
+
+  player.setQueueHooks({continueQueue:null});
+});
+
+test('intentional pause prevents auto-advance when ended fires',async()=>{
+  player.state.repeat='off';
+  const q=[
+    {id:'p1',title:'Pause 1',artist:'Unit',duration:180,local:true},
+    {id:'p2',title:'Pause 2',artist:'Unit',duration:180,local:true},
+  ];
+  player.playList(q,0,{shuffle:false});
+  await settle();
+  player.pause();
+  player.el.dispatchEvent(new Event('ended'));
+  await settle();
+  assert.equal(player.current().id,'p1');
+  assert.equal(player.isPlaying(),false);
+});
+
