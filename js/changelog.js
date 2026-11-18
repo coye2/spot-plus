@@ -1,6 +1,10 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.15', date: '2026-11-18', title: 'Your real Spotify photo, and a photo you choose', items: [
+    'A connected Spotify account uses that account’s profile photo.',
+    'Change photo on your profile or in Settings. Use Spotify photo puts the account picture back.',
+  ]},
   {version: '1.9.14', date: '2026-11-18', title: 'Clear theme and a wallpaper list that stays put', items: [
     'The wallpaper list is the only thing that scrolls on the background screen. It no longer drags the rest of the app.',
     'Clear sits with Light, Dark, and Auto. It makes the app transparent over your wallpaper. The full player stays solid.',

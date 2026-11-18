@@ -19,12 +19,21 @@ export function spotifyCover(value) {
 export function spotifyProfileURL(id) {
   try { return id ? 'https://open.spotify.com/user/'+encodeURIComponent(cleanText(id,120)) : ''; } catch { return ''; }
 }
+function profilePhotoSources(profile) {
+  const lists = [profile?.avatar?.sources, profile?.images, profile?.visuals?.avatarImage?.sources, profile?.avatarImage?.sources];
+  const found = [];
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const item of list) found.push({url: typeof item === 'string' ? item : item?.url, width: Number(item?.width) || 0});
+  }
+  if (typeof profile?.avatar === 'string') found.push({url: profile.avatar, width: 0});
+  if (typeof profile?.image_url === 'string') found.push({url: profile.image_url, width: 0});
+  return found.sort((a, b) => b.width - a.width).map(item => spotifyCover(item.url)).find(Boolean) || '';
+}
 export function readSpotifyProfile(profile) {
   const id=cleanText(profile?.username,120);
   if(!id)return null;
-  const sources=Array.isArray(profile.avatar?.sources)?profile.avatar.sources:[];
-  const avatar=[...sources].sort((a,b)=>(Number(b?.width)||0)-(Number(a?.width)||0)).map(source=>spotifyCover(source?.url)).find(Boolean)||'';
-  return {id,name:cleanText(profile.name,120)||id,avatar,externalUrl:spotifyProfileURL(id)};
+  return {id,name:cleanText(profile.name,120)||id,avatar:profilePhotoSources(profile),externalUrl:spotifyProfileURL(id)};
 }
 function trackRecord(raw) {
   const wrapper=raw?.itemV2 || raw?.track || raw?.item;

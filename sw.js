@@ -1,6 +1,6 @@
 // Spot+ service worker: offline app shell + cached cover art. Audio downloads live in their own cache.
 // v40 includes version 2 account snapshots and incomplete-collection preservation.
-const SHELL_CACHE = 'spotplus-shell-v87';
+const SHELL_CACHE = 'spotplus-shell-v88';
 const IMG_CACHE = 'spotplus-img-v1';
 const KEEP = [SHELL_CACHE, IMG_CACHE, 'spotplus-audio-v1', 'spotplus-live-voice-v1'];
 const SHELL = [
@@ -10,7 +10,7 @@ const SHELL = [
   ...['afterhours','daylight','classic'].map(host=>'./audio/dj/'+host+'/preview.mp3'),
   './css/app-shell.css','./css/dj-voice.css','./js/shell.js','./js/dj-voice.js','./js/dj-hosts.js','./js/audio-buffer.js',
   './js/folders.js',
-  './css/account.css', './js/spotify-account.js', './js/spotify-reader.js',
+  './css/account.css', './js/spotify-account.js', './js/spotify-reader.js', './js/profile-photo.js',
   './', './index.html', './css/style.css', './css/experience.css', './css/themes.css', './css/refinements.css', './css/fonts.css', './fonts/inter-latin-wght-normal.woff2', './js/app.js', './js/api.js', './js/player.js', './js/store.js', './js/library.js', './js/dj.js', './js/local-model.js', './js/model-worker.js', './js/themes.js', './js/spotify.js', './js/spotify-import.js', './js/spotify-import-worker.js', './js/vendor/fflate.js',
   './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png', './icons/apple-touch-icon.png',
 ];

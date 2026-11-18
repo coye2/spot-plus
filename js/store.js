@@ -1,5 +1,6 @@
 // store.js — everything Spot+ keeps in the user's own browser (localStorage).
 import {mergeAccountSnapshot,validateAccountSnapshot,validateStats} from './spotify-account.js';
+import {spotifyCover} from './spotify-reader.js';
 import {normalizeFolders,mergeFolders} from './folders.js';
 const P = 'spotplus.';
 const listeners = new Set();
@@ -209,6 +210,12 @@ export async function setSyncedStats(snapshot){
   emit('spotifyStats');return true;
 }
 /** Resolves once the last account change is on disk; rejects if it could not be saved. */
+export function rememberAccountAvatar(url){
+  const avatar=spotifyCover(url),current=getSpotifyAccount();
+  if(!avatar||!current?.account?.id||current.account.avatar===avatar)return false;
+  setSpotifyAccount({...current,account:{...current.account,avatar}});
+  return getSpotifyAccount()?.account?.avatar===avatar;
+}
 export const flushSpotifyAccount=()=>accountWrite;
 export function clearSpotifyAccount(){
   if(useIdb){accountCache=null;accountWrite=idbRun('readwrite',kv=>kv.delete('spotifyAccount'));accountWrite.catch(()=>{});}

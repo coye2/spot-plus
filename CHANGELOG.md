@@ -2,6 +2,12 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.15 — Your real Spotify photo, and a photo you choose
+_2026-11-18_
+
+- A connected Spotify account uses that account’s profile photo.
+- Change photo on your profile or in Settings. Use Spotify photo puts the account picture back.
+
 ## 1.9.14 — Clear theme and a wallpaper list that stays put
 _2026-11-18_
 

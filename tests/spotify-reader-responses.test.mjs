@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {COMPANION_VERSION,readSpotifyAccount,readSpotifyTrack,readSpotifyProfile} from '../js/spotify-reader.js';
+import {shouldRefreshPhoto} from '../js/profile-photo.js';
 import {COMPANION_VERSION as setupVersion,spotifyProfileHtml} from '../js/account-setup.js';
 import {validateAccountSnapshot,mergeAccountSnapshot} from '../js/spotify-account.js';
 
@@ -126,10 +127,19 @@ test('profile import validates photos and rebuilds links instead of trusting an 
   assert.equal(clean.avatar,'');
   assert.equal(clean.externalUrl,'https://open.spotify.com/user/listener%2F%3Fnext%3Devil');
   assert.equal(clean.email,undefined);
+  assert.equal(readSpotifyProfile({username:'a',images:[{url:'https://i.scdn.co/image/small',width:64},{url:'https://i.scdn.co/image/big',width:640},{url:'https://evil.test/x',width:900}]}).avatar,'https://i.scdn.co/image/big');
+  assert.equal(readSpotifyProfile({username:'a',image_url:'https://i.scdn.co/image/plain'}).avatar,'https://i.scdn.co/image/plain');
+  assert.equal(readSpotifyProfile({username:'a',avatar:'https://evil.test/x'}).avatar,'');
   assert.equal(readSpotifyProfile({username:'legacy'}).avatar,'');
   assert.equal(readSpotifyProfile({username:'legacy',avatar:{sources:{}}}).name,'legacy');
 });
 
+test('a missing Spotify photo is fetched, and a saved one waits a day',()=>{
+  assert.equal(shouldRefreshPhoto({id:'spotify',avatar:'',checkedAt:0,now:10}),true);
+  assert.equal(shouldRefreshPhoto({id:'spotify',avatar:'https://i.scdn.co/image/a',checkedAt:0,now:10,force:true}),true);
+  assert.equal(shouldRefreshPhoto({id:'spotify',avatar:'https://i.scdn.co/image/a',checkedAt:1_000,now:1_000+3_600_000}),false);
+  assert.equal(shouldRefreshPhoto({id:'bad id',avatar:'',now:10}),false);
+});
 test('profile cards escape names and support older accounts with no photo',()=>{
   const html=spotifyProfileHtml({id:'old user',name:'<script>bad</script>',avatar:'javascript:bad',externalUrl:'https://evil.test'});
   assert.ok(html.includes('&lt;script&gt;bad&lt;/script&gt;'));

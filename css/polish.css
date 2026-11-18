@@ -96,9 +96,13 @@ html,body{background:var(--canvas)}
   .about-card{max-width:720px;min-height:340px}
 }
 
-/* Profile pictures (synced from your Spotify account). */
+/* Profile pictures: the Spotify photo, or one chosen on this device. */
+button.avatar{padding:0;cursor:pointer;font:inherit;line-height:1}
 .avatar.has-photo{padding:0;overflow:hidden;background:var(--bg3)}
 .avatar.has-photo img{width:100%;height:100%;object-fit:cover;border-radius:inherit;display:block}
+.profile-edit{display:flex;align-items:center;gap:14px;margin:4px 0 12px}
+.profile-edit .avatar{width:72px;height:72px;font-size:28px}
+.profile-edit-actions,.profile-hero .row-btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
 
 /* Lyrics search results. */
 .lyrics-matches{margin:8px 0 24px}

@@ -53,6 +53,13 @@ export async function loadLinks() { if (cache) return cache; try { cache = await
 export const cachedLinks = () => cache;
 async function saveLinks(state) { cache = state; try { await kv('readwrite', s => s.put(state, 'state')); } catch { /* Memory copy still works this session. */ } }
 export async function clearLinks() { cache = null; try { await kv('readwrite', s => s.delete('state')); } catch { /* Nothing saved. */ } }
+export async function rememberProfileAvatar(avatar) {
+  const state = await loadLinks();
+  if (!state?.profile || typeof avatar !== 'string' || !avatar.startsWith('https://') || state.profile.avatar === avatar) return false;
+  state.profile = {...state.profile, avatar};
+  await saveLinks(state);
+  return true;
+}
 const emptyState = () => ({profile: null, playlists: {}, snapshots: [], moods: [], syncedAt: 0});
 
 /** Add pasted links. Returns a short description of what was recognised. */
