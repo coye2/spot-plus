@@ -1,7 +1,7 @@
 // A photo chosen on this device. It wins over the Spotify picture until removed.
 const DB = 'spotplus-profile';
 const KEY = 'self';
-const MAX_BYTES = 8 * 1024 * 1024;
+const MAX_BYTES = 25 * 1024 * 1024;
 let url = '';
 let custom = false;
 
@@ -36,7 +36,20 @@ export async function loadPhoto() {
 }
 
 async function squareJpeg(file) {
-  const bitmap = await createImageBitmap(file);
+  let bitmap;
+  try { bitmap = await createImageBitmap(file); }
+  catch {
+    // iOS Photos/HEIC can decode in Image even when createImageBitmap rejects it.
+    const src = URL.createObjectURL(file);
+    try {
+      bitmap = await new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error('Unsupported image'));
+        image.src = src;
+      });
+    } finally { URL.revokeObjectURL(src); }
+  }
   const side = Math.min(bitmap.width, bitmap.height);
   const out = Math.min(512, side);
   const canvas = document.createElement('canvas');
@@ -51,10 +64,10 @@ async function squareJpeg(file) {
 
 export async function savePhoto(file) {
   if (!file || !/^image\//.test(file.type || '')) throw new Error('Choose an image.');
-  if (file.size > MAX_BYTES) throw new Error('Use an image under 8 MB.');
+  if (file.size > MAX_BYTES) throw new Error('Use an image under 25 MB.');
   let blob;
   try { blob = await squareJpeg(file); }
-  catch { throw new Error('Choose a JPEG or PNG.'); }
+  catch { throw new Error('Choose a JPEG, PNG or a supported iPhone photo.'); }
   await idb('readwrite', store => store.put({blob, at: Date.now()}, KEY));
   if (url) URL.revokeObjectURL(url);
   url = URL.createObjectURL(blob);

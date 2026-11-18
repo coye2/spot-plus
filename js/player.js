@@ -110,6 +110,7 @@ let stallTimer = null;
 let liveAttempt = 0;
 let mediaTicket = 0;
 let suppressError = false;
+let previewUpgradeTimer = null, previewUpgradeControl = null, previewUpgradeTries = 0;
 
 function clearStall() {
   clearTimeout(stallTimer);
@@ -170,6 +171,7 @@ function playAssigned(nextSource) {
   emit('state');
   clearStall();
   watchStall();
+  if (nextSource.preview) schedulePreviewUpgrade(1600);
   audio.play().then(() => {
     if (ticket !== mediaTicket) return;
     telemetry.markStage(activeGen, 'playResolved');
@@ -186,6 +188,75 @@ function playAssigned(nextSource) {
   });
 }
 
+// Full-song recovery continues behind a playing preview. It never silently swaps
+// to an untested 403 link, and it cancels when the listener skips the song.
+function verifyFullAudio(source, signal, expectedDuration) {
+  return new Promise(resolve => {
+    if (!source?.url || source.preview || source.kind === 'youtube-embed' || signal?.aborted) return resolve(false);
+    const probe = new Audio();
+    probe.preload = 'auto';
+    probe.playsInline = true;
+    let finished = false;
+    const done = ok => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', abort);
+      probe.removeEventListener?.('canplay', ready);
+      probe.removeEventListener?.('error', failed);
+      probe.pause();
+      probe.removeAttribute('src');
+      probe.load();
+      resolve(ok);
+    };
+    const abort = () => done(false);
+    const ready = () => {
+      const seconds = probe.duration;
+      const tooShort = Number.isFinite(seconds) && seconds > 0 && expectedDuration > 45 && seconds < expectedDuration * 0.65;
+      done(!tooShort);
+    };
+    const failed = () => done(false);
+    const timeout = setTimeout(() => done(false), 5200);
+    timeout.unref?.();
+    probe.addEventListener('canplay', ready, {once:true});
+    probe.addEventListener('error', failed, {once:true});
+    signal?.addEventListener('abort', abort, {once:true});
+    try { probe.src = source.url; probe.load(); }
+    catch { done(false); }
+  });
+}
+function schedulePreviewUpgrade(delay = 1200) {
+  clearTimeout(previewUpgradeTimer);
+  const t = current(), generation = token;
+  if (!t || !state.source?.preview || state.offline || store.getSettings().source === 'preview' || previewUpgradeTries >= 2) return;
+  previewUpgradeTimer = setTimeout(async () => {
+    if (generation !== token || current() !== t || !state.source?.preview || !pendingPlay) return;
+    previewUpgradeTries++;
+    const control = new AbortController();
+    previewUpgradeControl = control;
+    try {
+      // Do not use the normal resolver: it may return a cached preview or iframe.
+      const found = await api.resolveFull(t, {signal:control.signal});
+      if (generation !== token || current() !== t || !state.source?.preview || !found) return;
+      const options = [found, ...(found.alternatives || []).map(alt => ({...found,...alt, alternatives:[]}))];
+      for (const candidate of options.slice(0,4)) {
+        if (control.signal.aborted || generation !== token) return;
+        if (!(await verifyFullAudio(candidate, control.signal, t.duration || 0))) continue;
+        if (generation !== token || !state.source?.preview || !pendingPlay) return;
+        const at = audio.currentTime || 0;
+        // Preserve what was already heard, and keep the queue on this same recording.
+        load({keepSkip:true, startAt:at, sourceOverride:candidate, upgradingPreview:true}).catch(()=>{});
+        return;
+      }
+    } catch { /* The preview continues uninterrupted when no real audio is available. */ }
+    finally {
+      if (previewUpgradeControl === control) previewUpgradeControl = null;
+      if (generation === token && state.source?.preview && previewUpgradeTries < 2)
+        schedulePreviewUpgrade(9500);
+    }
+  }, delay);
+  previewUpgradeTimer.unref?.();
+}
 function recoverMedia(mediaErr = null) {
   clearStall();
   if (!isRealSrc() || !current()) return;
@@ -473,6 +544,10 @@ async function load(opts = {}) {
   const my = ++token;
   activeGen = my;
   startupSwaps = 0;
+  clearTimeout(previewUpgradeTimer);
+  previewUpgradeControl?.abort();
+  previewUpgradeControl = null;
+  if (!opts.keepSkip) previewUpgradeTries = 0;
   if (!opts.keepSkip) state.playbackId = (state.playbackId || 0) + 1;
   clearStall();
   clearTimeout(pauseClearTimer);
@@ -681,6 +756,7 @@ async function load(opts = {}) {
     if (my !== token) return;
     failStreak = 0;
     store.addRecent(t);
+    if (state.source?.preview) schedulePreviewUpgrade(1600);
     prefetch();
   } catch (e) {
     if (my !== token) return;

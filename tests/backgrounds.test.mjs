@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {CATALOG, CATEGORIES} from '../js/background-catalog.js';
-import {coverCrop, deviceTier, sourceForDevice, targetPixels, wallpaperURLs, positionOf, normalizeScene} from '../js/backgrounds.js';
+import {coverCrop, deviceTier, sourceForDevice, targetPixels, wallpaperURLs, positionOf, normalizeScene, wallpaperGroups} from '../js/backgrounds.js';
 
 const phone = {width: 390, height: 844, dpr: 3};
 const desktop = {width: 1920, height: 1080, dpr: 2};
@@ -48,4 +48,13 @@ test('a saved background keeps a clamped crop point', () => {
   assert.equal(normalizeScene(null), null);
   assert.deepEqual(normalizeScene({kind: 'catalog', id: '724313', x: 2, y: -1}), {kind: 'catalog', id: '724313', x: 1, y: 0});
   assert.equal(positionOf({x: 0.5, y: 0.42}), '50% 42%');
+});
+
+test('All category keeps every wallpaper, not three per category', () => {
+  const all = wallpaperGroups();
+  assert.equal(all.count, CATALOG.length);
+  assert.equal(all.groups.reduce((sum,[,rows])=>sum+rows.length,0), CATALOG.length);
+  const nature = wallpaperGroups({category:'nature'});
+  assert.ok(nature.count > 3);
+  assert.ok(nature.groups.every(([category]) => category === 'Nature'));
 });

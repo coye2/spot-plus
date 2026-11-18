@@ -268,7 +268,7 @@ function rows(items, scene, kind, esc) {
     const res = item.w && item.h ? `${item.w}×${item.h}` : '—';
     const remove = kind === 'upload' ? `<button type="button" class="bg-remove" data-act="bg-delete" data-id="${esc(item.id)}">Remove</button>` : '';
     return `<tr class="${on ? 'is-on' : ''}" data-act="bg-pick" data-kind="${kind}" data-id="${esc(item.id)}" tabindex="0" aria-pressed="${on}">
-      <td class="bg-col-preview">${preview ? `<img class="bg-thumb" alt="" src="${esc(preview)}" width="96" height="54">` : '<span class="bg-thumb bg-thumb-file"></span>'}</td>
+      <td class="bg-col-preview">${preview ? `<img class="bg-thumb" alt="" loading="lazy" decoding="async" src="${esc(preview)}" width="96" height="54">` : '<span class="bg-thumb bg-thumb-file"></span>'}</td>
       <td class="bg-col-name"><b>${esc(item.name)}</b><small>${esc(item.category || 'On this device')}</small></td>
       <td class="bg-col-res">${res}</td>
       <td class="bg-col-source">${kind === 'catalog' ? 'Alpha Coders' : 'Upload'}</td>
@@ -283,22 +283,14 @@ function categories() {
   return CATEGORIES.map(item => typeof item === 'string' ? {slug: item.toLowerCase().replace(/\s+/g, '-'), name: item} : item);
 }
 
-/** All shows a few from each category. A chosen category or a search shows that set. */
+/** All includes the entire catalog. Filtering by category or search never drops records. */
 export function wallpaperGroups({category = '', query = ''} = {}) {
   const cats = categories();
   const active = cats.find(item => item.slug === category || item.name === category) || null;
   const q = String(query || '').trim().toLowerCase();
   let items = active ? CATALOG.filter(item => item.category === active.name) : CATALOG;
   if (q) items = items.filter(item => `${item.name} ${item.category}`.toLowerCase().includes(q));
-  else if (!active) {
-    const seen = new Map();
-    items = items.filter(item => {
-      const count = seen.get(item.category) || 0;
-      if (count >= 3) return false;
-      seen.set(item.category, count + 1);
-      return true;
-    });
-  }
+
   const names = [];
   const buckets = new Map();
   for (const item of items) {
@@ -346,23 +338,25 @@ export function page({category = '', settings = {}, uploads: saved = [], viewpor
 
 export function fitWallpaperList(root = document) {
   const wrap = root.querySelector?.('#bgList') || root.querySelector?.('.bg-table-wrap');
-  if (!wrap || !wrap.getBoundingClientRect) return 0;
   const main = document.querySelector('main');
-  if (main) main.scrollTop = 0;
-  let limit = globalThis.innerHeight || 800;
-  const nav = document.querySelector('.nav');
-  const bar = document.querySelector('.bar');
-  if (nav && getComputedStyle(nav).display !== 'none') limit = Math.min(limit, nav.getBoundingClientRect().top);
-  if (bar && !bar.hidden && getComputedStyle(bar).display !== 'none') {
-    const top = bar.getBoundingClientRect().top;
-    if (top > 100) limit = Math.min(limit, top);
+  if (!wrap?.getBoundingClientRect || !main?.getBoundingClientRect) return 0;
+  // The outer app must never become the scroller for the wallpaper database.
+  main.scrollTop = 0;
+  const style = getComputedStyle(main);
+  const mainBottom = main.getBoundingClientRect().bottom - (parseFloat(style.paddingBottom) || 0);
+  let limit = Math.min(globalThis.visualViewport?.height || globalThis.innerHeight || 800, mainBottom);
+  for (const node of [document.querySelector('.nav'), document.querySelector('.bar')]) {
+    if (node && !node.hidden && getComputedStyle(node).display !== 'none') {
+      limit = Math.min(limit, node.getBoundingClientRect().top);
+    }
   }
-  const studio = wrap.closest('.bg-studio');
-  const room = studio ? studio.getBoundingClientRect().bottom : limit;
-  const height = Math.max(160, Math.floor(Math.min(limit, room) - wrap.getBoundingClientRect().top - 8));
-  wrap.style.height = height + 'px';
-  wrap.style.maxHeight = height + 'px';
-  return height;
+  const space = Math.max(120, Math.floor(limit - wrap.getBoundingClientRect().top - 8));
+  // A real pixel flex basis is required in iOS WebKit: height alone gets shrunk to a tiny strip.
+  wrap.style.flex = '0 0 ' + space + 'px';
+  wrap.style.height = space + 'px';
+  wrap.style.maxHeight = space + 'px';
+  wrap.style.overflowY = 'auto';
+  return space;
 }
 
 function tableBody(groups, scene, esc) {

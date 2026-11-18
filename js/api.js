@@ -489,7 +489,7 @@ function youtubeEmbedStream(matches, t) {
 }
 
 /** Find a playable audio URL for a track. Returns { url, mime, bitrate, videoId, instance, kind }. */
-async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed = false } = {}, _retry = false) {
+async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed = false, fullOnly = false } = {}, _retry = false) {
   const set = getSettings();
   if (t.local) throw new Error('This local file is no longer stored on this device. Import it again.');
   if (set.source === 'preview') return previewStream(t);
@@ -516,7 +516,7 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
       if (isAuto) { /* unreachable here */ }
       else if (allowEmbed && _retry !== 'catalog') {
         const canonical = await canonicalTrack(t).catch(() => null);
-        if (canonical) return resolveUncached({ ...t, title: canonical.title, searchTitle: canonical.searchTitle || canonical.title, artist: canonical.artist, duration: t.duration || canonical.duration }, { skip, signal, cors, allowEmbed }, 'catalog');
+        if (canonical) return resolveUncached({ ...t, title: canonical.title, searchTitle: canonical.searchTitle || canonical.title, artist: canonical.artist, duration: t.duration || canonical.duration }, { skip, signal, cors, allowEmbed, fullOnly }, 'catalog');
       }
       if (!allowEmbed) throw e;
     } finally { clearTimeout(deadline); }
@@ -583,7 +583,7 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
     return result;
   } catch {
     if (signal?.aborted) throw new DOMException('Playback cancelled', 'AbortError');
-    if (cached && !cached.manual && !_retry) { setVideoCache(t.id, null); return resolveUncached(t, { skip, signal, cors, allowEmbed }, true); }
+    if (cached && !cached.manual && !_retry) { setVideoCache(t.id, null); return resolveUncached(t, { skip, signal, cors, allowEmbed, fullOnly }, true); }
     if (!skip.length && _retry !== 'bridge' && streamDown <= Date.now()) {
       try {
         const matches = sharedMatches?.length ? sharedMatches : (shared ? await Promise.race([shared, new Promise((_, rej) => setTimeout(() => rej(new Error('slow')), 1500))]) : []);
@@ -599,9 +599,9 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
     }
     if (!sharedMatches?.length && _retry !== 'catalog') {
       const canonical = await canonicalTrack(t).catch(() => null);
-      if (canonical) return resolveUncached({ ...t, title: canonical.title, searchTitle: canonical.searchTitle || canonical.title, artist: canonical.artist, duration: t.duration || canonical.duration }, { skip, signal, cors, allowEmbed }, 'catalog');
+      if (canonical) return resolveUncached({ ...t, title: canonical.title, searchTitle: canonical.searchTitle || canonical.title, artist: canonical.artist, duration: t.duration || canonical.duration }, { skip, signal, cors, allowEmbed, fullOnly }, 'catalog');
     }
-    if (isAuto) {
+    if (isAuto && !fullOnly) {
       if (allowEmbed) {
         if (!sharedMatches?.length && shared) await Promise.race([shared, new Promise((r) => setTimeout(r, 1500))]).catch(() => {});
         const embed = youtubeEmbedStream(sharedMatches, t);
@@ -763,10 +763,10 @@ export async function resolve(t,options={}) {
   // Podcasts and audiobooks come with their own direct audio link.
   if(t?.direct){options.signal?.throwIfAborted();return {url:t.direct,mime:t.mime||'audio/mpeg',bitrate:128000,kind:'direct',instance:host(t.direct),cacheLayer:'direct'};}
   const settings=getSettings(),key=streamKey(t,settings),hit=!options.skip?.length&&cachedStream(key);
-  if(hit&&(options.allowEmbed||hit.kind!=='youtube-embed')&&(!options.cors||(hit.kind!=='youtube-embed'&&await corsOK(hit.url)))){options.signal?.throwIfAborted();return {...hit,cacheLayer:'memory'};}
+  if(hit&&(!options.fullOnly||(!hit.preview&&hit.kind!=='youtube-embed'))&&(options.allowEmbed||hit.kind!=='youtube-embed')&&(!options.cors||(hit.kind!=='youtube-embed'&&await corsOK(hit.url)))){options.signal?.throwIfAborted();return {...hit,cacheLayer:'memory'};}
   if(options.skip?.length)forget(key);
   const warm=warmups.get(key);
-  if(warm&&!options.skip?.length){try {const stream=await abortable(warm,options.signal);options.signal?.throwIfAborted();if((options.allowEmbed||stream.kind!=='youtube-embed')&&(!options.cors||(stream.kind!=='youtube-embed'&&await corsOK(stream.url)))){const check=validateSourceCandidate(stream,{canPlay:mime=>!!probe?.canPlayType(mime),requireCors:options.cors,corsKnown:knownCors});if(check.ok)return {...stream,cacheLayer:'prewarm'};}}catch {options.signal?.throwIfAborted();}}
+  if(warm&&!options.skip?.length){try {const stream=await abortable(warm,options.signal);options.signal?.throwIfAborted();if((!options.fullOnly||(!stream.preview&&stream.kind!=='youtube-embed'))&&(options.allowEmbed||stream.kind!=='youtube-embed')&&(!options.cors||(stream.kind!=='youtube-embed'&&await corsOK(stream.url)))){const check=validateSourceCandidate(stream,{canPlay:mime=>!!probe?.canPlayType(mime),requireCors:options.cors,corsKnown:knownCors});if(check.ok)return {...stream,cacheLayer:'prewarm'};}}catch {options.signal?.throwIfAborted();}}
   // With effects on, prefer servers that allow them; if none do, play the song normally.
   let stream;
   if(options.cors){try{stream=await resolveUncached(t,options);}catch(e){if(options.signal?.aborted)throw e;stream=await resolveUncached(t,{...options,cors:false});}}
@@ -775,6 +775,12 @@ export async function resolve(t,options={}) {
   remember(streamKey(t,settings,stream.videoId||getVideoCache(t.id)?.id||''),stream);
   if(stream.kind!=='youtube-embed')preconnect(stream.url);
   return {...stream,cacheLayer:'network'};
+}
+/** Never substitute a 30-second catalog clip when probing for full-length audio. */
+export async function resolveFull(t, options = {}) {
+  if (getSettings().source === 'preview') return null;
+  const source = await resolve(t, {...options, fullOnly:true, allowEmbed:false});
+  return source?.preview || source?.kind === 'youtube-embed' ? null : source;
 }
 export async function resolveEquivalent(t, options = {}) {
   const candidate = await resolve(t, options);

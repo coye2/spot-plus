@@ -1,6 +1,14 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.18', date: '2026-11-18', title: 'iPhone wallpaper scrolling, real profile photos, and full-audio recovery', items: [
+    'Search fields are a single clean shape on iPhone, without a nested native input border.',
+    'The complete Alpha Coders wallpaper catalog is reachable in its own scrolling list, with compact phone controls and lazy-loaded thumbnails.',
+    'Clear mode exposes the wallpaper while keeping controls readable and the mini player and tab bar opaque.',
+    'Use your synced Spotify photo or choose an iPhone photo stored only on this device, then switch back any time.',
+    'Full audio is tried first. If only a 30-second preview works, it can play while Spot+ keeps checking real audio links and resumes the song at the current position if a working full source appears. The external audio worker remains a separate deployment.',
+  ]},
+
   {version: '1.9.17', date: '2026-11-18', title: 'Search fields and the wallpaper list line up', items: [
     'Search fields, including Tell DJ what to play, no longer show a box inside the field.',
     'The wallpaper database scrolls on its own. The rest of the page stays still, and the full wallpaper library is back.',
