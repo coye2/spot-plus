@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {browserMocks, FakeAudio, settle} from './helpers.mjs';
-import {prefersAac, mediaWarmHeadroom, seamlessHandoffWindow, KEEP_WARM_AFTER_PAUSE_MS, audioHasHeadroom} from '../js/playback-policy.js';
+import {prefersAac, mediaWarmHeadroom, seamlessHandoffWindow, KEEP_WARM_AFTER_PAUSE_MS, audioHasHeadroom, stallBudget} from '../js/playback-policy.js';
 import {NextAudioBuffer} from '../js/audio-buffer.js';
 
 test('InstantPlay prefers AAC on iPhone and iPad', () => {
@@ -17,6 +17,9 @@ test('InstantPlay media warm headroom is lower on fast links and cautious on slo
   assert.equal(mediaWarmHeadroom({effectiveType: '3g'}), 10);
   assert.equal(mediaWarmHeadroom({saveData: true}), 16);
   assert.equal(KEEP_WARM_AFTER_PAUSE_MS, 90_000);
+  assert.equal(stallBudget(0), 7000);
+  assert.equal(stallBudget(0.2), 7000);
+  assert.equal(stallBudget(2), 4500);
   const media = {src: 'https://cdn.example/a.m4a', paused: false, currentTime: 5, duration: 200, buffered: {length: 1, start: () => 0, end: () => 12}};
   assert.equal(audioHasHeadroom(media, 6), true);
   assert.equal(audioHasHeadroom(media, 12), false);

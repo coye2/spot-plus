@@ -2,6 +2,13 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.10 — Playback stays on the link that is working
+_2026-11-18_
+
+- Fixed the glitch where a song restarted over and over while it was still connecting, then died with “No audio server answered.” Buffering is no longer treated as a failure.
+- A link is only replaced after several seconds of silence, or when it actually errors. The first backup is tried in place, without tearing the player down.
+- If full audio still cannot start, Spot+ plays the 30-second catalog preview so the song begins instead of stopping on an error.
+
 ## 1.9.9 — InstantPlay starts without waiting
 _2026-11-18_
 

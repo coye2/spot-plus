@@ -49,12 +49,13 @@ function jsonpNetwork(path, qs) {
     qs.set('output', 'jsonp');
     qs.set('callback', cb);
     const s = document.createElement('script');
-    const done = () => { clearTimeout(timer); window[cb] = () => {}; s.remove(); setTimeout(() => { try { delete window[cb]; } catch {} }, 30000); };
+    const done = () => { clearTimeout(timer); window[cb] = () => {}; s.remove?.(); const later = setTimeout(() => { try { delete window[cb]; } catch {} }, 30000); later.unref?.(); };
     const timer = setTimeout(() => { done(); reject(new Error('Deezer took too long to answer')); }, 12000);
     window[cb] = (data) => { done(); if (data && data.error) reject(new Error(data.error.message || 'Deezer error')); else resolve(data); };
     s.onerror = () => { done(); reject(new Error('Could not reach Deezer')); };
     s.src = `${DEEZER}${path}?${qs}`;
-    document.head.appendChild(s);
+    try { document.head.appendChild(s); }
+    catch (e) { done(); reject(e instanceof Error ? e : new Error('Could not reach Deezer')); }
   });
 }
 function jsonp(path, params = {}) {
@@ -492,10 +493,31 @@ async function resolveUncached(t, { skip = [], signal, cors = false } = {}, _ret
         }
       }catch{ /* fall through */ }
     }
+    const rescued=await previewRescue(t);
+    if(rescued)return rescued;
     throw new Error('No audio server answered. Try another source in Settings, a 30-second preview, or a local audio file.');
   } finally {clearTimeout(deadline);control.abort();}
 }
 
+function previewSource(url){
+  return /^https:\/\//.test(url||'')?{url,mime:'audio/mpeg',bitrate:128000,kind:'preview',instance:DEEZER,preview:true}:null;
+}
+/** When every full-track server is down, start the catalog sample so the song is not a dead error. */
+async function previewRescue(t){
+  const ready=previewSource(t?.preview);
+  if(ready)return ready;
+  if(!globalThis.document?.head)return null;
+  try{
+    const found=await Promise.race([
+      (async()=>{
+        const rows=data(await jsonp('/search',{q:`${t.artist} ${t.searchTitle||t.title}`,limit:8})).map(x=>normTrack(x));
+        return rows.find(x=>previewSource(x.preview)&&best([{title:x.title,channel:x.artist,duration:x.duration,verified:true}],t).length)||null;
+      })(),
+      new Promise(resolve=>setTimeout(()=>resolve(null),2000)),
+    ]);
+    return previewSource(found?.preview);
+  }catch{return null;}
+}
 export const FAST_ITAGS={opus:251,aac:140};
 // Servers that stuttered recently aren't used for fast starts (they stream audio through themselves).
 const choppy=new Map();

@@ -1,6 +1,11 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.10', date: '2026-11-18', title: 'Playback stays on the link that is working', items: [
+    'Fixed the glitch where a song restarted over and over while it was still connecting, then died with “No audio server answered.” Buffering is no longer treated as a failure.',
+    'A link is only replaced after several seconds of silence, or when it actually errors. The first backup is tried in place, without tearing the player down.',
+    'If full audio still cannot start, Spot+ plays the 30-second catalog preview so the song begins instead of stopping on an error.',
+  ]},
   {version: '1.9.9', date: '2026-11-18', title: 'InstantPlay starts without waiting', items: [
     'Songs start as soon as the recording is known: Spot+ plays a direct audio link immediately and keeps backup links ready, instead of waiting on a slow or missing server.',
     'A bridge that doesn’t answer is abandoned in a fraction of a second so it can’t delay playback.',

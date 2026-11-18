@@ -2,7 +2,7 @@
 import * as api from './api.js';
 import * as store from './store.js';
 import { NextAudioBuffer } from './audio-buffer.js';
-import {audioHasHeadroom, mediaWarmHeadroom, KEEP_WARM_AFTER_PAUSE_MS, seamlessHandoffWindow} from './playback-policy.js';
+import {audioHasHeadroom, mediaWarmHeadroom, KEEP_WARM_AFTER_PAUSE_MS, seamlessHandoffWindow, stallBudget} from './playback-policy.js';
 
 export const AUDIO_CACHE = 'spotplus-audio-v1';
 let audio = new Audio();
@@ -37,6 +37,7 @@ export const duration = () => (isRealSrc() && isFinite(audio.duration) && audio.
 
 let token = 0;
 let errRetries = 0;
+let startupSwaps = 0;
 let failStreak = 0;
 let skipList = [];
 let objUrl = null;
@@ -47,14 +48,66 @@ const nextBuffer = new NextAudioBuffer();
 let prefetchTimer = 0, warmGeneration = 0, startedAt = 0, pauseClearTimer = 0;
 let volumeLevel = 1;
 let stallTimer;
+let liveAttempt = 0;
 function clearStall(){clearTimeout(stallTimer);stallTimer=null;}
-function watchStall(){clearStall();const generation=token;const ms=(state.source?.fast||state.source?.alternatives?.length)?1200:2800;stallTimer=setTimeout(()=>{if(generation===token&&pendingPlay&&isRealSrc())recoverMedia();},ms);stallTimer.unref?.();}
+function failAttempt(ticket){
+  if(ticket!==liveAttempt)return;
+  liveAttempt++;
+  recoverMedia();
+}
+function watchStall(){
+  // One timer per attempt. A repeating `waiting` event must not postpone recovery, and must not restart it.
+  if(stallTimer)return;
+  const generation=token;
+  const ms=stallBudget(audio.currentTime);
+  stallTimer=setTimeout(()=>{
+    if(generation!==token||!pendingPlay||!isRealSrc())return;
+    if((audio.readyState||0)>=2&&(audio.currentTime||0)>0.35){clearStall();return;}
+    recoverMedia();
+  },ms);
+  stallTimer.unref?.();
+}
+function playAssigned(nextSource){
+  const ticket=++liveAttempt;
+  state.source=nextSource;
+  state.error=null;
+  audio.src=nextSource.url;
+  if(!pendingPlay){state.loading=false;emit('state');return;}
+  state.loading=true;
+  clearStall();
+  watchStall();
+  audio.play().catch((e)=>{
+    if(ticket!==liveAttempt)return;
+    if(e?.name==='NotAllowedError'||e?.name==='AbortError'){clearStall();state.loading=false;emit('state');}
+    else failAttempt(ticket);
+  });
+}
 function recoverMedia(){
   clearStall();if(!isRealSrc()||!current())return;
-  const alternatives=state.source?.alternatives||[];
-  if(!state.offline&&alternatives.length){const [variant,...rest]=alternatives;load({keepSkip:true,startAt:audio.currentTime||0,sourceOverride:{...state.source,...variant,alternatives:rest}});return;}
-  api.reportPlaybackSource(state.source,false);
-  if(!state.offline&&state.source&&errRetries<2){errRetries++;skipList.push(state.source.instance);load({keepSkip:true,startAt:audio.currentTime||0});return;}
+  const failed=state.source;
+  const alternatives=failed?.alternatives||[];
+  const started=(audio.currentTime||0)>0.35;
+  // Before any audio, swap the link in place. A full reload here is the audible glitch.
+  if(!state.offline&&!started&&!failed?.preview){
+    const previewUrl=current()?.preview;
+    const cap=/^https:\/\//.test(previewUrl||'')?1:2;
+    if(alternatives.length&&startupSwaps<cap){
+      api.reportPlaybackSource(failed,false);
+      const [variant,...rest]=alternatives;
+      startupSwaps++;
+      playAssigned({...failed,...variant,alternatives:rest});
+      return;
+    }
+    if(/^https:\/\//.test(previewUrl||'')){
+      api.reportPlaybackSource(failed,false);
+      startupSwaps=0;
+      playAssigned({url:previewUrl,mime:'audio/mpeg',bitrate:128000,kind:'preview',instance:'https://api.deezer.com',preview:true,alternatives:[]});
+      return;
+    }
+  }
+  if(!state.offline&&alternatives.length){const [variant,...rest]=alternatives;load({keepSkip:true,startAt:audio.currentTime||0,sourceOverride:{...failed,...variant,alternatives:rest}});return;}
+  api.reportPlaybackSource(failed,false);
+  if(!state.offline&&failed&&errRetries<2){errRetries++;if(failed.instance)skipList.push(failed.instance);load({keepSkip:true,startAt:audio.currentTime||0});return;}
   state.loading=false;state.error=`Playback failed for “${current().title}”. Retry or choose another audio source in Settings.`;audio.pause();emit('error',state.error);emit('state');
 }
 function maybeMix() {
@@ -122,6 +175,7 @@ async function load(opts = {}) {
   const t = current();
   if (!t) return;
   const my = ++token;
+  startupSwaps = 0;
   if(!opts.keepSkip)state.playbackId=(state.playbackId||0)+1;
   clearStall();
   startedAt = performance.now();
@@ -197,8 +251,9 @@ async function load(opts = {}) {
     audio.addEventListener('loadedmetadata', () => { if(my!==token)return;if(opts.startAt)audio.currentTime=Math.min(opts.startAt,duration());restorePos=0; }, { once: true });
     emit('state');
     if (pendingPlay) {
+      const ticket=++liveAttempt;
       watchStall();
-      await audio.play().catch((e) => { if(my!==token)return;if (e.name === 'NotAllowedError' || e.name === 'AbortError') { clearStall();state.loading = false; emit('state'); } else {recoverMedia();} });
+      await audio.play().catch((e) => { if(my!==token||ticket!==liveAttempt)return;if (e.name === 'NotAllowedError' || e.name === 'AbortError') { clearStall();state.loading = false; emit('state'); } else {failAttempt(ticket);} });
     } else {
       state.loading = false; emit('state');
     }
@@ -252,7 +307,7 @@ boundAudio.add(media);
 const listen = (event,fn) => media.addEventListener(event,() => { if (media === audio) fn(); });
 // Only the current track may make sound: a spare/preloaded element that starts on its own is stopped at once.
 media.addEventListener('play',() => { if (media !== audio && media.src && !media.src.startsWith('data:')) media.pause(); else if (media === audio) window.dispatchEvent?.(new Event('spotplus:music-play')); });
-listen('playing', () => { clearStall();clearTimeout(pauseClearTimer);if (state.startupMs == null && startedAt && isRealSrc()) state.startupMs = Math.round(performance.now() - startedAt); state.loading = false; api.reportPlaybackSource(state.source); emit('state'); prefetch(); });
+listen('playing', () => { clearStall();startupSwaps=0;clearTimeout(pauseClearTimer);if (state.startupMs == null && startedAt && isRealSrc()) state.startupMs = Math.round(performance.now() - startedAt); state.loading = false; api.reportPlaybackSource(state.source); emit('state'); prefetch(); });
 listen('play', () => { clearTimeout(pauseClearTimer);if ('mediaSession' in navigator) { navigator.mediaSession.playbackState = 'playing'; updateSession(current()); } emit('state'); });
 listen('pause', () => {
   clearStall();if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused'; emit('state'); save();
@@ -262,12 +317,17 @@ listen('pause', () => {
   pauseClearTimer = setTimeout(() => { if (nextBuffer.entry) nextBuffer.clear(); }, KEEP_WARM_AFTER_PAUSE_MS);
   pauseClearTimer.unref?.();
 });
-listen('waiting', () => { if (isRealSrc() && audio.currentTime > 1 && state.source?.fast) { api.reportChoppy(state.source); recoverMedia(); return; }
-  // Yield attaching more next-track media, but keep InstantPlay’s warmed element and URL cache.
-  if (isRealSrc()) { watchStall();state.loading = true; ++warmGeneration; clearTimeout(prefetchTimer); emit('state'); } });
+listen('waiting', () => {
+  // Buffering is normal, including on a fast link. Only a hard error or a long silence changes source.
+  if (!isRealSrc()) return;
+  watchStall();
+  ++warmGeneration; clearTimeout(prefetchTimer);
+  if ((audio.currentTime || 0) < 0.35) { state.loading = true; emit('state'); }
+});
 listen('canplay', () => { if (state.loading && !audio.paused) { state.loading = false; emit('state'); prefetch(); } });
 listen('progress', () => emit('state'));
 listen('timeupdate', () => {
+  if(isRealSrc() && audio.currentTime>0.35 && !audio.paused)clearStall();
   if(isRealSrc() && audio.currentTime>0)restorePos=0;
   emit('time');
   const now = Date.now();
@@ -280,7 +340,7 @@ listen('ended', () => {
   if (state.repeat === 'one') { state.playbackId=(state.playbackId||0)+1;audio.currentTime = 0;emit('state');audio.play().catch(() => {}); }
   else { onFinish(current()); if (!mixing) next(false); }
 });
-listen('error',recoverMedia);
+listen('error',()=>{if(isRealSrc())failAttempt(liveAttempt);});
 }
 bindAudio(audio);
 bindAudio(nextBuffer.spare);

@@ -38,6 +38,13 @@ export function mediaWarmHeadroom(connection = globalThis.navigator?.connection)
 /** Keep a prepared next track across short pauses so skip/next stays instant. */
 export const KEEP_WARM_AFTER_PAUSE_MS = 90_000;
 
+/** How long a stream may sit without audio before Spot+ tries another link.
+ *  The first samples on iPhone often take several seconds. Switching sooner
+ *  restarts the song (the glitch) and burns backup links that were still connecting. */
+export function stallBudget(currentTime = 0) {
+  return (Number(currentTime) || 0) > 0.35 ? 4500 : 7000;
+}
+
 /** Near the end, hand off a ready next element without waiting for 'ended' (iOS has no volume crossfade). */
 export function seamlessHandoffWindow(media) {
   if (!media || media.paused || !Number.isFinite(media.duration) || media.duration <= 0) return false;
