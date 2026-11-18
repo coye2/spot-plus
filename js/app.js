@@ -24,6 +24,7 @@ import * as dj from './dj.js';
 import * as spotify from './spotify.js';
 import * as themes from './themes.js';
 import * as scene from './backgrounds.js';
+import * as photo from './profile-photo.js';
 import {clipSource,hasLocalClip,prefetchClips} from './canvas-cache.js';
 import {Jam,jamLink,validJamCode} from './jam.js';
 import qrcode from './vendor/qrcode.js';
@@ -35,6 +36,7 @@ import {COMPANION_INSTALL_URL,connectionDevice,setupHtml,spotifyConnectionURLs,h
 let accountDevice=connectionDevice(navigator.userAgent,navigator.platform,navigator.maxTouchPoints);
 import {validateAccountSnapshot,isAccountMessage,ACCOUNT_FILE_LIMIT,accountReadNotice} from './spotify-account.js';
 import {decodeLibraryText,isLibraryText} from './spotify-reader.js';
+await photo.loadPhoto();
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -578,7 +580,7 @@ async function viewSettings() {
   const sel = (k, opts) => `<select data-setting="${k}">${opts.map(([v, l]) => `<option value="${v}"${s[k] === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`;
   const toggle=(key,label,detail='')=>`<label class="field"><span>${label}<small>${detail}</small></span><input type="checkbox" role="switch" data-setting="${key}" ${s[key]?'checked':''}></label>`;
   return `<h1 class="settings-top">Settings</h1>
-  <section class="box"><h2>Your profile</h2><label class="field"><span>Display name<small>Shown on your profile and in Jams.</small></span><input maxlength="60" data-setting="displayName" value="${esc(s.displayName)}"></label><a class="btn small" href="#/profile">View profile</a></section>
+  <section class="box"><h2>Your profile</h2><div class="profile-edit"><button type="button" class="avatar" data-act="profile-photo-change" aria-label="Change profile photo">${esc((profileName()[0]||'S').toUpperCase())}</button><div><b>${esc(profileName())}</b>${profilePhotoControls()}</div></div><label class="field"><span>Display name<small>Shown on your profile and in Jams.</small></span><input maxlength="60" data-setting="displayName" value="${esc(s.displayName)}"></label><a class="btn small" href="#/profile">View profile</a></section>
   <section class="box"><h2>Spotify</h2><p class="settings-note">${spotifyAccount||cachedLinks()?'Connected. Rewind and your profile update by themselves.':'Connect once to get Rewind, your profile picture and Made For You.'}</p><a class="btn primary" href="#/spotify-account">${spotifyAccount||cachedLinks()?'Manage Spotify':'Connect Spotify'}</a></section>
   <section class="box credits" id="devCredits"><h2>Made by</h2><div class="credit-card"><img class="credit-pfp" src="${esc(devCache?.avatar||'icons/icon-192.png')}" alt="" width="64" height="64"><div><b class="credit-name">${esc(devCache?.name||'Coye | NXInfinity DEV')}</b><small class="credit-user">${devCache?.username?'@'+esc(devCache.username):'Spot+ developer'}</small></div></div>
     <p class="settings-note">Spot+ is a solo project, built with Claude and Takumi. Bugs, ideas or just want to talk music? Come hang out.</p>
@@ -1049,6 +1051,15 @@ async function handleAct(act, el) {
     case 'install':
       if (installEvt) { installEvt.prompt(); await installEvt.userChoice.catch(() => {}); installEvt = null; el.hidden = true; }
       break;
+    case 'profile-photo-change':
+      $('#profilePhotoInput')?.click();
+      break;
+    case 'profile-photo-spotify':
+      await photo.clearPhoto();
+      syncAvatars();
+      await route({keepScroll:true});
+      toast('Spotify profile photo restored');
+      break;
     case 'bg-pick': {
       const cur = scene.normalizeScene(store.getSettings().scene);
       store.setSettings({ scene: { kind: el.dataset.kind, id: el.dataset.id, x: cur?.x ?? 0.5, y: cur?.y ?? 0.42 } });
@@ -1435,18 +1446,60 @@ function browseHome(){
   const cats=[['Pop','#8d1766'],['Hip-Hop','#b4431f'],['Rock','#c4283c'],['Electronic','#216078'],['Jazz','#875a2a'],['R&B','#7352a8'],['Classical','#56652d'],['Country','#466d7a']];
   return `${store.getSearches().length?`<div class="sec-head"><h2>Recent searches</h2><button class="link" data-act="clear-searches">Clear</button></div><div class="recent-searches">${store.getSearches().map(q=>`<a class="chip" href="#/search/${encodeURIComponent(q)}">${esc(q)}</a>`).join('')}</div>`:''}<section><h2>Browse music</h2><div class="browse-grid"><a class="browse-card" href="#/spotify" style="--tile:var(--accent)">Spotify collections<small>Official playlists & your library</small>${I.library}</a><a class="browse-card" href="#/dj" style="--tile:#16436b">Made for you<small>Spot+ DJ</small>${I.dj}</a>${cats.map(([name,color])=>`<a class="browse-card" href="#/search/${encodeURIComponent(name)}" style="--tile:${color}">${name}<small>Explore songs & artists</small>${I.note}</a>`).join('')}</div></section>`;
 }
-// Profile pictures follow your Spotify account photo when a library is connected;
-// otherwise they show your initial.
+// The custom photo stays only on this device; Jams share HTTPS Spotify avatars, never blob URLs.
+let refreshedSpotifyId = '', refreshedSpotifyURL = '', photoRefreshInFlight = null;
+function spotifyPhoto(){
+  const account = store.getSpotifyAccount()?.account;
+  const stats = store.getSpotifyStats().account;
+  const linked = cachedLinks()?.profile;
+  const id = account?.id || stats?.id || linked?.id || '';
+  const existing = account?.avatar || stats?.avatar || linked?.avatar || '';
+  return refreshedSpotifyId === id && refreshedSpotifyURL ? refreshedSpotifyURL : (/^https:\/\//.test(existing) ? existing : '');
+}
+async function refreshSpotifyPhoto({force = false} = {}){
+  if (photoRefreshInFlight || !navigator.onLine) return photoRefreshInFlight;
+  const account = store.getSpotifyAccount()?.account;
+  const stats = store.getSpotifyStats().account;
+  const linked = cachedLinks()?.profile;
+  const id = account?.id || stats?.id || linked?.id || '';
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(id)) return null;
+  const key = 'spotplus.photoChecked.' + id;
+  let checkedAt = 0;
+  try { checkedAt = Number(localStorage.getItem(key)) || 0; } catch { /* private mode */ }
+  if (!photo.shouldRefreshPhoto({id, avatar:spotifyPhoto(), checkedAt, force})) return null;
+  photoRefreshInFlight = (async()=>{
+    try {
+      const fresh = await fetchPublic({user:id});
+      if (!/^https:\/\//.test(fresh?.avatar || '')) return;
+      refreshedSpotifyId = id;
+      refreshedSpotifyURL = fresh.avatar;
+      if (account?.id === id) store.rememberAccountAvatar(fresh.avatar);
+      if (linked?.id === id) await rememberProfileAvatar(fresh.avatar);
+      syncAvatars();
+    } catch { /* Keep the cached avatar. */ }
+    finally {
+      try { localStorage.setItem(key,String(Date.now())); } catch { /* private mode */ }
+    }
+  })().finally(()=>{photoRefreshInFlight = null;});
+  return photoRefreshInFlight;
+}
 function profileName(){const s=store.getSettings(),custom=s.displayName&&s.displayName!=='Your library'?s.displayName.trim():'';return custom||store.getSpotifyAccount()?.account?.name||cachedLinks()?.profile?.name||'Listener';}
-function profilePhoto(){const url=store.getSpotifyAccount()?.account?.avatar||store.getSpotifyStats().account?.avatar||cachedLinks()?.profile?.avatar;return url?safeImage(url):'';}
+function profilePhoto(){const url=photo.customPhotoURL()||spotifyPhoto();return url?safeImage(url):'';}
 function syncAvatars(){
   const photo=profilePhoto(),letter=(profileName().trim()[0]||'S').toUpperCase();
   $$('.avatar').forEach(el=>{
-    if(photo&&el.dataset.photo!==photo){el.dataset.photo=photo;el.replaceChildren();const im=new Image();im.alt='';im.decoding='async';im.src=photo;im.onerror=()=>{el.dataset.photo='';el.textContent=letter;};el.append(im);el.classList.add('has-photo');}
+    if(photo&&el.dataset.photo!==photo){el.dataset.photo=photo;el.replaceChildren();const im=new Image();im.alt='';im.decoding='async';im.src=photo;im.onerror=()=>{if(el.dataset.photo!==photo)return;el.dataset.photo='';el.classList.remove('has-photo');el.textContent=letter;};el.append(im);el.classList.add('has-photo');}
     else if(!photo){el.dataset.photo='';el.classList.remove('has-photo');el.textContent=letter;}
   });
 }
-function viewProfile(){const s=store.getSettings(),spotifyProfile=store.getSpotifyAccount()?.account;return `<div class="profile-hero"><div class="avatar">${esc((profileName()[0]||'S').toUpperCase())}</div><div><div class="kicker">Profile</div><h1>${esc(profileName())}</h1><a class="link" href="#/settings">Edit profile</a></div></div><div class="stat-row"><div><b>${store.getPlaylists().length}</b>Playlists</div><div><b>${store.getLikes().length}</b>Liked songs</div><div><b>${store.getArtists().length}</b>Following</div></div><p class="muted">Your library is saved in this browser. Export a backup in Settings to keep a copy.</p>${spotifyProfile?`<section class="box">${spotifyProfileHtml(spotifyProfile)}<a class="link" href="#/spotify-account">Manage Spotify library</a></section>`:''}${shelf('Following',store.getArtists().map(artistCard))}<h2>Your playlists</h2>${renderLibraryItems()}`;}
+function profilePhotoControls(){
+  const spotify = spotifyPhoto();
+  return `<div class="profile-edit-actions"><button type="button" class="btn small" data-act="profile-photo-change">Change photo</button>${photo.hasCustomPhoto()?`<button type="button" class="btn small" data-act="profile-photo-spotify">${spotify?'Use Spotify photo':'Remove custom photo'}</button>`:''}</div>`;
+}
+function viewProfile(){
+  const s=store.getSettings(),spotifyProfile=store.getSpotifyAccount()?.account;
+  return `<div class="profile-hero"><button type="button" class="avatar" data-act="profile-photo-change" aria-label="Change profile photo">${esc((profileName()[0]||'S').toUpperCase())}</button><div><div class="kicker">Profile</div><h1>${esc(profileName())}</h1>${profilePhotoControls()}<a class="link" href="#/settings">Edit profile</a></div></div><div class="stat-row"><div><b>${store.getPlaylists().length}</b>Playlists</div><div><b>${store.getLikes().length}</b>Liked songs</div><div><b>${store.getArtists().length}</b>Following</div></div><p class="muted">Your library and custom profile photo are saved on this device.</p>${spotifyProfile?`<section class="box">${spotifyProfileHtml(spotifyProfile)}<a class="link" href="#/spotify-account">Manage Spotify library</a></section>`:''}${shelf('Following',store.getArtists().map(artistCard))}<h2>Your playlists</h2>${renderLibraryItems()}`;
+}
 function viewRecent(){const recent=store.getRecent(),k=reg(recent);return `<h1 class="settings-top">Recently played</h1>${recent.length?trackRows(recent,k):emptyState('Your listening starts here','Play something and it will appear here.','Browse music','#/search')}`;}
 function viewLocal(){const tracks=store.getLocalFiles(),k=reg(tracks);return `<h1 class="settings-top">Local files</h1><p class="muted">Audio you choose from your phone or computer, stored in this browser.</p><button class="btn white" data-act="import-local">Add audio files</button>${tracks.length?actions(k)+trackRows(tracks,k):emptyState('Bring your own music','Choose audio files you have permission to play. They stay on this device.')}`;}
 function homeDJ(){return `<div class="home-dj"><a class="dj-orb-small" href="#/dj" aria-label="Open Spot+ DJ"></a><form id="homeDJRequest"><label for="homeDJPrompt" class="sr-only">Tell DJ what to play</label><input id="homeDJPrompt" maxlength="300" placeholder="Tell DJ what to play" enterkeyhint="go"><button class="icon" type="button" data-act="dj-mic" aria-label="Talk to DJ">${I.mic}</button></form></div>`;}
@@ -1554,6 +1607,13 @@ $('#spotifyImport').addEventListener('change',async e=>{
   }catch(error){progress.set(error.message);progress.close(6000);}finally{e.target.value='';}
 });
 $('#themeImport').addEventListener('change',async e=>{try{const file=e.target.files[0];if(!file)return;if(file.size>100000)throw new Error('Choose a Spot+ theme JSON file under 100 KB.');store.setSettings(themes.normalizeTheme(JSON.parse(await file.text())));route({keepScroll:true});toast('Theme applied');}catch(error){toast(error.message);}finally{e.target.value='';}});
+$('#profilePhotoInput').addEventListener('change',async e=>{
+  const file=e.target.files?.[0];
+  e.target.value='';
+  if(!file)return;
+  try { await photo.savePhoto(file);syncAvatars();await route({keepScroll:true});toast('Profile photo saved on this device'); }
+  catch(error){toast(error.message);}
+});
 $('#bgUpload').addEventListener('change',async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;try{const rec=await scene.saveUpload(file);store.setSettings({scene:{kind:'upload',id:rec.id,x:0.5,y:0.42}});route({keepScroll:true});toast('Background saved');}catch(err){toast(err.message);}});
 // Start finding the audio the moment a finger or mouse touches a song, before the tap finishes.
 // On computers, hovering a song for a moment also starts finding it.
@@ -1778,16 +1838,17 @@ async function pullSpotifyStats({force=false}={}){
   return changed;
 }
 setTimeout(()=>pullSpotifyStats(),1200);
-loadLinks().then(state=>{if(!state)return;syncAvatars();if(location.hash===''||location.hash==='#/home')route({keepScroll:true});
-  syncLinks().then(changed=>{if(changed&&['#/rewind','#/home',''].includes(location.hash))route({keepScroll:true});syncAvatars();}).catch(()=>{});});
+setTimeout(()=>refreshSpotifyPhoto(),1600);
+loadLinks().then(state=>{if(!state)return;syncAvatars();refreshSpotifyPhoto();if(location.hash===''||location.hash==='#/home')route({keepScroll:true});
+  syncLinks().then(changed=>{if(changed&&['#/rewind','#/home',''].includes(location.hash))route({keepScroll:true});syncAvatars();refreshSpotifyPhoto();}).catch(()=>{});});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncLinks().then(changed=>{if(changed&&location.hash==='#/rewind')route({keepScroll:true});}).catch(()=>{});});
 // Load listening history in the background so Rewind opens instantly.
 (window.requestIdleCallback||setTimeout)(()=>warmRewind(),{timeout:3000});
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)pullSpotifyStats();});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){pullSpotifyStats();refreshSpotifyPhoto();}});
 
 /* ---------------- Jam ---------------- */
 const jam=new Jam(player,{onToast:msg=>toast(msg),onChange:()=>{document.body.dataset.jam=jam.active?(jam.host?'host':'guest'):'';syncJamChip();if(location.hash==='#/jam')route({keepScroll:true});}});
-function jamProfile(){return {name:profileName().slice(0,40),avatar:profilePhoto()};}
+function jamProfile(){return {name:profileName().slice(0,40),avatar:spotifyPhoto()};}
 function jamGuestControl(action){
   if(!jam.active||jam.host)return false;
   if(!jam.guestControl){toast('Only the host can control playback in this Jam.');return true;}
