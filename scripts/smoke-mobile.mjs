@@ -46,7 +46,7 @@ try {
     return {viewport:[innerWidth,innerHeight],rows:list.querySelectorAll('.bg-catalog-body [data-act="bg-pick"]').length,
       listHeight:list.clientHeight,listTop:b.top,listBottom:b.bottom,
       listScrollHeight:list.scrollHeight,mainScrollTop:main.scrollTop,
-      barTop:document.querySelector('.bar')?.getBoundingClientRect().top,
+      barTop:(()=>{const bar=document.querySelector('.bar');return bar&&!bar.hidden&&getComputedStyle(bar).display!=='none'?bar.getBoundingClientRect().top:Infinity;})(),
       navTop:document.querySelector('.nav')?.getBoundingClientRect().top,
       listOverflow:getComputedStyle(list).overflowY,
     };
