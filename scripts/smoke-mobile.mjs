@@ -2,10 +2,15 @@
 // Run by .github/workflows/mobile-smoke.yml (Playwright's Chromium mobile emulation).
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
-import {chromium} from 'playwright';
+import {existsSync} from 'node:fs';
+import {ALLOWED_ID_HASHES, DEV_ACCESS_STORAGE_KEY, createSessionToken} from '../js/maintenance.js';
+import {APP_VERSION} from '../js/changelog.js';
+
+const {chromium} = await import('playwright').catch(() => import('/usr/local/share/bun-global/node_modules/playwright-core/index.mjs'));
 
 const port = '47081';
-const host = 'http://127.0.0.1:' + port + '/';
+const origin = 'http://127.0.0.1:' + port;
+const host = origin + '/';
 const server = spawn(process.execPath, ['scripts/serve.mjs','dist'], {
   env:{...process.env,PORT:port},stdio:['ignore','pipe','pipe'],
 });
@@ -20,20 +25,48 @@ try {
     await new Promise(resolve=>setTimeout(resolve,100));
   }
   assert.match(logs,/Spot\+ http:\/\//,'Static server did not start');
-  browser=await chromium.launch({headless:true,args:['--no-sandbox']});
+  const bundledShell = '/ms-playwright/chrome-headless-shell-linux64/chrome-headless-shell';
+  browser=await chromium.launch({
+    headless:true,
+    args:['--no-sandbox'],
+    ...(existsSync(bundledShell) ? {executablePath: bundledShell} : {}),
+  });
+
+  // 1. Verify public guest visitor is locked behind the maintenance screen with zero leaked app nodes.
+  const guestCtx=await browser.newContext({
+    viewport:{width:390,height:844},deviceScaleFactor:3,hasTouch:true,isMobile:true,serviceWorkers:'block',
+  });
+  const guestPage=await guestCtx.newPage();
+  await guestPage.goto(host+'#/backgrounds',{waitUntil:'domcontentloaded'});
+  await guestPage.locator('#maintenanceScreen').waitFor({timeout:15000});
+  await guestPage.waitForTimeout(400);
+  const guestState=await guestPage.evaluate(()=>({
+    appCount:document.querySelectorAll('.app').length,
+    screenVisible:!document.getElementById('maintenanceScreen')?.hidden,
+    unlockHidden:!!document.getElementById('maintUnlockWrap')?.hidden,
+  }));
+  assert.equal(guestState.appCount,0,'Public guest must not retain .app nodes');
+  assert.equal(guestState.screenVisible,true,'Maintenance screen must be visible for guests');
+  assert.equal(guestState.unlockHidden,true,'Unlock form must remain hidden until developer gesture');
+  await guestCtx.close();
+
+  // 2. Verify full 390x844 authenticated owner session layout, background grid scroll, search & clear.
+  const ownerToken=createSessionToken(ALLOWED_ID_HASHES[0],{origin});
   const ctx=await browser.newContext({
     viewport:{width:390,height:844},screen:{width:390,height:844},
     deviceScaleFactor:3,hasTouch:true,isMobile:true,serviceWorkers:'block',
     userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 26_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1',
   });
-  await ctx.addInitScript(()=>{
+  await ctx.addInitScript(({key,token,version})=>{
     try{
       localStorage.setItem('spotplus.landing','1');
       localStorage.setItem('spotplus.onboarded.v2','1');
       localStorage.setItem('spotplus.onboarded.v2.installed','1');
+      localStorage.setItem('spotplus.seenVersion',version);
+      if(token)localStorage.setItem(key,token);
     }catch{}
     Object.defineProperty(navigator,'standalone',{configurable:true,value:true});
-  });
+  },{key:DEV_ACCESS_STORAGE_KEY,token:ownerToken,version:APP_VERSION});
   const page=await ctx.newPage();
   const errors=[];
   page.on('pageerror',error=>errors.push(error.message));
@@ -74,6 +107,23 @@ try {
   });
   assert.ok(lastRow.list>0,'Cannot reach the catalog end');
   assert.ok(lastRow.lastBottom<=lastRow.listBottom+2,'Last wallpaper is clipped');
+
+  // Verify wallpaper search filters across the database and Clear restores the full catalog.
+  await page.fill('#bgSearch','sunset');
+  await page.waitForTimeout(250);
+  const filtered=await page.evaluate(()=>({
+    count:document.querySelectorAll('#bgList .bg-catalog-body [data-act="bg-pick"]').length,
+    clearHidden:document.getElementById('bgSearchClear')?.hidden,
+    mainScroll:document.querySelector('main').scrollTop,
+  }));
+  assert.ok(filtered.count>0&&filtered.count<layout.rows,'Wallpaper search must filter catalog');
+  assert.equal(filtered.clearHidden,false,'Clear search button must appear when query is set');
+  assert.equal(filtered.mainScroll,0,'Searching wallpapers must not scroll main');
+  await page.click('#bgSearchClear');
+  await page.waitForTimeout(250);
+  const clearedCount=await page.locator('#bgList .bg-catalog-body [data-act="bg-pick"]').count();
+  assert.equal(clearedCount,layout.rows,'Clear search must restore the full catalog');
+
   // Check the *input itself* has no background, border, or native search control chrome.
   for(const [route,id] of [['#/home','homeDJPrompt'],['#/search','q'],['#/library','pageLibraryQ']]){
     await page.goto(host+route,{waitUntil:'domcontentloaded'});

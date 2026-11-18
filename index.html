@@ -43,18 +43,17 @@
     <p class="maint-kicker">Under maintenance</p>
     <h1 id="maintTitle">We’ll return momentarily</h1>
     <p class="maint-copy">Spot+ is currently paused while active updates and playback improvements are underway. Your library, playlists, and settings remain safely saved on this device.</p>
-    <div class="maint-meta">Access is temporarily restricted until the next stable release.</div>
-    <details class="maint-access">
-      <summary>Developer access</summary>
+    <div class="maint-meta">Access is restricted until the next stable release.</div>
+    <div id="maintUnlockWrap" class="maint-access" hidden>
       <form id="maintAccessForm" class="maint-form">
-        <label for="maintAccessInput">Spotify handle or profile link</label>
+        <label for="maintAccessInput">Maintainer access key</label>
         <div class="maint-row">
-          <input id="maintAccessInput" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Spotify username">
+          <input id="maintAccessInput" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Enter access key">
           <button type="submit" class="btn primary">Continue</button>
         </div>
         <p id="maintAccessError" class="maint-error" role="alert" hidden></p>
       </form>
-    </details>
+    </div>
   </div>
 </section>
 <input type="file" id="welcomeBackup" accept="application/json,.json" hidden>

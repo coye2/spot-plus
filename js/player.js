@@ -259,7 +259,7 @@ function verifyFullAudio(source, signal, expectedDuration) {
 function schedulePreviewUpgrade(delay = 1200) {
   clearTimeout(previewUpgradeTimer);
   const t = current(), generation = token;
-  if (!t || !state.source?.preview || state.offline || store.getSettings().source === 'preview' || previewUpgradeTries >= 2) return;
+  if (!t || !state.source?.preview || state.offline || ['preview', 'deezer'].includes(store.getSettings().source) || previewUpgradeTries >= 2) return;
   previewUpgradeTimer = setTimeout(async () => {
     if (generation !== token || current() !== t || !state.source?.preview || !pendingPlay) return;
     previewUpgradeTries++;
@@ -272,7 +272,10 @@ function schedulePreviewUpgrade(delay = 1200) {
       const options = [found, ...(found.alternatives || []).map(alt => ({...found,...alt, alternatives:[]}))];
       for (const candidate of options.slice(0,4)) {
         if (control.signal.aborted || generation !== token) return;
-        if (!(await verifyFullAudio(candidate, control.signal, t.duration || 0))) continue;
+        if (!(await verifyFullAudio(candidate, control.signal, t.duration || 0))) {
+          api.reportPlaybackSource(candidate, false);
+          continue;
+        }
         if (generation !== token || !state.source?.preview || !pendingPlay) return;
         const at = audio.currentTime || 0;
         // Preserve what was already heard, and keep the queue on this same recording.

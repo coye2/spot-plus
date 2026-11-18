@@ -261,18 +261,22 @@ export function install(getSettings) {
   } else apply(getSettings());
 }
 
+let activeSearchQuery = '';
+let activeCategorySlug = '';
+let savedGridScroll = 0;
+
 function rows(items, scene, kind, esc) {
   return items.map(item => {
     const on = scene?.kind === kind && scene.id === item.id;
     const preview = kind === 'catalog' ? wallpaperURLs(item).preview : '';
     const res = item.w && item.h ? `${item.w}×${item.h}` : '—';
     const remove = kind === 'upload' ? `<button type="button" class="bg-remove" data-act="bg-delete" data-id="${esc(item.id)}">Remove</button>` : '';
-    return `<tr class="${on ? 'is-on' : ''}" data-act="bg-pick" data-kind="${kind}" data-id="${esc(item.id)}" tabindex="0" aria-pressed="${on}">
-      <td class="bg-col-preview">${preview ? `<img class="bg-thumb" alt="" loading="lazy" decoding="async" src="${esc(preview)}" width="96" height="54">` : '<span class="bg-thumb bg-thumb-file"></span>'}</td>
+    return `<tr class="bg-card${on ? ' is-on' : ''}" data-act="bg-pick" data-kind="${kind}" data-id="${esc(item.id)}" tabindex="0" aria-pressed="${on}">
+      <td class="bg-col-preview">${preview ? `<img class="bg-thumb" alt="${esc(item.name)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${esc(preview)}" width="350" height="197">` : '<span class="bg-thumb bg-thumb-file"></span>'}</td>
       <td class="bg-col-name"><b>${esc(item.name)}</b><small>${esc(item.category || 'On this device')}</small></td>
       <td class="bg-col-res">${res}</td>
       <td class="bg-col-source">${kind === 'catalog' ? 'Alpha Coders' : 'Upload'}</td>
-      <td class="bg-col-act">${on ? '<span class="bg-on">On</span>' : '<span class="bg-set">Use</span>'}${remove}</td>
+      <td class="bg-col-act">${on ? '<span class="bg-on">Active</span>' : '<span class="bg-set">Use</span>'}${remove}</td>
     </tr>`;
   }).join('');
 }
@@ -287,9 +291,14 @@ function categories() {
 export function wallpaperGroups({category = '', query = ''} = {}) {
   const cats = categories();
   const active = cats.find(item => item.slug === category || item.name === category) || null;
-  const q = String(query || '').trim().toLowerCase();
+  const tokens = String(query || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
   let items = active ? CATALOG.filter(item => item.category === active.name) : CATALOG;
-  if (q) items = items.filter(item => `${item.name} ${item.category}`.toLowerCase().includes(q));
+  if (tokens.length) {
+    items = items.filter(item => {
+      const hay = `${item.name} ${item.category} ${item.id} ${item.w}x${item.h} ${item.w >= 3840 ? '4k uhd' : 'fhd 1080p'}`.toLowerCase();
+      return tokens.every(tok => hay.includes(tok));
+    });
+  }
   const names = [];
   const buckets = new Map();
   for (const item of items) {
@@ -299,9 +308,22 @@ export function wallpaperGroups({category = '', query = ''} = {}) {
   return {active, groups: names.map(name => [name, buckets.get(name)]), count: items.length};
 }
 
+function statusText(count, active, query) {
+  const label = `${count.toLocaleString()} wallpaper${count === 1 ? '' : 's'}`;
+  if (query && active) return `${label} in ${active.name} for “${query}”`;
+  if (query) return `${label} for “${query}”`;
+  if (active) return `${label} in ${active.name}`;
+  return `${label} · Full database`;
+}
+
 export function page({category = '', settings = {}, uploads: saved = [], viewport = readViewport(), esc = String} = {}) {
   const scene = normalizeScene(settings.scene);
-  const {active, groups} = wallpaperGroups({category});
+  const {active, groups, count} = wallpaperGroups({category, query: activeSearchQuery});
+  const nextSlug = active?.slug || '';
+  if (nextSlug !== activeCategorySlug) {
+    activeCategorySlug = nextSlug;
+    savedGridScroll = 0;
+  }
   const cats = categories();
   const picked = scene?.kind === 'catalog' ? findWallpaper(scene.id) : saved.find(item => item.id === scene?.id);
   const tier = deviceTier(viewport);
@@ -313,8 +335,9 @@ export function page({category = '', settings = {}, uploads: saved = [], viewpor
   }).join('');
   const preview = stageURL(settings.scene, viewport);
   const body = tableBody(groups, scene, esc);
-  const mine = saved.length ? `<tbody><tr class="bg-group"><th colspan="5">On this device</th></tr>${rows(saved, scene, 'upload', esc)}</tbody>` : '';
-  return `<div class="bg-studio" data-category="${esc(active?.slug || '')}" data-scene-kind="${esc(scene?.kind || '')}" data-scene-id="${esc(scene?.id || '')}">
+  const mine = saved.length ? `<tbody class="bg-uploads-body"><tr class="bg-group"><th colspan="5">On this device (${saved.length})</th></tr>${rows(saved, scene, 'upload', esc)}</tbody>` : '';
+  const hasEmpty = !groups.length && !saved.length;
+  return `<div class="bg-studio" data-category="${esc(nextSlug)}" data-scene-kind="${esc(scene?.kind || '')}" data-scene-id="${esc(scene?.id || '')}">
     <div class="studio-heading"><div><div class="kicker">Appearance</div><h1>Background</h1><p class="muted">Covers the app and your library. The player stays on its own color. Drag the preview to crop. This ${esc(viewport.width >= 900 ? 'screen' : 'phone')} uses a ${tier === '4k' ? '4K' : '1920'} source, painted at ${pixels.width}×${pixels.height}.</p></div>
     <div class="row-btns"><button class="btn" type="button" data-act="bg-upload">Upload</button><button class="btn" type="button" data-act="bg-clear">None</button></div></div>
     <div class="bg-layout ${frame}">
@@ -324,13 +347,21 @@ export function page({category = '', settings = {}, uploads: saved = [], viewpor
       </button>
       <p class="bg-note">${picked ? esc(picked.name) : 'No background'} · ${tier === '4k' ? '4K file, cropped to this device' : '1920 file, cropped to this phone'} · Alpha Coders and your uploads</p>
     </div>
-    <label class="bg-search"><input id="bgSearch" type="search" placeholder="Search wallpapers" aria-label="Search wallpapers" enterkeyhint="search" autocomplete="off"></label>
+    <div class="bg-search-bar">
+      <label class="bg-search"><input id="bgSearch" type="search" value="${esc(activeSearchQuery)}" placeholder="Search ${CATALOG.length.toLocaleString()} wallpapers by title, category, or 4K" aria-label="Search wallpapers" enterkeyhint="search" autocomplete="off"></label>
+      <button type="button" class="btn small bg-search-clear" id="bgSearchClear" data-act="bg-reset-search"${activeSearchQuery ? '' : ' hidden'}>Clear</button>
+    </div>
+    <div class="bg-status-row"><span id="bgStatus">${esc(statusText(count, active, activeSearchQuery.trim()))}</span></div>
     <div class="chips bg-filters">${chips}</div>
     <div class="bg-table-wrap" id="bgList">
       <table class="bg-table">
         <thead><tr><th>Preview</th><th>Name</th><th class="bg-col-res">Resolution</th><th class="bg-col-source">Source</th><th></th></tr></thead>
         ${body}${mine}
       </table>
+      <div class="bg-empty" id="bgEmpty"${hasEmpty ? '' : ' hidden'}>
+        <p>No wallpapers match “<span id="bgEmptyQuery">${esc(activeSearchQuery.trim())}</span>”.</p>
+        <button type="button" class="btn small" data-act="bg-reset-search">Show all wallpapers</button>
+      </div>
     </div>
   </div>`;
 }
@@ -359,27 +390,87 @@ export function fitWallpaperList(root = document) {
 }
 
 function tableBody(groups, scene, esc) {
-  return groups.map(([name, items]) => items.length ? `<tbody class="bg-catalog-body"><tr class="bg-group"><th colspan="5">${esc(name)}</th></tr>${rows(items, scene, 'catalog', esc)}</tbody>` : '').join('');
+  return groups.map(([name, items]) => items.length ? `<tbody class="bg-catalog-body"><tr class="bg-group"><th colspan="5">${esc(name)} · ${items.length.toLocaleString()}</th></tr>${rows(items, scene, 'catalog', esc)}</tbody>` : '').join('');
 }
 
 export function mount(root, hooks) {
+  const list = root.querySelector('#bgList');
   const search = root.querySelector('#bgSearch');
+  const clearBtn = root.querySelector('#bgSearchClear');
+  const statusEl = root.querySelector('#bgStatus');
+  const emptyEl = root.querySelector('#bgEmpty');
+  const emptyQueryEl = root.querySelector('#bgEmptyQuery');
+
+  const applyFilter = ({ resetScroll = true } = {}) => {
+    const studio = root.querySelector('.bg-studio') || root;
+    const query = search?.value || '';
+    activeSearchQuery = query;
+    const trimmed = query.trim();
+    if (clearBtn) clearBtn.hidden = !trimmed;
+    const scene = {kind: studio.dataset.sceneKind, id: studio.dataset.sceneId};
+    const {active, groups, count} = wallpaperGroups({category: studio.dataset.category || '', query});
+    root.querySelectorAll('.bg-catalog-body').forEach(node => node.remove());
+    root.querySelector('.bg-table')?.insertAdjacentHTML('afterbegin', tableBody(groups, scene, htmlEscape));
+    if (statusEl) statusEl.textContent = statusText(count, active, trimmed);
+    if (emptyEl) {
+      const hasUploads = !!root.querySelector('.bg-uploads-body');
+      emptyEl.hidden = groups.length > 0 || hasUploads;
+      if (emptyQueryEl) emptyQueryEl.textContent = trimmed;
+    }
+    if (list && resetScroll) {
+      list.scrollTop = 0;
+      savedGridScroll = 0;
+    }
+    fitWallpaperList(root);
+  };
+
   if (search && !search.dataset.bound) {
     search.dataset.bound = '1';
-    search.addEventListener('input', () => {
-      const studio = root.querySelector('.bg-studio') || root;
-      const scene = {kind: studio.dataset.sceneKind, id: studio.dataset.sceneId};
-      const {groups} = wallpaperGroups({category: studio.dataset.category || '', query: search.value});
-      root.querySelectorAll('.bg-catalog-body').forEach(node => node.remove());
-      root.querySelector('.bg-table')?.insertAdjacentHTML('beforeend', tableBody(groups, scene, htmlEscape));
-    });
+    search.addEventListener('input', () => applyFilter({ resetScroll: true }));
   }
+
+  root.querySelectorAll('[data-act="bg-reset-search"]').forEach((btn) => {
+    if (btn.dataset.bound) return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (search) {
+        search.value = '';
+        applyFilter({ resetScroll: true });
+        search.focus();
+      }
+    });
+  });
+
+  if (list) {
+    if (savedGridScroll > 0) list.scrollTop = savedGridScroll;
+    if (!list.dataset.bound) {
+      list.dataset.bound = '1';
+      list.addEventListener('scroll', () => { savedGridScroll = list.scrollTop; }, { passive: true });
+    }
+  }
+
   fitWallpaperList(root);
-  requestAnimationFrame(() => fitWallpaperList(root));
+  requestAnimationFrame(() => {
+    fitWallpaperList(root);
+    if (list && savedGridScroll > 0) list.scrollTop = savedGridScroll;
+  });
+
   if (!root.dataset.fit) {
     root.dataset.fit = '1';
-    globalThis.addEventListener?.('resize', () => { if (document.body?.dataset.page === 'backgrounds') fitWallpaperList(root); });
+    const refit = () => { if (document.body?.dataset.page === 'backgrounds') fitWallpaperList(root); };
+    globalThis.addEventListener?.('resize', refit);
+    globalThis.visualViewport?.addEventListener?.('resize', refit);
+    globalThis.visualViewport?.addEventListener?.('scroll', refit);
+    const main = document.querySelector('main');
+    if (main && !main.dataset.bgScrollGuard) {
+      main.dataset.bgScrollGuard = '1';
+      main.addEventListener('scroll', () => {
+        if (document.body?.dataset.page === 'backgrounds' && main.scrollTop !== 0) main.scrollTop = 0;
+      }, { passive: true });
+    }
   }
+
   const stage = root.querySelector('#bgStage');
   if (!stage || stage.dataset.bound) return;
   stage.dataset.bound = '1';

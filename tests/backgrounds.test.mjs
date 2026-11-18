@@ -58,3 +58,22 @@ test('All category keeps every wallpaper, not three per category', () => {
   assert.ok(nature.count > 3);
   assert.ok(nature.groups.every(([category]) => category === 'Nature'));
 });
+
+test('multi-token search filters full database across title, category, id, and resolution tags', () => {
+  const sample = CATALOG[0];
+  const byId = wallpaperGroups({ query: sample.id });
+  assert.equal(byId.count, 1);
+  assert.equal(byId.groups[0][1][0].id, sample.id);
+
+  const uhd = wallpaperGroups({ query: 'uhd' });
+  assert.ok(uhd.count > 0);
+  assert.ok(uhd.groups.every(([, rows]) => rows.every(r => r.w >= 3840)));
+
+  const named4k = wallpaperGroups({ query: '4k' });
+  assert.ok(named4k.count >= uhd.count);
+  assert.ok(named4k.groups.every(([, rows]) => rows.every(r => r.w >= 3840 || /4k/i.test(`${r.name} ${r.category}`))));
+
+  const empty = wallpaperGroups({ query: 'zzzz-nonexistent-wallpaper-999' });
+  assert.equal(empty.count, 0);
+  assert.deepEqual(empty.groups, []);
+});

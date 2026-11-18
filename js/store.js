@@ -112,10 +112,10 @@ export function addDownload(t) { write('downloads', [slim(t), ...getDownloads().
 export function removeDownloadMeta(id) { write('downloads', getDownloads().filter((x) => x.id !== String(id))); }
 
 /* ---------- Settings ---------- */
-const DEFAULTS = { smartRadio:true, automix:'0', notifyUpdates:true, notifyReleases:true, notifyStats:true, themePreset:'pine', amoled:true, preloadNext:true, source: 'auto', quality: 'high', customPiped: '', customInvidious: '', density: 'comfortable', accent: 'green', motion: 'system', textSize: 'normal', sidebarWidth: 288, librarySort: 'recent', libraryFilter: 'all', showExplicit: true, displayName: 'Your library', libraryCollapsed:false, djVoice:true, djCommentary:true, djHost:'afterhours' };
+const DEFAULTS = { smartRadio:true, automix:'0', notifyUpdates:true, notifyReleases:true, notifyStats:true, themePreset:'pine', amoled:true, preloadNext:true, source: 'auto', quality: 'high', customPiped: '', customInvidious: '', customHifi: '', density: 'comfortable', accent: 'green', motion: 'system', textSize: 'normal', sidebarWidth: 288, librarySort: 'recent', libraryFilter: 'all', showExplicit: true, displayName: 'Your library', libraryCollapsed:false, djVoice:true, djCommentary:true, djHost:'afterhours' };
 export const getSettings = () => {
   const saved={...DEFAULTS,...read('settings',{})};
-  for(const key of ['displayName','customPiped','customInvidious'])saved[key]=typeof saved[key]==='string'?saved[key]:DEFAULTS[key];
+  for(const key of ['displayName','customPiped','customInvidious','customHifi'])saved[key]=typeof saved[key]==='string'?saved[key]:DEFAULTS[key];
   return saved;
 };
 export const setSettings = (patch) => write('settings', { ...getSettings(), ...patch });

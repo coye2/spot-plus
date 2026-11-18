@@ -26,9 +26,9 @@ body[data-page="backgrounds"].has-bar main{
 body[data-page="backgrounds"] #view{flex:1 1 auto;min-height:0;overflow:hidden;display:flex;flex-direction:column}
 body[data-page="backgrounds"] .content-footer{display:none}
 body[data-page="backgrounds"] .bg-studio{flex:1 1 auto;display:flex;flex-direction:column;overflow:hidden}
-.bg-layout{display:grid;gap:12px;margin:8px 0 18px}
-.bg-stage{position:relative;display:block;width:min(100%,720px);overflow:hidden;border:0;border-radius:18px;background:#111;color:#fff;cursor:grab;touch-action:none;aspect-ratio:9/16;max-height:320px}
-.bg-layout.wide .bg-stage{aspect-ratio:16/10;max-height:280px}
+.bg-layout{display:grid;gap:12px;margin:8px 0 14px}
+.bg-stage{position:relative;display:block;width:min(100%,720px);overflow:hidden;border:0;border-radius:18px;background:#111;color:#fff;cursor:grab;touch-action:none;aspect-ratio:16/9;max-height:220px}
+.bg-layout.wide .bg-stage{aspect-ratio:16/9;max-height:220px}
 .bg-stage img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:var(--scene-x,50%) var(--scene-y,42%);filter:contrast(1.06) saturate(1.1);background:#000}
 .bg-stage-empty{position:absolute;inset:0;display:grid;place-items:center;color:#c8c8c8;font-size:14px}
 .bg-stage-app,.bg-stage-library{position:absolute;border:1px solid #ffffff55;border-radius:8px;pointer-events:none}
@@ -38,29 +38,41 @@ body[data-page="backgrounds"] .bg-studio{flex:1 1 auto;display:flex;flex-directi
 .bg-layout.tall .bg-stage-app{left:8%;right:8%}
 .bg-stage b{position:absolute;left:12px;bottom:10px;font-size:12px;font-weight:600;text-shadow:0 1px 2px #000}
 .bg-note{margin:0;color:var(--muted);font-size:13px}
-.bg-filters{margin:0 0 14px}
-.bg-search{display:block;margin:0 0 12px}
+.bg-filters{margin:0 0 10px}
+.bg-search-bar{display:flex;align-items:center;gap:8px;margin:0 0 6px;flex:none}
+.bg-search{display:block;flex:1;min-width:0;margin:0}
+.bg-search-clear{flex:none;min-height:44px;padding:0 14px;border-radius:999px}
+.bg-status-row{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--muted);margin:0 0 8px;padding:0 2px;flex:none;font-variant-numeric:tabular-nums}
 .bg-search input{width:100%;height:44px;border-radius:999px;border:1px solid var(--line);background:var(--bg3);color:var(--text);padding:0 16px;-webkit-appearance:none;appearance:none}
 .bg-table-wrap{flex:1 1 auto;min-height:0;border:1px solid var(--line);border-radius:16px;overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y;background:color-mix(in srgb, var(--bg2) 86%, transparent)}
-.bg-table{width:100%;border-collapse:collapse;font-size:14px}
-.bg-table th,.bg-table td{padding:10px 14px;text-align:left;vertical-align:middle}
-.bg-table thead th{position:sticky;top:0;z-index:1;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);background:color-mix(in srgb, var(--bg2) 94%, transparent)}
-.bg-table tbody td{border-top:1px solid color-mix(in srgb, var(--line) 80%, transparent)}
-.bg-group th{padding:14px 14px 6px;font-size:13px;color:var(--muted);font-weight:650;background:transparent;text-transform:none;letter-spacing:0}
-.bg-table tr[data-act]{cursor:pointer}
-.bg-table tr.is-on td{background:color-mix(in srgb, var(--accent) 18%, transparent)}
-.bg-table tr[data-act]:hover td{background:color-mix(in srgb, var(--text) 6%, transparent)}
-.bg-col-name{display:flex;flex-direction:column;gap:2px;min-width:0}
-.bg-col-name small,.bg-on,.bg-set{color:var(--muted);font-size:12px}
-.bg-on{color:var(--accent);font-weight:700}
-.bg-thumb{width:96px;height:54px;object-fit:cover;border-radius:8px;background:#000}
-.bg-thumb-file{display:inline-block;background:linear-gradient(135deg,#243,#132)}
-.bg-remove{margin-left:10px;min-height:32px;padding:0 10px;border-radius:99px;background:transparent;color:var(--muted);border:1px solid var(--line)}
+.bg-table{display:block;width:100%;font-size:13px;padding-bottom:12px}
+.bg-table thead{display:none}
+.bg-catalog-body,.bg-uploads-body{display:grid;grid-template-columns:repeat(auto-fill,minmax(188px,1fr));gap:12px;padding:12px}
+.bg-group{grid-column:1 / -1;display:block;padding:6px 2px 2px;border:0}
+.bg-group th{display:block;padding:0;font-size:12px;color:var(--muted);font-weight:700;background:transparent;text-transform:none;letter-spacing:0;text-align:left;border:0}
+.bg-table tr.bg-card{display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto auto;cursor:pointer;border:1px solid color-mix(in srgb,var(--line) 82%,transparent);border-radius:12px;overflow:hidden;background:color-mix(in srgb,var(--bg3) 76%,transparent);transition:border-color .15s,background-color .15s}
+.bg-table tr.bg-card:hover{border-color:color-mix(in srgb,var(--text) 28%,transparent);background:color-mix(in srgb,var(--bg3) 94%,transparent)}
+.bg-table tr.bg-card.is-on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,var(--bg3))}
+.bg-table td{padding:0;border:0;text-align:left}
+.bg-col-preview{grid-column:1 / -1;display:block;width:100%;aspect-ratio:16/9;background:#0a0a0a;overflow:hidden}
+.bg-thumb{width:100%;height:100%;object-fit:cover;display:block;background:#0a0a0a}
+.bg-thumb-file{display:block;width:100%;height:100%;background:linear-gradient(135deg,#243,#132)}
+.bg-col-name{grid-column:1 / -1;display:flex;flex-direction:column;gap:2px;min-width:0;padding:8px 10px 3px}
+.bg-col-name b{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
+.bg-col-name small{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bg-col-res{grid-column:1;padding:0 0 8px 10px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;align-self:center}
+.bg-col-source{display:none}
+.bg-col-act{grid-column:2;padding:0 10px 8px 6px;display:flex;align-items:center;justify-content:flex-end;gap:6px;align-self:center}
+.bg-on,.bg-set{font-size:11px;color:var(--muted)}
+.bg-on{color:var(--accent-text,var(--accent));font-weight:700}
+.bg-remove{min-height:26px;padding:0 8px;border-radius:8px;background:transparent;color:var(--muted);border:1px solid var(--line);font-size:11px}
+.bg-empty{padding:36px 20px;text-align:center;color:var(--muted)}
+.bg-empty p{margin:0 0 12px;font-size:14px}
 @media (max-width:767px){
-  .bg-col-res,.bg-col-source{display:none}
-  .bg-thumb{width:64px;height:64px;border-radius:10px}
-  .bg-table th,.bg-table td{padding:8px 10px}
-  .bg-stage{width:100%;max-height:132px;aspect-ratio:16/9}
+  .bg-catalog-body,.bg-uploads-body{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;padding:8px}
+  .bg-col-name{padding:7px 8px 2px}
+  .bg-col-res{padding:0 0 7px 8px;font-size:10px}
+  .bg-col-act{padding:0 8px 7px 4px}
   body[data-page="backgrounds"] .studio-heading p{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 }
 
@@ -93,6 +105,8 @@ input[type=search]::-webkit-search-results-decoration{display:none}
 #bgSearch:focus-visible{outline:2px solid var(--accent-text)!important;outline-offset:1px!important}
 
 /* Keep all 2,670+ wallpapers reachable inside the list, not by moving main. */
+html:has(body[data-page=backgrounds]),body[data-page=backgrounds]{height:100%;overflow:hidden!important;overscroll-behavior:none}
+body[data-page=backgrounds] .app{height:100%;min-height:0;overflow:hidden}
 body[data-page=backgrounds] main,
 body[data-page=backgrounds].has-bar main{display:flex;flex-direction:column;min-height:0;overflow:hidden!important;overscroll-behavior:none}
 body[data-page=backgrounds] #view{display:flex;flex:1 1 auto;min-height:0;overflow:hidden}
@@ -102,7 +116,9 @@ body[data-page=backgrounds] .bg-table-wrap{flex-shrink:0!important;overflow-y:au
 body[data-page=backgrounds] .bg-filters{display:flex;flex:none;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;max-width:100%;gap:7px;scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;touch-action:pan-x;margin-bottom:8px}
 body[data-page=backgrounds] .bg-filters::-webkit-scrollbar{display:none}
 body[data-page=backgrounds] .bg-filters .chip{flex:none;white-space:nowrap}
-body[data-page=backgrounds] .bg-search{flex:none;margin-bottom:8px}
+body[data-page=backgrounds] .bg-search-bar{flex:none;margin-bottom:6px}
+body[data-page=backgrounds] .bg-search{flex:1 1 auto;min-width:0;margin-bottom:0}
+body[data-page=backgrounds] .bg-status-row{flex:none}
 body[data-page=backgrounds] .studio-heading,body[data-page=backgrounds] .bg-layout{flex:none}
 @media(max-width:767px){
   body[data-page=backgrounds] .studio-heading{padding:4px 0 6px;margin:0;display:flex;flex-direction:row;align-items:center;gap:8px}
@@ -111,10 +127,9 @@ body[data-page=backgrounds] .studio-heading,body[data-page=backgrounds] .bg-layo
   body[data-page=backgrounds] .studio-heading p{display:none}
   body[data-page=backgrounds] .studio-heading .row-btns{display:flex;flex:none;gap:5px}
   body[data-page=backgrounds] .studio-heading .btn{height:34px;min-width:0;padding:0 10px;font-size:12px}
-  body[data-page=backgrounds] .bg-layout{display:flex;align-items:center;gap:12px;margin:2px 0 8px;min-height:88px}
-  body[data-page=backgrounds] .bg-stage{width:78px;height:88px;min-width:78px;max-height:88px;aspect-ratio:auto;border-radius:10px}
-  body[data-page=backgrounds] .bg-note{flex:1;min-width:0;line-height:1.4;font-size:12px;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
-  body[data-page=backgrounds] .bg-table th,body[data-page=backgrounds] .bg-table td{padding:7px 8px}
+  body[data-page=backgrounds] .bg-layout{display:flex;align-items:center;gap:12px;margin:2px 0 8px;min-height:80px}
+  body[data-page=backgrounds] .bg-stage{width:76px;height:80px;min-width:76px;max-height:80px;aspect-ratio:auto;border-radius:10px}
+  body[data-page=backgrounds] .bg-note{flex:1;min-width:0;line-height:1.35;font-size:12px;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
 }
 /* Clear shows the actual wallpaper; legible labels, with only one opaque media layer. */
 body[data-chrome=clear][data-scene=on] .scene-bg::after{background:rgba(0,0,0,.2)}

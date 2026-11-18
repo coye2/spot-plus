@@ -185,16 +185,26 @@ export function parseDeezerPlaylist(input) {
   return m ? m[1] : null;
 }
 
-/* =========================== Audio (YouTube via Piped / Invidious) =========================== */
+/* =========================== Audio (Multi-Engine: JioSaavn, HiFi/Monochrome, Piped, Invidious, Audius, Deezer) =========================== */
 import {matchMusicVideo,chooseLoopFormat,musicVideoLoop,publicMediaURL} from './video-loops.js';
 const PIPED_FALLBACK = [
-  'https://pipedapi.kavin.rocks', 'https://pipedapi.adminforge.de', 'https://api.piped.private.coffee',
+  'https://api.piped.private.coffee', 'https://pipedapi.kavin.rocks', 'https://pipedapi.adminforge.de',
   'https://pipedapi.reallyaweso.me', 'https://pipedapi.leptons.xyz', 'https://pipedapi.nosebs.ru',
 ];
 const INV_FALLBACK = [
-  'https://yt.chocolatemoo53.com',
   'https://inv.nadeko.net', 'https://invidious.nerdvpn.de', 'https://iv.melmac.space',
-  'https://invidious.privacyredirect.com', 'https://yt.artemislena.eu', 'https://invidious.f5.si',
+  'https://yt.artemislena.eu', 'https://invidious.privacyredirect.com', 'https://invidious.f5.si',
+  'https://yt.chocolatemoo53.com',
+];
+const JIOSAAVN_FALLBACK = ['https://saavn.sumit.co'];
+const HIFI_REGISTRY_URL = 'https://raw.githubusercontent.com/kipavy/spotube-plugin-lossless-sources/main/sources.json';
+const HIFI_FALLBACK = [
+  'https://hifi-api-w9y8.onrender.com',
+  'https://hifi-api-bffw.onrender.com',
+  'https://monochrome-api.samidy.com',
+  'https://tidal-api.binimum.org',
+  'https://tidal.kinoplus.online',
+  'https://hifi.geeked.wtf',
 ];
 
 async function fetchJSON(url, ms = 9000, signal) {
@@ -202,7 +212,11 @@ async function fetchJSON(url, ms = 9000, signal) {
   const timer = setTimeout(() => ctl.abort(), ms);
   try {
     const r = await fetch(url, { signal: signal ? AbortSignal.any([signal, ctl.signal]) : ctl.signal });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    if (!r.ok) {
+      const err = new Error(`HTTP ${r.status}`);
+      err.status = r.status;
+      throw err;
+    }
     return await r.json();
   } catch (e) {
     throw e.name === 'AbortError' ? new Error('timed out') : e;
@@ -213,13 +227,61 @@ async function fetchJSON(url, ms = 9000, signal) {
 const uniq = (a) => [...new Set(a.filter(Boolean))];
 const clean = (u) => String(u).trim().replace(/\/+$/, '');
 export const host = (u) => { try { return new URL(u).host; } catch { return u; } };
+function decodeEntities(s) {
+  return String(s ?? '')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0*39;|&#x0*27;|&apos;/gi, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
+}
+const isFatalHttp = (err) => [401, 403, 410, 429, 500, 502, 503, 504].includes(err?.status);
+
+let hifiRegistryPromise = null;
+function refreshHifiRegistry(force = false) {
+  if (!instanceSnapshot) instances();
+  try {
+    const cached = JSON.parse(localStorage.getItem('spotplus.hifiRegistry') || 'null');
+    if (cached && Array.isArray(cached.hosts) && Date.now() - cached.t < 6 * 3600e3 && !force) {
+      instanceSnapshot.hifi = uniq([...cached.hosts, ...HIFI_FALLBACK]);
+      return Promise.resolve(instanceSnapshot.hifi);
+    }
+  } catch {}
+  if (hifiRegistryPromise) return force ? hifiRegistryPromise : Promise.resolve(instanceSnapshot?.hifi || HIFI_FALLBACK);
+  const publicOrigin = u => { try { const {protocol, hostname} = new URL(u); return protocol === 'https:' && /\.[a-z]{2,}$/i.test(hostname) && !/(^|\.)(onion|i2p|ygg|loki)$/i.test(hostname); } catch { return false; } };
+  hifiRegistryPromise = (async () => {
+    try {
+      const registry = await fetchJSON(HIFI_REGISTRY_URL, 3500);
+      const fromReg = Array.isArray(registry?.sources)
+        ? registry.sources.filter((x) => x && x.type === 'hifi-api' && x.base).map((x) => clean(x.base)).filter(publicOrigin)
+        : [];
+      const merged = uniq([...fromReg, ...HIFI_FALLBACK]);
+      if (instanceSnapshot) instanceSnapshot.hifi = merged;
+      try { localStorage.setItem('spotplus.hifiRegistry', JSON.stringify({ t: Date.now(), hosts: fromReg })); } catch {}
+      return merged;
+    } catch {
+      return instanceSnapshot?.hifi || HIFI_FALLBACK;
+    } finally {
+      hifiRegistryPromise = null;
+    }
+  })();
+  hifiRegistryPromise.catch(() => {});
+  return force ? hifiRegistryPromise : Promise.resolve(instanceSnapshot?.hifi || HIFI_FALLBACK);
+}
 
 let instancePromise = null;
 let instanceSnapshot = null;
 export function instances(force = false) {
   if (!instanceSnapshot) {
     try { instanceSnapshot = JSON.parse(localStorage.getItem('spotplus.instances') || 'null'); } catch {}
-    if (!Array.isArray(instanceSnapshot?.piped) || !Array.isArray(instanceSnapshot?.invidious)) instanceSnapshot = { t: 0, piped: PIPED_FALLBACK, invidious: INV_FALLBACK };
+    if (!Array.isArray(instanceSnapshot?.piped) || !Array.isArray(instanceSnapshot?.invidious)) {
+      instanceSnapshot = { t: 0, piped: PIPED_FALLBACK, invidious: INV_FALLBACK, jiosaavn: JIOSAAVN_FALLBACK, hifi: HIFI_FALLBACK };
+    } else {
+      if (!Array.isArray(instanceSnapshot.jiosaavn)) instanceSnapshot.jiosaavn = JIOSAAVN_FALLBACK;
+      if (!Array.isArray(instanceSnapshot.hifi)) instanceSnapshot.hifi = HIFI_FALLBACK;
+    }
   }
   if (instancePromise) return force ? instancePromise : Promise.resolve(instanceSnapshot);
   if (!force && Date.now() - instanceSnapshot.t < 6 * 3600e3) return Promise.resolve(instanceSnapshot);
@@ -235,7 +297,13 @@ export function instances(force = false) {
     const inv = Array.isArray(settled(i))
       ? i.value.filter(([, d]) => d && d.type === 'https' && d.api !== false && d.cors !== false && d.uri).map(([, d]) => clean(d.uri)).filter(publicOrigin)
       : [];
-    const out = { t: Date.now(), piped: uniq([...piped, ...PIPED_FALLBACK]), invidious: uniq([...inv, ...INV_FALLBACK]) };
+    const out = {
+      t: Date.now(),
+      piped: uniq([...piped, ...PIPED_FALLBACK]),
+      invidious: uniq([...inv, ...INV_FALLBACK]),
+      jiosaavn: JIOSAAVN_FALLBACK,
+      hifi: instanceSnapshot?.hifi || HIFI_FALLBACK,
+    };
     instanceSnapshot = out;
     try { localStorage.setItem('spotplus.instances', JSON.stringify(out)); } catch {}
     return out;
@@ -320,15 +388,15 @@ const failedInstances = new Map();
 function lastGood() { try { return JSON.parse(localStorage.getItem(goodKey) || '{}'); } catch { return {}; } }
 function markGood(kind, base) { const g = lastGood(); g[kind] = base; try { localStorage.setItem(goodKey, JSON.stringify(g)); } catch {} }
 export function reportPlaybackSource(source, ok = true, meta = {}) {
-  if (!source?.instance || !['piped','invidious','bridge','audius'].includes(source.kind)) return;
+  if (!source?.instance || !['piped','invidious','bridge','audius','jiosaavn','hifi'].includes(source.kind)) return;
   const hostKey = source.kind === 'bridge' ? STREAM_ENDPOINT : source.instance;
   router.recordPlayback(hostKey, { ok, startupMs: meta.startupMs, stalled: !!meta.stalled });
   if (ok) {
     failedInstances.delete(source.instance);
     if (source.kind === 'bridge') streamDown = 0;
-    else if (['piped','invidious'].includes(source.kind)) markGood(source.kind, source.instance);
+    else if (['piped','invidious','jiosaavn','hifi'].includes(source.kind)) markGood(source.kind, source.instance);
   } else {
-    failedInstances.set(source.instance, Date.now() + (source.kind === 'bridge' ? 30e3 : 60e3));
+    failedInstances.set(source.instance, Date.now() + (source.kind === 'bridge' ? 30e3 : 90e3));
     if (source.kind === 'bridge') streamDown = Date.now() + 20e3;
     bufferEngine.recordFailure();
     memoryEngine.forgetByInstance(source.instance);
@@ -339,9 +407,9 @@ export function reportPlaybackSource(source, ok = true, meta = {}) {
 const SPEED_KEY='spotplus.instanceSpeed';
 let speeds=null;
 function speedTable(){if(!speeds){try{speeds=JSON.parse(localStorage.getItem(SPEED_KEY)||'{}');}catch{speeds={};}}return speeds;}
-export function recordSpeed(base,ms,ok){
+export function recordSpeed(base,ms,ok,{fatal=false}={}){
   bufferEngine.recordLatency(ms);
-  router.recordResolution(base,ms,ok);
+  router.recordResolution(base,ms,ok,{fatal});
   const table=speedTable(),old=table[base];const sample=ok?ms:Math.max(ms,6000)+4000;
   table[base]=Math.round(old?old*.6+sample*.4:sample);
   clearTimeout(recordSpeed.t);recordSpeed.t=setTimeout(()=>{try{localStorage.setItem(SPEED_KEY,JSON.stringify(Object.fromEntries(Object.entries(table).sort((a,b)=>a[1]-b[1]).slice(0,80))));}catch{}},1500);
@@ -351,8 +419,12 @@ export function rankBySpeed(list,{custom=[],failed=()=>false,table=speedTable()}
   const cost=base=>failed(base)?1e9:custom.includes(base)?-1:(table[base]??2500);
   return list.map((base,i)=>({base,i,c:cost(base)})).sort((a,b)=>a.c-b.c||a.i-b.i).map(x=>x.base);
 }
+function customHostsFor(kind, set) {
+  const raw = kind === 'piped' ? set.customPiped : kind === 'hifi' ? set.customHifi : kind === 'invidious' ? set.customInvidious : '';
+  return String(raw || '').split(/[\s,]+/).filter((x) => /^https?:\/\//.test(x)).map(clean);
+}
 function orderedInstances(kind, inst, set) {
-  const custom = (kind === 'piped' ? set.customPiped : set.customInvidious).split(/[\s,]+/).filter((x) => /^https?:\/\//.test(x)).map(clean);
+  const custom = customHostsFor(kind, set);
   const list = uniq([...custom, lastGood()[kind], ...(inst[kind] || [])]);
   const routerRanked = router.rank(list, { custom });
   return rankBySpeed(routerRanked,{custom,failed:base=>(failedInstances.get(base)||0)>Date.now() || !router.isAvailable(base)});
@@ -406,10 +478,126 @@ async function invStream(base, id, signal, track, ms = 2800) {
 const ENGINES = { piped: { search: pipedSearch, stream: pipedStream }, invidious: { search: invSearch, stream: invStream } };
 async function audiusStream(track,signal) {
   const base='https://api.audius.co';
-  const data=await fetchJSON(base+'/v1/tracks/search?query='+encodeURIComponent(query(track))+'&limit=10&app_name=SpotPlus',4500,signal);
-  const matches=best((data.data||[]).filter(t=>t.is_streamable===true&&!t.is_stream_gated&&t.access?.stream!==false&&t.user?.is_verified).map(t=>({id:t.id,title:t.title,channel:t.user.name,duration:t.duration,verified:true})),track);
+  const data=await fetchJSON(base+'/v1/tracks/search?query='+encodeURIComponent(query(track))+'&limit=10&app_name=SpotPlus',3200,signal);
+  const matches=best((data.data||[]).filter(t=>t.is_streamable===true&&!t.is_stream_gated&&t.access?.stream!==false&&t.user?.name).map(t=>({id:t.id,title:t.title,channel:t.user.name,duration:t.duration,verified:!!t.user.is_verified})),track);
   if(!matches.length)throw new Error('No matching public Audius release');
-  return {url:base+'/v1/tracks/'+encodeURIComponent(matches[0].id)+'/stream?app_name=SpotPlus',mime:'audio/mpeg',bitrate:0,kind:'audius',instance:base,catalogId:matches[0].id};
+  return {url:base+'/v1/tracks/'+encodeURIComponent(matches[0].id)+'/stream?app_name=SpotPlus',mime:'audio/mpeg',bitrate:320000,kind:'audius',engineLabel:'Audius',instance:base,catalogId:matches[0].id,title:matches[0].title,channel:matches[0].channel,duration:matches[0].duration,verified:true,alternatives:[]};
+}
+
+const JIOSAAVN_BLOCK_WORDS = /\b(karaoke|nightcore|ringtone|tribute|8d|sped up|slowed|instrumental|cover)\b/i;
+async function jiosaavnStream(base, track, signal, ms = 2600) {
+  const d = await fetchJSON(`${base}/api/search/songs?query=${encodeURIComponent(query(track))}&limit=8`, ms, signal);
+  const rows = Array.isArray(d?.data?.results) ? d.data.results : Array.isArray(d?.results) ? d.results : [];
+  if (!rows.length) throw new Error('No JioSaavn results');
+  const wantedBlocked = JIOSAAVN_BLOCK_WORDS.test(`${track.title} ${track.artist}`);
+  const items = rows.map((s) => {
+    const primary = Array.isArray(s.artists?.primary)
+      ? s.artists.primary.map((a) => decodeEntities(a?.name)).filter(Boolean).join(', ')
+      : decodeEntities(s.primaryArtists || '');
+    const title = decodeEntities(s.name || s.title || '');
+    const formats = (Array.isArray(s.downloadUrl) ? s.downloadUrl : [])
+      .filter((x) => /^https:\/\//.test(x?.url || ''))
+      .map((x) => {
+        const kbps = parseInt(String(x.quality || '160'), 10) || 160;
+        return { url: x.url, mime: 'audio/mp4', bitrate: kbps * 1000 };
+      });
+    return {
+      id: String(s.id || ''),
+      title,
+      channel: primary,
+      duration: Number(s.duration) || 0,
+      formats,
+      verified: true,
+    };
+  }).filter((item) => item.id && item.formats.length && (wantedBlocked || !JIOSAAVN_BLOCK_WORDS.test(`${item.title} ${item.channel}`)));
+  const matches = best(items, track);
+  if (!matches.length) throw new Error('No matching JioSaavn release');
+  const chosen = matches[0];
+  const picked = pickFormat(chosen.formats);
+  return {
+    ...picked,
+    kind: 'jiosaavn',
+    engineLabel: 'JioSaavn',
+    instance: base,
+    catalogId: chosen.id,
+    title: chosen.title,
+    channel: chosen.channel,
+    duration: chosen.duration,
+    verified: true,
+  };
+}
+
+function decodeHifiManifest(data) {
+  if (!data || typeof data !== 'object') return null;
+  if (typeof data.OriginalTrackUrl === 'string' && /^https:\/\//.test(data.OriginalTrackUrl)) {
+    return { url: data.OriginalTrackUrl, mime: /\.flac(\?|$)/i.test(data.OriginalTrackUrl) ? 'audio/flac' : 'audio/mp4', codec: '' };
+  }
+  if (Array.isArray(data.urls) && /^https:\/\//.test(data.urls[0] || '')) {
+    const u = data.urls[0];
+    return { url: u, mime: data.mimeType || (/\.flac(\?|$)/i.test(u) ? 'audio/flac' : 'audio/mp4'), codec: data.codecs || '' };
+  }
+  if (typeof data.url === 'string' && /^https:\/\//.test(data.url)) {
+    return { url: data.url, mime: data.mimeType || (/\.flac(\?|$)/i.test(data.url) ? 'audio/flac' : 'audio/mp4'), codec: data.codecs || '' };
+  }
+  if (data.manifestMimeType === 'application/vnd.tidal.bts' && typeof data.manifest === 'string' && typeof atob === 'function') {
+    try {
+      const parsed = JSON.parse(atob(data.manifest));
+      const u = Array.isArray(parsed?.urls) ? parsed.urls[0] : '';
+      if (/^https:\/\//.test(u || '')) {
+        return { url: u, mime: parsed.mimeType || 'audio/flac', codec: parsed.codecs || '' };
+      }
+    } catch { /* ignore malformed manifest */ }
+  }
+  return null;
+}
+async function hifiStream(base, track, signal, ms = 2600) {
+  const sData = await fetchJSON(`${base}/search/?s=${encodeURIComponent(query(track))}`, ms, signal);
+  const rawItems = sData?.data?.items || sData?.items || sData?.tracks || [];
+  const items = (Array.isArray(rawItems) ? rawItems : [])
+    .filter((x) => x && x.id != null && x.allowStreaming !== false && x.streamReady !== false)
+    .map((x) => ({
+      id: String(x.id),
+      title: x.title || '',
+      channel: x.artist?.name || (Array.isArray(x.artists) ? x.artists.map((a) => a?.name).filter(Boolean).join(', ') : ''),
+      duration: Number(x.duration) || 0,
+      verified: true,
+    }));
+  const matches = best(items, track);
+  if (!matches.length) throw new Error('No matching HiFi track');
+  const chosen = matches[0];
+  const set = getSettings();
+  const canFlac = !probe || !!probe.canPlayType('audio/flac');
+  const tiers = set.quality === 'low' ? ['LOW', 'HIGH'] : canFlac && !prefersAac() ? ['LOSSLESS', 'HIGH'] : ['HIGH', 'LOSSLESS'];
+  let stream = null;
+  for (const qTier of tiers) {
+    try {
+      const res = await fetchJSON(`${base}/track/?id=${encodeURIComponent(chosen.id)}&quality=${qTier}`, ms, signal);
+      const decoded = decodeHifiManifest(res?.data || res);
+      if (!decoded) continue;
+      if (probe && decoded.mime && !probe.canPlayType(decoded.mime + (decoded.codec && !decoded.mime.includes('codecs=') ? `; codecs="${decoded.codec}"` : ''))) continue;
+      stream = {
+        ...decoded,
+        bitrate: /flac/i.test(decoded.mime) ? 1411000 : qTier === 'HIGH' ? 320000 : 128000,
+        lossless: /flac/i.test(decoded.mime),
+      };
+      break;
+    } catch (e) {
+      if (qTier === tiers.at(-1)) throw e;
+    }
+  }
+  if (!stream) throw new Error('No compatible HiFi stream');
+  return {
+    ...stream,
+    kind: 'hifi',
+    engineLabel: stream.lossless ? 'HiFi Lossless' : 'HiFi',
+    instance: base,
+    catalogId: chosen.id,
+    title: chosen.title,
+    channel: chosen.channel,
+    duration: chosen.duration,
+    verified: true,
+    alternatives: [],
+  };
 }
 
 // Only used after Canvas is missing. Audio resolution never waits on this work.
@@ -454,7 +642,13 @@ export async function resolveVideoLoop(track, {signal, source, skip = []} = {}) 
 }
 
 function kinds(s = getSettings().source) {
-  return s === 'piped' ? ['piped'] : s === 'invidious' ? ['invidious'] : s === 'audius' ? ['audius'] : s === 'youtube' ? ['youtube'] : ['invidious', 'piped', 'audius'];
+  if (s === 'jiosaavn') return ['jiosaavn'];
+  if (s === 'hifi') return ['hifi'];
+  if (s === 'piped') return ['piped'];
+  if (s === 'invidious') return ['invidious'];
+  if (s === 'audius') return ['audius'];
+  if (s === 'youtube') return ['youtube'];
+  return ['jiosaavn', 'hifi', 'invidious', 'piped', 'audius'];
 }
 
 export async function previewStream(t) {
@@ -466,10 +660,33 @@ export async function previewStream(t) {
       : normTrack(await jsonp(`/track/${encodeURIComponent(t.id)}`));
   } catch (e) {
     if (/^https:\/\//.test(t?.preview || '')) track = t;
-    else throw e;
+    else {
+      const alt = await itunesPreview(t).catch(() => null);
+      if (alt) return alt;
+      throw e;
+    }
   }
-  if (!track?.preview) throw new Error('No preview is available for this song');
-  return { url: track.preview, mime: 'audio/mpeg', bitrate: 128000, kind: 'preview', instance: DEEZER, preview: true };
+  if (!track?.preview) {
+    const alt = await itunesPreview(t).catch(() => null);
+    if (alt) return alt;
+    throw new Error('No preview is available for this song');
+  }
+  return { url: track.preview, mime: 'audio/mpeg', bitrate: 128000, kind: 'preview', engineLabel: 'Deezer', instance: DEEZER, preview: true, alternatives: [] };
+}
+
+async function itunesPreview(t) {
+  const d = await fetchJSON(`https://itunes.apple.com/search?term=${encodeURIComponent(query(t))}&media=music&entity=song&limit=8`, 2200);
+  const items = (d?.results || []).filter((x) => /^https:\/\//.test(x?.previewUrl || '')).map((x) => ({
+    id: String(x.trackId || ''),
+    title: x.trackName || '',
+    channel: x.artistName || '',
+    duration: Math.round((Number(x.trackTimeMillis) || 0) / 1000),
+    previewUrl: x.previewUrl,
+    verified: true,
+  }));
+  const matched = best(items, t);
+  if (!matched.length) return null;
+  return { url: matched[0].previewUrl, mime: 'audio/mp4', bitrate: 256000, kind: 'preview', engineLabel: 'iTunes AAC preview', instance: 'https://itunes.apple.com', preview: true, alternatives: [] };
 }
 
 function youtubeEmbedStream(matches, t) {
@@ -492,7 +709,7 @@ function youtubeEmbedStream(matches, t) {
 async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed = false, fullOnly = false } = {}, _retry = false) {
   const set = getSettings();
   if (t.local) throw new Error('This local file is no longer stored on this device. Import it again.');
-  if (set.source === 'preview') {
+  if (set.source === 'preview' || set.source === 'deezer') {
     if (fullOnly) throw new Error('Preview mode cannot probe full audio.');
     return previewStream(t);
   }
@@ -501,7 +718,7 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
   const cached = stored?.manual || stored?.matchVersion === 3 ? stored : null;
   const control = new AbortController();
   const isAuto = set.source === 'auto';
-  const deadline = setTimeout(() => control.abort(), isAuto ? 10000 : 18000);
+  const deadline = setTimeout(() => control.abort(), isAuto ? 9000 : 16000);
   const combined = signal ? AbortSignal.any([signal, control.signal]) : control.signal;
   // Ask the shared lookup once; every server below can skip its own search when it answers first.
   let sharedMatches = cached ? [cached] : null;
@@ -536,22 +753,42 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
       if (fast) { clearTimeout(deadline); return fast; }
     } catch { /* use the full search */ }
   }
-  const hasCustom = !!(set.customPiped?.trim() || set.customInvidious?.trim());
-  const perKind = isAuto && !hasCustom ? 4 : 10;
-  const reqMs = isAuto && !hasCustom ? 2400 : 3400;
+  const hasCustom = !!(set.customPiped?.trim() || set.customInvidious?.trim() || set.customHifi?.trim());
+  const perKind = isAuto && !hasCustom ? 4 : 8;
+  const reqMs = isAuto && !hasCustom ? 2000 : 3200;
   const raceControl = new AbortController();
   const raceSignal = AbortSignal.any([combined, raceControl.signal]);
-  const raceCap = isAuto && !hasCustom ? setTimeout(() => raceControl.abort(), 4200) : null;
+  const raceCap = isAuto && !hasCustom ? setTimeout(() => raceControl.abort(), 3500) : null;
   try {
-    const streamGroups = kinds(set.source).filter((k) => k !== 'audius' && k !== 'youtube').map((kind) => orderedInstances(kind, inst, set).slice(0, perKind).map((base) => ({ kind, base })));
-    const sources = []; for (let i = 0; i < perKind; i++) for (const group of streamGroups) if (group[i] && !skip.includes(group[i].base)) sources.push(group[i]);
-    if (kinds(set.source).includes('audius')) sources.push({ kind: 'audius', base: 'https://api.audius.co' });
+    const activeKinds = kinds(set.source);
+    const ytKinds = activeKinds.filter((k) => ['piped', 'invidious'].includes(k));
+    const streamGroups = ytKinds.map((kind) => orderedInstances(kind, inst, set).slice(0, perKind).map((base) => ({ kind, base })));
+    const sources = [];
+    if (activeKinds.includes('jiosaavn')) {
+      for (const base of orderedInstances('jiosaavn', inst, set).slice(0, 2)) {
+        if (!skip.includes(base)) sources.push({ kind: 'jiosaavn', base });
+      }
+    }
+    if (activeKinds.includes('hifi')) {
+      refreshHifiRegistry(false).catch(() => {});
+      for (const base of orderedInstances('hifi', inst, set).slice(0, hasCustom ? 6 : 3)) {
+        if (!skip.includes(base)) sources.push({ kind: 'hifi', base });
+      }
+    }
+    for (let i = 0; i < perKind; i++) for (const group of streamGroups) if (group[i] && !skip.includes(group[i].base)) sources.push(group[i]);
+    if (activeKinds.includes('audius') && !skip.includes('https://api.audius.co')) sources.push({ kind: 'audius', base: 'https://api.audius.co' });
+
     const result = await raceAudioSources(sources, async ({ kind, base }) => {
       raceSignal.throwIfAborted();
-      if (kind === 'audius') return audiusStream(t, raceSignal);
       const began = performance.now();
       try {
-        let value = await attemptServer(kind, base); recordSpeed(base, performance.now() - began, true);
+        let value;
+        if (kind === 'audius') value = await audiusStream(t, raceSignal);
+        else if (kind === 'jiosaavn') value = await jiosaavnStream(base, t, raceSignal, reqMs);
+        else if (kind === 'hifi') value = await hifiStream(base, t, raceSignal, reqMs);
+        else value = await attemptServer(kind, base);
+
+        recordSpeed(base, performance.now() - began, true);
         if (cors && !(await corsOK(value.url))) {
           const alt = (value.alternatives || []).find((x) => x.url);
           if (alt && await corsOK(alt.url)) value = { ...value, ...alt, alternatives: [] };
@@ -559,10 +796,10 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
         }
         return value;
       } catch (error) {
-        if (!raceSignal.aborted) recordSpeed(base, performance.now() - began, false);
+        if (!raceSignal.aborted) recordSpeed(base, performance.now() - began, false, { fatal: isFatalHttp(error) });
         throw error;
       }
-    }, { signal: raceSignal, quality: set.quality, concurrency: 8, qualityWait: 250 });
+    }, { signal: raceSignal, quality: set.quality, concurrency: 8, qualityWait: 180 });
     async function attemptServer(kind, base) {
       router.claimHalfOpen(base);
       const choices = cached ? [cached] : (await Promise.any([shared, ENGINES[kind].search(base, t, raceSignal, reqMs)].filter(Boolean))).slice(0, 2);
@@ -587,12 +824,12 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
   } catch {
     if (signal?.aborted) throw new DOMException('Playback cancelled', 'AbortError');
     if (cached && !cached.manual && !_retry) { setVideoCache(t.id, null); return resolveUncached(t, { skip, signal, cors, allowEmbed, fullOnly }, true); }
-    if (!skip.length && _retry !== 'bridge' && streamDown <= Date.now()) {
+    if (!skip.length && _retry !== 'bridge' && streamDown <= Date.now() && router.isAvailable(STREAM_ENDPOINT)) {
       try {
-        const matches = sharedMatches?.length ? sharedMatches : (shared ? await Promise.race([shared, new Promise((_, rej) => setTimeout(() => rej(new Error('slow')), 1500))]) : []);
+        const matches = sharedMatches?.length ? sharedMatches : (shared ? await Promise.race([shared, new Promise((_, rej) => setTimeout(() => rej(new Error('slow')), 1200))]) : []);
         const vid = matches?.[0]?.id;
         if (vid) {
-          const bridged = await bridgeStream(vid, { signal, preferAac: prefersAac() || set.quality === 'low', timeoutMs: 1400 });
+          const bridged = await bridgeStream(vid, { signal, preferAac: prefersAac() || set.quality === 'low', timeoutMs: 1200 });
           if (bridged && (!cors || await corsOK(bridged.url))) {
             setVideoCache(t.id, { id: vid, manual: false, matchVersion: 3 });
             return bridged;
@@ -608,19 +845,21 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
       const rescued = await previewRescue(t);
       if (rescued) return rescued;
     }
-    throw new Error('No audio server answered. Try adding your own server in Settings, Audius, the YouTube player, a 30-second preview, or a local audio file.');
+    throw new Error('No audio server answered. Try Deezer, JioSaavn, HiFi, Audius, your own server in Settings, or a local audio file.');
   } finally { clearTimeout(raceCap); clearTimeout(deadline); control.abort(); }
 }
 
 function previewSource(url) {
-  return /^https:\/\//.test(url || '') ? { url, mime: 'audio/mpeg', bitrate: 128000, kind: 'preview', instance: DEEZER, preview: true, alternatives: [] } : null;
+  return /^https:\/\//.test(url || '') ? { url, mime: 'audio/mpeg', bitrate: 128000, kind: 'preview', engineLabel: 'Deezer', instance: DEEZER, preview: true, alternatives: [] } : null;
 }
 
 /** When every full-track server is down, start the catalog sample so the song is not a dead error. */
 async function previewRescue(t) {
   const ready = previewSource(t?.preview);
   if (ready) return ready;
-  if (!globalThis.document?.head) return null;
+  if (!globalThis.document?.head) {
+    return itunesPreview(t).catch(() => null);
+  }
   let timer;
   const timeout = new Promise((resolve) => {
     timer = setTimeout(() => resolve(null), 2000);
@@ -635,7 +874,8 @@ async function previewRescue(t) {
       })(),
       timeout,
     ]);
-    return previewSource(found?.preview);
+    if (found?.preview) return previewSource(found.preview);
+    return await Promise.race([itunesPreview(t).catch(() => null), timeout]);
   } catch { return null; } finally { clearTimeout(timer); }
 }
 
@@ -683,7 +923,7 @@ export function instantMirrors(videoId, bases, { opus = false } = {}) {
   }));
 }
 async function fastStream(t,{cached,shared,set,cors,skip,signal}){
-  if(['piped','audius','preview','youtube'].includes(set.source))return null;
+  if(['piped','audius','preview','deezer','youtube','jiosaavn','hifi'].includes(set.source))return null;
   const customMirrors = (set.customInvidious || '').split(/[\s,]+/).map(clean).filter(isAllowedCustomOrigin);
   const hasMirrorCandidate = !!(customMirrors.length || lastGood().invidious);
   const bridgeReady = !cors && streamDown <= Date.now() && router.isAvailable(STREAM_ENDPOINT);
@@ -720,7 +960,7 @@ async function fastStream(t,{cached,shared,set,cors,skip,signal}){
 
 // Keep short-lived results in L1 memory + L2 IndexedDB without synchronous localStorage blocking.
 const warmups=new Map(),warmControllers=new Map();
-export const streamKey=(t,s=getSettings(),videoId=getVideoCache(t.id)?.id||'')=>[t.id,s.source,s.quality,s.customPiped,s.customInvidious,videoId,prefersAac()?'aac':'any'].join('|');
+export const streamKey=(t,s=getSettings(),videoId=getVideoCache(t.id)?.id||'')=>[t.id,s.source,s.quality,s.customPiped,s.customInvidious,s.customHifi,videoId,prefersAac()?'aac':'any'].join('|');
 export function streamExpiry(url,now=Date.now()){
   return memoryEngine.computeExpiry(url,now);
 }
@@ -754,12 +994,16 @@ const connectedOrigins=new Set();
 function preconnect(url) {
   if (!globalThis.document?.head || !/^https:\/\//.test(url || '')) return;
   const origin=new URL(url).origin;
-  if (connectedOrigins.has(origin) || connectedOrigins.size>=8) return;
+  if (connectedOrigins.has(origin) || connectedOrigins.size>=12) return;
   connectedOrigins.add(origin);
   const link=document.createElement('link');link.rel='preconnect';link.href=origin;link.crossOrigin='anonymous';document.head.append(link);
 }
 export function warmConnections(){
   preconnect(MATCH_ENDPOINT);
+  preconnect('https://saavn.sumit.co');
+  preconnect('https://aac.saavncdn.com');
+  preconnect('https://api.audius.co');
+  preconnect('https://cdnt-preview.dzcdn.net');
   for (const base of Object.values(lastGood())) preconnect(base);
 }
 export async function resolve(t,options={}) {
@@ -782,7 +1026,7 @@ export async function resolve(t,options={}) {
 }
 /** Never substitute a 30-second catalog clip when probing for full-length audio. */
 export async function resolveFull(t, options = {}) {
-  if (getSettings().source === 'preview') return null;
+  if (['preview', 'deezer'].includes(getSettings().source)) return null;
   const source = await resolve(t, {...options, fullOnly:true, allowEmbed:false});
   return source?.preview || source?.kind === 'youtube-embed' ? null : source;
 }
@@ -842,19 +1086,43 @@ export async function candidates(t) {
   throw new Error('Could not search for alternatives right now');
 }
 
-/** Quick health check of the first few instances of each kind. */
+/** Quick health check of JioSaavn, HiFi, Audius, Deezer, Piped, and Invidious sources. */
 export async function testInstances() {
-  const inst = await instances(true);
+  const [inst] = await Promise.all([instances(true), refreshHifiRegistry(true).catch(() => {})]);
   const set = getSettings();
   const VID = 'jNQXAC9IVRw';
+  const PROBE_TRACK = { id: 'probe-1', title: 'Blinding Lights', artist: 'The Weeknd', duration: 200 };
   const out = [];
-  await Promise.all(['piped', 'invidious'].flatMap((kind) =>
-    orderedInstances(kind, inst, set).slice(0, 5).map(async (base) => {
+  await Promise.all([
+    ...orderedInstances('jiosaavn', inst, set).slice(0, 2).map(async (base) => {
       const t0 = performance.now();
-      try { await ENGINES[kind].stream(base, VID); out.push({ kind, base, ok: true, ms: Math.round(performance.now() - t0) }); }
-      catch (e) { out.push({ kind, base, ok: false, err: e.message }); }
-    })));
-  return out.sort((a, b) => (a.kind + (a.ok ? 0 : 1)).localeCompare(b.kind + (b.ok ? 0 : 1)) || (a.ms || 1e9) - (b.ms || 1e9));
+      try {
+        await jiosaavnStream(base, { id: 'probe-saavn', title: 'Kesariya', artist: 'Arijit Singh', duration: 268 }, undefined, 3000);
+        out.push({ kind: 'jiosaavn', base, ok: true, ms: Math.round(performance.now() - t0) });
+      } catch (e) { out.push({ kind: 'jiosaavn', base, ok: false, err: e.message }); }
+    }),
+    ...orderedInstances('hifi', inst, set).slice(0, 3).map(async (base) => {
+      const t0 = performance.now();
+      try {
+        await hifiStream(base, PROBE_TRACK, undefined, 3000);
+        out.push({ kind: 'hifi', base, ok: true, ms: Math.round(performance.now() - t0) });
+      } catch (e) { out.push({ kind: 'hifi', base, ok: false, err: e.message }); }
+    }),
+    (async () => {
+      const t0 = performance.now();
+      try {
+        await fetchJSON('https://api.audius.co/v1/tracks/trending?limit=1&app_name=SpotPlus', 3000);
+        out.push({ kind: 'audius', base: 'https://api.audius.co', ok: true, ms: Math.round(performance.now() - t0) });
+      } catch (e) { out.push({ kind: 'audius', base: 'https://api.audius.co', ok: false, err: e.message }); }
+    })(),
+    ...['piped', 'invidious'].flatMap((kind) =>
+      orderedInstances(kind, inst, set).slice(0, 4).map(async (base) => {
+        const t0 = performance.now();
+        try { await ENGINES[kind].stream(base, VID, undefined, null, 3000); out.push({ kind, base, ok: true, ms: Math.round(performance.now() - t0) }); }
+        catch (e) { out.push({ kind, base, ok: false, err: e.message }); }
+      })),
+  ]);
+  return out.sort((a, b) => (a.ok ? 0 : 1) - (b.ok ? 0 : 1) || a.kind.localeCompare(b.kind) || (a.ms || 1e9) - (b.ms || 1e9));
 }
 
 /* =========================== Lyrics (LRCLib) =========================== */

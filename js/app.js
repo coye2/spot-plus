@@ -591,7 +591,7 @@ async function viewSettings() {
   ${toggle('notifyReleases','New releases','When an artist you follow drops a song or album.')}${toggle('notifyStats','Weekly recap','Sunday evening: your minutes and most-played artist.')}${toggle('notifyUpdates','App updates','When a new version of Spot+ is ready.')}</section>
   <section class="box"><h2>Appearance</h2>${themeModeSwitch(s)}<p class="settings-note">Light, dark, automatic, or clear. Clear keeps your wallpaper in view while panels stay readable.</p><div class="row-btns"><a class="btn" href="#/themes">Themes</a><a class="btn" href="#/backgrounds">Background</a></div><label class="field"><span>Library and track spacing</span>${sel('density',[['comfortable','Comfortable'],['compact','Compact']])}</label><label class="field"><span>Text size</span>${sel('textSize',[['normal','Default'],['large','Larger']])}</label><label class="field"><span>Motion</span>${sel('motion',[['system','Follow system'],['reduced','Reduced']])}</label></section>
   <section class="box"><h2>Playback</h2>
-    <label class="field"><span>Audio source<small>Automatic tries audio servers first (Invidious, Piped, Audius, and the Spot+ bridge), with a 30-second preview as a last resort.</small></span>${sel('source', [['auto', 'Automatic'], ['youtube', 'YouTube player'], ['piped', 'Piped'], ['invidious', 'Invidious'],['audius','Audius public releases'],['preview','Deezer previews (30 sec)']])}</label>
+    <label class="field"><span>Audio source<small>Automatic races JioSaavn (320 kbps AAC), HiFi / Monochrome, Invidious, Piped, and Audius, with Deezer &amp; iTunes previews as fallback.</small></span>${((cur) => `<select data-setting="source">${[['auto', 'Automatic (best available)'], ['deezer', 'Deezer'], ['jiosaavn', 'JioSaavn (320 kbps AAC)'], ['hifi', 'HiFi / Monochrome (Lossless)'], ['audius', 'Audius public releases'], ['piped', 'Piped'], ['invidious', 'Invidious'], ['youtube', 'YouTube player']].map(([v, l]) => `<option value="${v}"${cur === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`)(s.source === 'preview' ? 'deezer' : s.source)}</label>
     <label class="field"><span>Streaming quality</span>${sel('quality', [['high', 'High'], ['low', 'Data saver']])}</label>
     ${toggle('smartRadio','Smart Radio','When your queue ends, keep playing similar songs. It learns from what you skip.')}
     <label class="field"><span>AutoMix<small>${player.crossfadeSupported?'Blend each song into the next, like a DJ. Off while effects are on.':'Blending songs isn’t possible on iPhone and iPad (Safari doesn’t let apps fade audio).'}</small></span>${sel('automix',[['0','Off'],['3','3 seconds'],['6','6 seconds'],['9','9 seconds']])}</label>
@@ -599,6 +599,7 @@ async function viewSettings() {
     ${toggle('showExplicit','Allow explicit content','When off, explicit tracks are excluded from discovery and new playback queues.')}
     <button class="btn small" data-act="sleep-timer">Sleep timer</button>
     <details class="connection-help"><summary>Advanced audio options</summary>
+    <label class="field col"><span>Your own HiFi / Lossless servers <small>(hifi-api URLs, one per line)</small></span><textarea data-setting="customHifi" rows="2" placeholder="https://hifi-api.example.com">${esc(s.customHifi)}</textarea></label>
     <label class="field col"><span>Your own Piped API servers <small>(one per line, tried first)</small></span><textarea data-setting="customPiped" rows="2" placeholder="https://pipedapi.example.com">${esc(s.customPiped)}</textarea></label>
     <label class="field col"><span>Your own Invidious servers</span><textarea data-setting="customInvidious" rows="2" placeholder="https://invidious.example.com">${esc(s.customInvidious)}</textarea></label>
     <div class="row-btns"><button class="btn small" data-act="test-sources">Test audio servers</button><button class="btn small" data-act="clear-matches">Reset song matches</button></div>
@@ -620,10 +621,10 @@ async function viewSettings() {
   </section>
   <section class="box"><h2>DJ</h2>${toggle('djVoice','DJ voice','Choose your host in DJ preferences.')}<a class="btn small" href="#/dj">Open DJ</a><p class="settings-note">Turn on live conversation from the DJ screen (one-time 600 MB download).</p><button class="btn small" data-act="dj-live-remove">Remove DJ downloads</button></section>
   <details class="box settings-more"><summary>About, shortcuts and what’s supported</summary>
-  <section class="box"><h2>What’s supported</h2><div class="capability"><span>Music discovery<small>Deezer public catalog</small></span><span>Available</span></div><div class="capability"><span>Audio playback<small>Piped / Invidious, previews, or local files</small></span><span>Source dependent</span></div><div class="capability"><span>Spotify stats & profile<small>Updates by itself once connected</small></span><span>${spotifyAccount||cachedLinks()?'Connected':'Not connected'}</span></div><div class="capability"><span>Jam<small>Listen together in real time</small></span><span>Spot+ Jam</span></div><div class="capability"><span>Spotify Connect & Blend</span><span class="unavailable">Not supported</span></div><div class="capability"><span>DJ</span><span>Spot+ DJ</span></div><div class="capability"><span>Podcasts & audiobooks</span><span>Available</span></div><p class="settings-note">Spot+ is independent of Spotify. It reads your public Spotify playlists and profile; Spotify’s own audio and Premium features aren’t included.</p></section>
+  <section class="box"><h2>What’s supported</h2><div class="capability"><span>Music discovery<small>Deezer public catalog</small></span><span>Available</span></div><div class="capability"><span>Audio playback<small>JioSaavn, HiFi, Audius, Piped, Invidious, Deezer, or local files</small></span><span>Source dependent</span></div><div class="capability"><span>Spotify stats & profile<small>Updates by itself once connected</small></span><span>${spotifyAccount||cachedLinks()?'Connected':'Not connected'}</span></div><div class="capability"><span>Jam<small>Listen together in real time</small></span><span>Spot+ Jam</span></div><div class="capability"><span>Spotify Connect & Blend</span><span class="unavailable">Not supported</span></div><div class="capability"><span>DJ</span><span>Spot+ DJ</span></div><div class="capability"><span>Podcasts & audiobooks</span><span>Available</span></div><p class="settings-note">Spot+ is independent of Spotify. It reads your public Spotify playlists and profile; Spotify’s own audio and Premium features aren’t included.</p></section>
   <section class="box"><h2>Keyboard shortcuts</h2><p class="settings-note">Space: play/pause · Alt + Right/Left: next/previous · Ctrl/⌘ + K: search · Escape: close overlay. Use Tab and arrow keys for controls.</p></section>
   <section class="box"><h2>About Spot+</h2>
-    <p class="muted">Song info comes from Deezer, audio is matched on YouTube through public Piped and Invidious servers, and lyrics come from LRCLIB. Everything runs on your device.</p>
+    <p class="muted">Song info comes from Deezer, audio streams from JioSaavn, HiFi/Monochrome, Audius, Piped, and Invidious servers, and lyrics come from LRCLIB. Everything runs on your device.</p>
   </section></details>`;
 }
 
@@ -746,7 +747,7 @@ function refreshDl(){
 }
 async function downloadTracks(tracks,{keep='',quiet=false}={}) {
   const todo = tracks.filter((t) => !t.local && !store.isDownloaded(t.id));
-  if(store.getSettings().source==='preview'){if(!quiet)toast('Preview mode cannot download full songs. Choose a full audio source in Settings.');return;}
+  if(['preview', 'deezer'].includes(store.getSettings().source)){if(!quiet)toast('Preview mode cannot download full songs. Choose a full audio source in Settings.');return;}
   if (!todo.length) { if(!quiet)toast('Already downloaded'); refreshDl(); return; }
   if (dlJob) { if(!quiet)toast('Another download is still running'); return; }
   const controller=new AbortController();
@@ -1081,6 +1082,15 @@ async function handleAct(act, el) {
       toast('Background removed');
       break;
     }
+    case 'bg-reset-search': {
+      const search = $('#bgSearch');
+      if (search) {
+        search.value = '';
+        search.dispatchEvent(new Event('input', { bubbles: true }));
+        search.focus();
+      }
+      break;
+    }
   }
 }
 
@@ -1256,7 +1266,7 @@ function syncNP() {
     np.dataset.statsId = t.id;
     getTrackStats(t).then(data=>{if(player.current()?.id!==t.id)return;const count=matchPlayCount(t,data);$('#npPlays').textContent=count?count.plays.toLocaleString()+' plays on Spotify':'';});
   }
-  $('#npSrc').textContent = s.offline ? (t.local?'Local audio · On this device':'Downloaded audio · On this device') : s.source?.preview ? '30-second preview · Deezer' : s.source?.kind === 'youtube-embed' ? (s.needsTap ? 'YouTube player · Tap play above to start' : 'Full track · YouTube player') : s.source ? `Audio · ${api.host(s.source.instance)}` : s.loading ? 'Finding audio… Tap play to cancel.' : s.error?'Audio unavailable. Retry or change audio source.':'Ready to play';
+  $('#npSrc').textContent = s.offline ? (t.local?'Local audio · On this device':'Downloaded audio · On this device') : s.source?.preview ? `30-second preview · ${s.source.engineLabel || 'Deezer'}` : s.source?.kind === 'youtube-embed' ? (s.needsTap ? 'YouTube player · Tap play above to start' : 'Full track · YouTube player') : s.source?.engineLabel ? `${s.source.engineLabel} · ${api.host(s.source.instance)}` : s.source ? `Audio · ${api.host(s.source.instance)}` : s.loading ? 'Finding audio… Tap play to cancel.' : s.error?'Audio unavailable. Retry or change audio source.':'Ready to play';
   syncCanvas();
   if (npMode === 'queue') renderQueue();
   if (!s.loading) loadLyrics();
