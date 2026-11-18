@@ -1,6 +1,11 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.19', date: '2026-11-18', title: 'Keep profile photos available when Spot+ is offline', items: [
+    'Your photo chooser module is now part of the iPhone PWA offline shell, so launching Spot+ without a connection does not depend on fetching it.',
+    'Keeps the full wallpaper catalog, Clear mode, single-surface search fields, and full-audio recovery from 1.9.18.',
+  ]},
+
   {version: '1.9.18', date: '2026-11-18', title: 'iPhone wallpaper scrolling, real profile photos, and full-audio recovery', items: [
     'Search fields are a single clean shape on iPhone, without a nested native input border.',
     'The complete Alpha Coders wallpaper catalog is reachable in its own scrolling list, with compact phone controls and lazy-loaded thumbnails.',
