@@ -77,7 +77,7 @@ export async function handle(request, {fetcher=fetch,cache,waitUntil=()=>{},env}
   const url = new URL(request.url);
   if (['/stats','/installs','/listening'].includes(url.pathname) && (request.method === 'GET' ? url.pathname === '/stats' : request.method === 'POST' && url.pathname !== '/stats'))
     return liveStats(request, env, async text => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('spotplus:' + text)))].slice(0, 8).map(b => b.toString(16).padStart(2, '0')).join(''));
-  if (request.method !== 'GET') return json({error:'Use GET'},405);
+  if (request.method !== 'GET' && !(url.pathname === '/yta' && request.method === 'HEAD')) return json({error:'Use GET'},405);
   if (url.pathname === '/spotify-stats') return spotifyStats(request,{fetcher,cache,waitUntil});
   if (['/podcasts','/podcast','/audiobooks'].includes(url.pathname)) return podcasts(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/dev') return devProfile(request,{fetcher,cache,waitUntil});
@@ -87,7 +87,7 @@ export async function handle(request, {fetcher=fetch,cache,waitUntil=()=>{},env}
   if (url.pathname === '/yta') return youtubeRelay(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/stream') return youtubeStream(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/spotify-public') return spotifyPublic(request,{fetcher,cache,waitUntil});
-  if (url.pathname === '/health') return json({service:'Spot+ Canvas bridge',status:'ok',lyrics:true,spotifyPublic:true,match:true,wallpapers:true,sc:!!(env?.SC_CLIENT_ID&&env?.SC_CLIENT_SECRET),relay:true,stream:true,stats:true,dev:true,podcasts:true});
+  if (url.pathname === '/health') return json({service:'Spot+ Canvas bridge',status:'ok',lyrics:true,spotifyPublic:true,match:true,wallpapers:true,sc:!!(env?.SC_CLIENT_ID&&env?.SC_CLIENT_SECRET),relay:true,relayIntegrity:'v3',stream:true,stats:true,dev:true,podcasts:true});
   if (url.pathname === '/lyrics-search') return lyricsSearch(url,{fetcher,cache,waitUntil});
   if (url.pathname !== '/canvas') return json({error:'Not found'},404);
   const query = queryFor(url.searchParams);
@@ -117,6 +117,7 @@ const SECURITY_HEADERS = {
   'X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'no-referrer',
   'Content-Security-Policy':"default-src 'none'; frame-ancestors 'none'",'Cross-Origin-Resource-Policy':'cross-origin',
   'Strict-Transport-Security':'max-age=63072000; includeSubDomains','Permissions-Policy':'interest-cohort=()',
+  'Access-Control-Expose-Headers':'Content-Range, Content-Length, Accept-Ranges, X-Spotplus-Source, X-Spotplus-Duration, X-Spotplus-Itag',
 };
 const RATE = {limit:120, windowMs:60000}, hits = new Map();
 // Audio streaming makes many small range requests, so the relay has its own, higher limit.

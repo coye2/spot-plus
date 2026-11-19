@@ -1,6 +1,12 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.48', date: '2026-11-19', title: 'Spot+ YouTube Relay: full-song integrity and iPhone playback', items: [
+    'Spot+ YouTube Relay validates complete upstream audio byte ranges, detects truncation, and avoids accidentally treating a cut-off recording as a completed song.',
+    'Improved iPhone seeking and mid-track continuation, including Safari suffix ranges and safe signed-link refreshes.',
+    'Shows the recording timeline from actual YouTube duration metadata instead of guessing from fragmented audio size, and rejects seriously mismatched recordings.',
+    'Quicker skip cancellation and relay-only source selection, with playback-health reporting and more regression tests.',
+  ]},
   {version: '1.9.46', date: '2026-11-19', title: 'Lock screen skip, background auto-next, and polished wallpaper cards', items: [
     'Fixed the iPhone Lock Screen and Notification Center player showing 10-second jump controls instead of full-song Previous and Next buttons.',
     'Fixed songs stopping at the end when the screen is locked or Spot+ is in the background: the next song now continues automatically on the active audio session.',

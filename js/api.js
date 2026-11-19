@@ -369,10 +369,24 @@ export async function relayStream(track, signal, matches) {
     const url = `${RELAY_ENDPOINT}?id=${id}&fmt=${fmt}`;
     const r = await fetch(url, {headers: {Range: 'bytes=0-1'}, signal: probeSignal, credentials: 'omit'});
     if (r.status === 404 && !(r.headers.get('content-type') || '').includes('json')) { relayOff = Date.now() + 30 * 60e3; throw new Error('Relay is not deployed'); }
-    if (r.status !== 206 && r.status !== 200) { r.body?.cancel?.().catch(() => {}); throw new Error('Relay answered ' + r.status); }
-    r.body?.cancel?.().catch(() => {});
-    const pick = matches.find((m) => m?.id === id) || {};
-    return {url, mime: (r.headers.get('content-type') || 'audio/mp4').split(';')[0], bitrate: RELAY_BITRATE[fmt] || 128000, kind: 'ytrelay', engineLabel: 'YouTube audio', instance: RELAY_BASE, videoId: id, catalogId: id, title: pick.title, channel: pick.channel || pick.author, duration: pick.duration || track.duration, alternatives: []};
+    if (r.status !== 206) { r.body?.cancel?.().catch(() => {}); throw new Error('Relay answered ' + r.status); }
+    const range = /^bytes 0-1\/(\d+)$/.exec(r.headers.get('content-range') || '');
+    if (!range || Number(range[1]) < 2) { r.body?.cancel?.().catch(() => {}); throw new Error('Relay sent an invalid audio range'); }
+    // Confirm the server actually supplied both bytes. A 206 with a truncated body
+    // must not win the source race and strand the player on a dead song.
+    const bytes = await r.arrayBuffer();
+    if (bytes.byteLength !== 2) throw new Error('Relay returned a truncated audio probe');
+    const pick = (matches || []).find((m) => m?.id === id) || {};
+    const accurateDuration = Number(r.headers.get('X-Spotplus-Duration')) || 0;
+    const expectedDuration = Number(track.duration) || 0;
+    if (accurateDuration > 0 && expectedDuration > 0 &&
+        Math.abs(accurateDuration - expectedDuration) > Math.max(10, expectedDuration * 0.06)) {
+      throw new Error('YouTube recording duration does not match the requested song');
+    }
+    return {url, mime: (r.headers.get('content-type') || 'audio/mp4').split(';')[0], bitrate: RELAY_BITRATE[fmt] || 128000,
+      kind: 'ytrelay', engineLabel: 'Spot+ YouTube Relay', instance: RELAY_BASE, videoId: id, catalogId: id,
+      title: pick.title, channel: pick.channel || pick.author, duration: accurateDuration || pick.duration || track.duration,
+      alternatives: []};
   };
   // Two rounds: YouTube's bot check on the server comes and goes, and each new request gets a fresh session.
   const queue = [...ids, ...ids.slice(0, 2)];
@@ -524,7 +538,16 @@ const failedInstances = new Map();
 function lastGood() { try { return JSON.parse(localStorage.getItem(goodKey) || '{}'); } catch { return {}; } }
 function markGood(kind, base) { const g = lastGood(); g[kind] = base; try { localStorage.setItem(goodKey, JSON.stringify(g)); } catch {} }
 export function reportPlaybackSource(source, ok = true, meta = {}) {
-  if (!source?.instance || !['piped','invidious','bridge','audius','jiosaavn','hifi','monochrome'].includes(source.kind)) return;
+  if (!source?.instance) return;
+  // Track real audio starts, stalls and failures for Spot+ YouTube Relay, not just
+  // successful URL resolution. A single rejected upload must not disable the whole
+  // provider for every subsequent song.
+  if (source.kind === 'ytrelay') {
+    router.recordPlayback(RELAY_BASE, {ok, startupMs: meta.startupMs, stalled: !!meta.stalled});
+    if (ok) { relayOff = 0; relayKnown = 'on'; }
+    return;
+  }
+  if (!['piped','invidious','bridge','audius','jiosaavn','hifi','monochrome'].includes(source.kind)) return;
   const hostKey = source.kind === 'bridge' ? STREAM_ENDPOINT : source.instance;
   router.recordPlayback(hostKey, { ok, startupMs: meta.startupMs, stalled: !!meta.stalled });
   if (ok) {
@@ -969,7 +992,8 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
     throw new Error('Could not find a playable YouTube recording for this track.');
   }
 
-  const inst = await instances();
+  // A user-selected YouTube Relay requires no public mirror registry.
+  const inst = ['ytrelay', 'soundcloud'].includes(set.source) ? {} : await instances();
   // Fast path: Invidious servers have a fixed audio address for every recording. With the recording
   // known (saved, or from the shared lookup) and a server that worked for you recently, start playing
   // right away instead of asking a server for the audio links first. Failures fall back to the full search.
@@ -1196,7 +1220,7 @@ export function instantMirrors(videoId, bases, { opus = false } = {}) {
 async function fastStream(t,{cached,shared,set,cors,skip,signal}){
   // Unchecked mirror links: public Invidious servers are mostly down, and a dead link costs seconds of
   // silence before the stall check gives up. Auto uses checked servers and YouTube's player instead.
-  if(['auto','piped','audius','preview','deezer','youtube','jiosaavn','hifi'].includes(set.source))return null;
+  if(['auto','piped','audius','preview','deezer','youtube','jiosaavn','hifi','ytrelay','soundcloud'].includes(set.source))return null;
   const customMirrors = (set.customInvidious || '').split(/[\s,]+/).map(clean).filter(isAllowedCustomOrigin);
   const hasMirrorCandidate = !!(customMirrors.length || lastGood().invidious);
   const bridgeReady = !cors && streamDown <= Date.now() && router.isAvailable(STREAM_ENDPOINT);
