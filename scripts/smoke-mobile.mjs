@@ -8,7 +8,8 @@ import {APP_VERSION} from '../js/changelog.js';
 
 const {chromium} = await import('playwright').catch(() => import('/usr/local/share/bun-global/node_modules/playwright-core/index.mjs'));
 
-const port = '47081';
+// The worker only answers Spot+'s own site and the local test address on port 8080 (CORS).
+const port = '8080';
 const origin = 'http://127.0.0.1:' + port;
 const host = origin + '/';
 const server = spawn(process.execPath, ['scripts/serve.mjs','dist'], {
