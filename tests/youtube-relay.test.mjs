@@ -89,3 +89,16 @@ test('/yta picks the format the app asks for, like Spotube’s quality setting',
   assert.deepEqual(seen.map(u => new URL(u).searchParams.get('itag')), ['251', '140', '139']);
   assert.deepEqual(types, {opus: 'audio/webm', aac: 'audio/mp4', low: 'audio/mp4'});
 });
+
+test('/match retries once when YouTube search hiccups', async () => {
+  const {youtubeMatch} = await import('../canvas-bridge/youtube-match.js');
+  let calls = 0;
+  const fetcher = async () => {
+    calls++;
+    if (calls === 1) return new Response('busy', {status: 503});
+    return new Response(JSON.stringify({contents: {}}));
+  };
+  const r = await youtubeMatch(new Request('https://w.dev/match?q=the%20cure'), {fetcher});
+  assert.equal(r.status, 200);
+  assert.equal(calls, 2);
+});
