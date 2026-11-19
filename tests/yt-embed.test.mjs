@@ -7,7 +7,8 @@ browserMocks();
 function installDomMocks() {
   const host = {
     children: [],
-    replaceChildren(...nodes) { this.children = nodes; }
+    replaceChildren(...nodes) { this.children = nodes; },
+    appendChild(node) { this.children.push(node); node.parentNode = this; }
   };
   const iframes = [];
   const messageListeners = [];
@@ -44,6 +45,7 @@ function installDomMocks() {
           title: '',
           posted,
           setAttribute() {},
+          classList: { set: new Set(), add(c) { this.set.add(c); }, remove(c) { this.set.delete(c); }, contains(c) { return this.set.has(c); } },
           addEventListener(type, fn) { (listeners[type] ||= []).push(fn); },
           trigger(type) { (listeners[type] || []).forEach(fn => fn()); },
           contentWindow: {
@@ -63,8 +65,8 @@ function installDomMocks() {
     host,
     iframes,
     setJsonpResponder(fn) { jsonpResponder = fn; },
-    emitMessage(origin, data) {
-      const event = { origin, data: typeof data === 'string' ? data : JSON.stringify(data) };
+    emitMessage(origin, data, source) {
+      const event = { origin, source, data: typeof data === 'string' ? data : JSON.stringify(data) };
       for (const fn of [...messageListeners]) fn(event);
     }
   };
@@ -299,4 +301,38 @@ test('a wider YouTube net keeps the same song and drops covers, remixes, and wro
     { id: 'fffffffffff', title: 'Dua Lipa - Levitating', channel: 'Dua Lipa', duration: 203 },
   ];
   assert.deepEqual(api.looseEmbedMatches(items, t).map(x => x.id), ['aaaaaaaaaaa', 'bbbbbbbbbbb']);
+});
+
+test('the hidden player cues the next song and a skip swaps players instead of loading', () => {
+  const yt = new YouTubeEmbedPlayer({});
+  yt.warm('aaaaaaaaaaa');
+  const main = dom.iframes.at(-1);
+  dom.emitMessage('https://www.youtube.com', { event: 'onReady' }, main.contentWindow);
+  assert.equal(yt.preload('bbbbbbbbbbb'), true);
+  const spare = dom.iframes.at(-1);
+  assert.notEqual(spare, main);
+  assert.match(spare.src, /embed\/bbbbbbbbbbb\?enablejsapi=1&autoplay=0/);
+  dom.emitMessage('https://www.youtube.com', { event: 'onReady' }, spare.contentWindow);
+  assert.equal(yt.spareLive, true);
+  const spareSrc = spare.src;
+  yt.load(['bbbbbbbbbbb'], { autoplay: true, volume: 1 });
+  assert.equal(yt.iframe, spare, 'the prepared player takes over');
+  assert.equal(spare.src, spareSrc, 'no reload');
+  assert.ok(spare.posted.some(p => p.msg.func === 'playVideo'));
+  assert.ok(main.posted.some(p => p.msg.func === 'stopVideo'), 'the old player goes quiet');
+  yt.stop();
+});
+
+test('a blocked upload is found by the hidden player before anyone presses play', () => {
+  const blocked = [];
+  const yt = new YouTubeEmbedPlayer({ onCandidateError: (id, code) => blocked.push([id, code]) });
+  yt.warm('ccccccccccc');
+  const main = dom.iframes.at(-1);
+  dom.emitMessage('https://www.youtube.com', { event: 'onReady' }, main.contentWindow);
+  yt.preload('ddddddddddd');
+  const spare = dom.iframes.at(-1);
+  dom.emitMessage('https://www.youtube.com', { event: 'onReady' }, spare.contentWindow);
+  dom.emitMessage('https://www.youtube.com', { event: 'onError', info: 150 }, spare.contentWindow);
+  assert.deepEqual(blocked, [['ddddddddddd', 150]]);
+  assert.equal(yt.spareId, '');
 });

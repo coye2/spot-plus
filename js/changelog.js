@@ -1,6 +1,14 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.28', date: '2026-11-19', title: 'InstantPlay: the next song is ready before you ask', items: [
+    'A hidden second YouTube player loads the next song in your queue (and the song you touch) ahead of time. Skipping swaps players instead of loading, and the next song starts in under a second.',
+    'The YouTube player loads when the app opens, so the first song starts about twice as fast.',
+    'Songs start on YouTube right away instead of waiting for the lossless servers. When a lossless server answers, Spot+ still switches to it mid-song.',
+    'Blocked uploads are found in the background, before you press play.',
+    'Android and computers: one tap on a song plays it. No extra tap.',
+    'iPhone: Apple only lets YouTube’s player start from a tap inside it, so the first song of each session still needs one tap in the YouTube box. After that, songs start on their own.',
+  ]},
   {version: '1.9.27', date: '2026-11-19', title: 'Full songs on iPhone', items: [
     'Fixed songs sitting at 0:00. Spot+ was trying shortcut links to public YouTube mirrors that are down, and waiting on each one. Automatic no longer uses them.',
     'Turned off the worker’s stream links. They only work from Cloudflare’s servers, not from phones.',

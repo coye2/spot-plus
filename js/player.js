@@ -437,6 +437,7 @@ const yt = new YouTubeEmbedPlayer({
   onPlaying: () => {
     if (ytToken !== token) return;
     api.rememberEmbed?.(current(), yt.videoId);
+    api.setEmbedUnlocked?.(true);
     setPhase(STATES.PLAYING);
     state.needsTap = false;
     telemetry.markStage(ytToken, 'firstAudible', { sourceKind: 'youtube-embed', instance: 'youtube.com' });
@@ -444,6 +445,8 @@ const yt = new YouTubeEmbedPlayer({
     if ('mediaSession' in navigator) { navigator.mediaSession.playbackState = 'playing'; updateSession(current()); }
     window.dispatchEvent?.(new Event('spotplus:music-play'));
     emit('state');
+    // Get the next song ready in the hidden player while this one plays.
+    prefetch();
   },
   onPause: () => {
     if (ytToken !== token) return;
@@ -937,6 +940,7 @@ function prefetch() {
       if (!isEmbed() && !audioHasHeadroom(audio, Math.max(3, needHeadroom - 2))) return;
 
       // Stage B: prepare Player B when permitted, non-embed, and not rapid-skipping.
+      if (source.kind === 'youtube-embed') yt.preload(source.videoId);
       if (netProfile.preloadStageB && !effectsOn() && source.kind !== 'youtube-embed' && !skipTracker.isRapidSkipping()) {
         nextBuffer.warm(api.streamKey(next), source, { cors: corsKnown(source.url) === true });
       }
@@ -946,7 +950,23 @@ function prefetch() {
 }
 
 // Boot YouTube's player in the background as soon as a likely song's video is known.
-api.onEmbedFound?.((id) => { if (!yt.active) yt.warm(id); });
+// While a song plays, the next likely one is cued in the hidden player instead.
+api.onEmbedFound?.((id) => {
+  const cur = current();
+  if (cur && store.getVideoCache(cur.id)?.id === id && (state.loading || isEmbed())) return; // that's the song already starting
+  if (!yt.active && !yt.live) yt.warm(id); else if (yt.live) yt.preload(id);
+});
+// Boot YouTube's player shortly after the app opens, so the first song swaps in instead of loading a player.
+(() => {
+  const boot = () => {
+    if (yt.active || yt.live || navigator.connection?.saveData || !['youtube', 'auto'].includes(store.getSettings().source)) return;
+    const id = (current() && store.getVideoCache?.(current().id)?.id) || store.lastPlayableVideo?.() || 'dQw4w9WgXcQ';
+    yt.warm(id);
+  };
+  if (typeof globalThis.document === 'undefined' || typeof globalThis.setTimeout !== 'function') return;
+  const later = globalThis.requestIdleCallback || ((fn) => setTimeout(fn, 1200));
+  later(() => boot(), { timeout: 2500 });
+})();
 
 /* ---------- Audio element events ---------- */
 let lastSave = 0, lastPos = 0;

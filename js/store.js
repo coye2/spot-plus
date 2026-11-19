@@ -122,6 +122,12 @@ export const setSettings = (patch) => write('settings', { ...getSettings(), ...p
 
 /* ---------- Which YouTube video matches which track ---------- */
 export function getVideoCache(id) { return read('vcache', {})[id] || null; }
+/** The most recent video that is known to play in YouTube's player (used to boot the player early). */
+export function lastPlayableVideo() {
+  const c = read('vcache', {});
+  const ids = Object.values(c).filter((v) => v?.embedOk && /^[\w-]{11}$/.test(String(v.id || ''))).map((v) => v.id);
+  return ids.at(-1) || '';
+}
 export function setVideoCache(id, v) {
   const c = read('vcache', {});
   if (v) c[id] = v; else delete c[id];

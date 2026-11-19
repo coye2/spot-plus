@@ -2,6 +2,16 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.28 — InstantPlay: the next song is ready before you ask
+_2026-11-19_
+
+- A hidden second YouTube player loads the next song in your queue (and the song you touch) ahead of time. Skipping swaps players instead of loading, and the next song starts in under a second.
+- The YouTube player loads when the app opens, so the first song starts about twice as fast.
+- Songs start on YouTube right away instead of waiting for the lossless servers. When a lossless server answers, Spot+ still switches to it mid-song.
+- Blocked uploads are found in the background, before you press play.
+- Android and computers: one tap on a song plays it. No extra tap.
+- iPhone: Apple only lets YouTube’s player start from a tap inside it, so the first song of each session still needs one tap in the YouTube box. After that, songs start on their own.
+
 ## 1.9.27 — Full songs on iPhone
 _2026-11-19_
 

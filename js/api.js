@@ -319,8 +319,20 @@ let matchDown = 0;
 let streamDown = 0;
 // When every direct server failed recently, Auto goes straight to YouTube's player (instant start).
 let directDown = 0;
-// Lossless servers get this long; past it the song starts on YouTube and upgrades mid-song if one answers.
-export const EMBED_AFTER_MS = 900;
+const appleMobile = () => /iP(hone|ad|od)/.test(globalThis.navigator?.userAgent || '') || (globalThis.navigator?.platform === 'MacIntel' && globalThis.navigator?.maxTouchPoints > 1);
+/**
+ * How long lossless servers get before YouTube's player starts. Elsewhere a known video starts at once
+ * (lossless takes over mid-song). On iPhone the YouTube player needs its own tap, while a lossless link
+ * plays straight from the tap on the song, so lossless gets longer there.
+ */
+let embedUnlocked = false;
+/** The player reports when YouTube's player has played with sound this session (iPhone then autoplays it too). */
+export function setEmbedUnlocked(on = true) { embedUnlocked = !!on; }
+export function embedWait(t, now = Date.now()) {
+  if (directDown > now) return 0;
+  if (appleMobile() && !embedUnlocked) return 2600;
+  return 0;
+}
 async function bridgeMatches(t, signal) {
   if (matchDown > Date.now()) throw new Error('Match lookup paused');
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 3500);
@@ -688,7 +700,8 @@ function kinds(s = getSettings().source) {
   if (s === 'invidious') return ['invidious'];
   if (s === 'audius') return ['audius'];
   if (s === 'youtube') return ['youtube'];
-  return ['monochrome', 'jiosaavn', 'hifi', 'invidious', 'piped'];
+  // HiFi relays are inactive and public Invidious/Piped servers are blocked by YouTube (their links stall).
+  return ['monochrome', 'jiosaavn'];
 }
 
 export async function previewStream(t) {
@@ -898,7 +911,7 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
     // Auto: full song through YouTube's official player if no direct server answers quickly.
     let embedTimer = 0;
     const embedFallback = isAuto && allowEmbed && !cors && shared !== undefined ? new Promise((resolve, reject) => {
-      const wait = directDown > Date.now() ? 0 : EMBED_AFTER_MS;
+      const wait = embedWait(t);
       let fired = false;
       const fire = async () => {
         if (fired) return; fired = true; clearTimeout(embedTimer);
