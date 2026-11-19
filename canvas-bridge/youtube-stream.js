@@ -46,14 +46,14 @@ function clientContext(profile = 'visionos') {
   return {client};
 }
 
-export async function ensureVisitor(fetcher = fetch, {force = false} = {}) {
+export async function ensureVisitor(fetcher = fetch, {force = false, signal} = {}) {
   if (visitorData && !force && Date.now() - visitorFetched < 6 * 3600e3) return visitorData;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 3500);
   try {
     const response = await fetcher(VISITOR, {
       method: 'POST',
-      signal: controller.signal,
+      signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
       headers: {'Content-Type': 'application/json', 'User-Agent': VISIONOS_UA},
       body: JSON.stringify({context: {client: {clientName: 'VISIONOS', clientVersion: VISIONOS_VERSION}}}),
     });
@@ -114,8 +114,8 @@ export function shapeStream(format, videoId, engine = 'bridge', alternatives = [
 
 // validate(stream) -> true when the link really serves the whole file; a link that fails it is skipped
 // and the next client is tried.
-export async function innertubeStream(videoId, {fetcher, preferAac, order = null, validate = null, profiles = PROFILE_ORDER}) {
-  await ensureVisitor(fetcher);
+export async function innertubeStream(videoId, {fetcher, preferAac, order = null, validate = null, profiles = PROFILE_ORDER, signal}) {
+  await ensureVisitor(fetcher, {signal});
   const attempt = async (profile) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 7000);
@@ -123,7 +123,7 @@ export async function innertubeStream(videoId, {fetcher, preferAac, order = null
     try {
       const response = await fetcher(PLAYER, {
         method: 'POST',
-        signal: controller.signal,
+        signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
         headers: {
           'Content-Type': 'application/json',
           'User-Agent': ua,
@@ -167,9 +167,10 @@ export async function innertubeStream(videoId, {fetcher, preferAac, order = null
 
   let firstFailure = null;
   for (const profile of profiles.filter(name => PROFILES[name])) {
+    if (signal?.aborted) return {error: 'Playback request cancelled'};
     let result = await attempt(profile);
     if (result.login) {
-      await ensureVisitor(fetcher, {force: true});
+      await ensureVisitor(fetcher, {force: true, signal});
       result = await attempt(profile);
     }
     if (result.stream && validate && !(await Promise.resolve(validate(result.stream)).catch(() => false))) {
