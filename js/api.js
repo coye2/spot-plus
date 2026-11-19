@@ -538,7 +538,16 @@ const failedInstances = new Map();
 function lastGood() { try { return JSON.parse(localStorage.getItem(goodKey) || '{}'); } catch { return {}; } }
 function markGood(kind, base) { const g = lastGood(); g[kind] = base; try { localStorage.setItem(goodKey, JSON.stringify(g)); } catch {} }
 export function reportPlaybackSource(source, ok = true, meta = {}) {
-  if (!source?.instance || !['piped','invidious','bridge','audius','jiosaavn','hifi','monochrome'].includes(source.kind)) return;
+  if (!source?.instance) return;
+  // Track real audio starts, stalls and failures for Spot+ YouTube Relay, not just
+  // successful URL resolution. A single rejected upload must not disable the whole
+  // provider for every subsequent song.
+  if (source.kind === 'ytrelay') {
+    router.recordPlayback(RELAY_BASE, {ok, startupMs: meta.startupMs, stalled: !!meta.stalled});
+    if (ok) { relayOff = 0; relayKnown = 'on'; }
+    return;
+  }
+  if (!['piped','invidious','bridge','audius','jiosaavn','hifi','monochrome'].includes(source.kind)) return;
   const hostKey = source.kind === 'bridge' ? STREAM_ENDPOINT : source.instance;
   router.recordPlayback(hostKey, { ok, startupMs: meta.startupMs, stalled: !!meta.stalled });
   if (ok) {
