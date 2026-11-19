@@ -15,8 +15,9 @@ export const FORMATS = {
   'low-opus': [AUDIO_ITAGS.opus50, AUDIO_ITAGS.opus70, AUDIO_ITAGS.aacLow, AUDIO_ITAGS.aac],
 };
 
-// YouTube's bot check comes in bursts of a few seconds; three spread-out attempts outlast most of them.
-export const RETRY_WAITS = [0, 1200, 2800];
+// Two attempts: a short bot-check burst is outlasted by the second, and when YouTube has flagged the server for a
+// while, more attempts only made each refusal take 12-15 s (live, 2026-11-19); the app moves on instead.
+export const RETRY_WAITS = [0, 1200];
 // Cloudflare's free plan allows 50 subrequests per request. Finding a link may use at most this many, so
 // the audio slices that follow always fit (a long track needs about one per 4 MB).
 export const RESOLVE_BUDGET = 24;

@@ -35,3 +35,14 @@ test('relay: a skipped song never starts', async () => {
   ctl.abort(new Error('skipped'));
   await assert.rejects(relayStream(track, ctl.signal, matches), /skipped/);
 });
+
+test('relay circuit breaker: two failed songs in a row pause the relay; a played song resets the count', async () => {
+  const {relayStream, noteRelaySong} = await import('../js/api.js');
+  noteRelaySong(false);
+  await relayStream(track, undefined, matches); // one failure: still used
+  noteRelaySong(true);
+  noteRelaySong(false);
+  await relayStream(track, undefined, matches); // the success reset the count
+  noteRelaySong(false);
+  await assert.rejects(relayStream(track, undefined, matches), /Relay is off/);
+});

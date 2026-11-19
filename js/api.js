@@ -348,6 +348,17 @@ export function relayFormat(quality = getSettings().quality, ua = globalThis.nav
   return opus ? 'opus' : 'aac';
 }
 const RELAY_BITRATE = {opus: 160000, aac: 128000, low: 48000, 'low-opus': 50000};
+// Circuit breaker: YouTube sometimes flags the Spot+ server and refuses every lookup for a while (each refusal
+// takes the server several seconds). After two songs in a row fail on the relay, Automatic skips it for 3 minutes,
+// doubling up to 15 while it keeps failing, and songs start right away from the other full-song sources.
+let relayStrikes = 0, relayPause = 3 * 60e3;
+export function noteRelaySong(ok) {
+  if (ok) { relayStrikes = 0; relayPause = 3 * 60e3; return; }
+  if (++relayStrikes < 2) return;
+  relayOff = Date.now() + relayPause;
+  relayPause = Math.min(relayPause * 2, 15 * 60e3);
+  relayStrikes = 0;
+}
 // Uploads YouTube just refused are tried last for a few minutes, so a retry lands on another upload.
 const relayAvoid = new Map();
 export function avoidRelayVideo(id) { if (id) relayAvoid.set(id, Date.now() + 5 * 60e3); }

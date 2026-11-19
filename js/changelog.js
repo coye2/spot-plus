@@ -1,6 +1,10 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.51', date: '2026-11-19', title: 'No more songs stuck at 0:00 when YouTube blocks Spot+', items: [
+    'When YouTube starts refusing the Spot+ server (it does after a while), Automatic now notices after two songs and plays from its other full-song sources for a few minutes, then tries YouTube again. Before, every song sat at 0:00 for up to a minute.',
+    'A refused song moves on after two uploads instead of three.',
+  ]},
   {version: '1.9.50', date: '2026-11-19', title: 'Fewer songs stuck at 0:00', items: [
     'Spot+ YouTube Relay now asks YouTube once per song instead of twice. The extra check could pass while the song itself was refused, leaving it stuck at 0:00.',
     'When YouTube refuses every upload of a song in Automatic, Spot+ now switches to another full-song source instead of skipping the song.',

@@ -2,6 +2,12 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.51 — No more songs stuck at 0:00 when YouTube blocks Spot+
+_2026-11-19_
+
+- When YouTube starts refusing the Spot+ server (it does after a while), Automatic now notices after two songs and plays from its other full-song sources for a few minutes, then tries YouTube again. Before, every song sat at 0:00 for up to a minute.
+- A refused song moves on after two uploads instead of three.
+
 ## 1.9.50 — Fewer songs stuck at 0:00
 _2026-11-19_
 

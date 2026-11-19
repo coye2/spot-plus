@@ -354,7 +354,7 @@ function recoverMedia(mediaErr = null) {
     memoryEngine.forgetStream(api.streamKey(cur));
   }
   const relayFailed = failed?.kind === 'ytrelay';
-  if (!state.offline && !cur.local && failed && !failed.preview && errRetries < (relayFailed ? 3 : 2)) {
+  if (!state.offline && !cur.local && failed && !failed.preview && errRetries < 2) {
     errRetries++;
     // A relay stream that drops is usually YouTube refusing that one upload for a moment: try again from the
     // same spot, preferring another upload of the song, instead of giving up on the relay for this song.
@@ -367,6 +367,8 @@ function recoverMedia(mediaErr = null) {
   }
 
   // Automatic: YouTube refused every upload tried, so let the other full-song sources have a go.
+  // Only Automatic has other sources to switch to; in relay-only mode, pausing the relay would just stop the music.
+  if (relayFailed && store.getSettings().source === 'auto') api.noteRelaySong(false);
   if (relayFailed && !state.offline && !cur.local && failed.instance && !skipList.includes(failed.instance) && store.getSettings().source === 'auto') {
     skipList.push(failed.instance);
     telemetry.endRecovery(recStart, true);
@@ -1129,6 +1131,7 @@ function bindAudio(media) {
     }
   });
   listen('playing', () => {
+    if (state.source?.kind === 'ytrelay') api.noteRelaySong(true);
     if (!mixing) silenceOthers(); // one song at a time (AutoMix overlaps on purpose)
     unavailableRun = 0;
     suppressError = false;
