@@ -17,7 +17,12 @@ function fakeYouTube({firstMediaStatus = 206} = {}) {
       calls.media.push({url: u, range: init.headers?.Range});
       const status = calls.media.length === 1 ? firstMediaStatus : 206;
       if (status !== 206) return new Response('', {status});
-      return new Response('AUDIO', {status: 206, headers: {'Content-Range': 'bytes 0-4/5000', 'Content-Length': '5'}});
+      const range = /^bytes=(\d+)-(\d+)$/.exec(init.headers.Range);
+      const from = Number(range[1]), to = Math.min(Number(range[2]), 4999);
+      const length = to - from + 1;
+      return new Response(length === 5 ? 'AUDIO' : new Uint8Array(length), {
+        status: 206, headers: {'Content-Range': 'bytes ' + from + '-' + to + '/5000', 'Content-Length': String(length)},
+      });
     }
     throw new Error('unexpected ' + u);
   };
@@ -62,7 +67,7 @@ test('/yta retries with a fresh YouTube session after a bot check', async () => 
     if (u.includes('googlevideo.com')) return new Response('AUDIO', {status: 206, headers: {'Content-Range': 'bytes 0-4/5000'}});
     throw new Error('unexpected ' + u);
   };
-  const r = await youtubeRelay(new Request('https://w.dev/yta?id=ddddddddddd'), {fetcher});
+  const r = await youtubeRelay(new Request('https://w.dev/yta?id=ddddddddddd', {headers: {Range: 'bytes=0-4'}}), {fetcher});
   assert.equal(r.status, 206);
   assert.ok(visitors >= 2, 'asked YouTube for a new session');
 });
@@ -83,7 +88,7 @@ test('/yta picks the format the app asks for, like Spotube’s quality setting',
   };
   const types = {};
   for (const [fmt, id] of [['opus', 'eeeeeeeeee1'], ['aac', 'eeeeeeeeee2'], ['low', 'eeeeeeeeee3']]) {
-    const r = await youtubeRelay(new Request(`https://w.dev/yta?id=${id}&fmt=${fmt}`), {fetcher});
+    const r = await youtubeRelay(new Request(`https://w.dev/yta?id=${id}&fmt=${fmt}`, {headers: {Range: 'bytes=0-0'}}), {fetcher});
     types[fmt] = r.headers.get('Content-Type');
   }
   assert.deepEqual(seen.map(u => new URL(u).searchParams.get('itag')), ['251', '140', '139']);
