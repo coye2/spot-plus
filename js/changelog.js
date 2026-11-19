@@ -1,6 +1,9 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.39', date: '2026-11-19', title: 'Faster starts when YouTube is picky', items: [
+    'When YouTube is slow to hand over one upload of a song, Spot+ starts trying the next one after 1.5 seconds instead of waiting up to 7, and plays whichever answers first.',
+  ]},
   {version: '1.9.38', date: '2026-11-19', title: 'Songs no longer cut off', items: [
     'Fixed songs on iPhone stopping at 0:00 or after the first minute. YouTube changed what it allows in August, and the Spot+ server now asks for audio the way that still gets the whole song.',
     'Before a song starts, the server checks that YouTube will deliver all of it, so a song never plays partway and stops.',

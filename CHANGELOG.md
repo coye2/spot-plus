@@ -2,6 +2,11 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.39 — Faster starts when YouTube is picky
+_2026-11-19_
+
+- When YouTube is slow to hand over one upload of a song, Spot+ starts trying the next one after 1.5 seconds instead of waiting up to 7, and plays whichever answers first.
+
 ## 1.9.38 — Songs no longer cut off
 _2026-11-19_
 

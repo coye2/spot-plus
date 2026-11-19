@@ -348,30 +348,61 @@ export function relayFormat(quality = getSettings().quality, ua = globalThis.nav
   return opus ? 'opus' : 'aac';
 }
 const RELAY_BITRATE = {opus: 160000, aac: 128000, low: 48000, 'low-opus': 50000};
-async function relayStream(track, signal, matches) {
+// The relay usually answers in well under a second. When YouTube refuses an upload, the worker spends a few
+// seconds retrying before it gives up, so the next upload starts in parallel after a short wait (hedging)
+// instead of queueing behind it. The first upload that really streams wins; the others are cancelled.
+export const RELAY_HEDGE_MS = 1500;
+const RELAY_PROBE_MS = 9000;
+const RELAY_PARALLEL = 2;
+export async function relayStream(track, signal, matches) {
   if (relayOff > Date.now()) throw new Error('Relay is off');
   const ids = uniq((matches || []).map((m) => m?.id).filter((id) => /^[\w-]{11}$/.test(id || ''))).slice(0, 3);
   if (!ids.length) throw new Error('No YouTube match');
-  let last = 'No audio';
-  // Two rounds: YouTube's bot check on the server comes and goes, and each new request gets a fresh session.
-  for (const id of [...ids, ...ids.slice(0, 2)]) {
-    const fmt = relayFormat();
+  const fmt = relayFormat();
+  // Ask for two bytes: proves the relay really streams this song before the player commits to it.
+  const probe = async (id, probeSignal) => {
     const url = `${RELAY_ENDPOINT}?id=${id}&fmt=${fmt}`;
-    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 7000);
-    try {
-      // Ask for two bytes: proves the relay really streams this song before the player commits to it.
-      const r = await fetch(url, {headers: {Range: 'bytes=0-1'}, signal: signal ? AbortSignal.any([signal, ctl.signal]) : ctl.signal, credentials: 'omit'});
-      if (r.status === 404 && !(r.headers.get('content-type') || '').includes('json')) { relayOff = Date.now() + 30 * 60e3; throw new Error('Relay is not deployed'); }
-      if (r.status === 206 || r.status === 200) {
-        r.body?.cancel?.().catch(() => {});
-        const pick = matches.find((m) => m?.id === id) || {};
-        return {url, mime: (r.headers.get('content-type') || 'audio/mp4').split(';')[0], bitrate: RELAY_BITRATE[fmt] || 128000, kind: 'ytrelay', engineLabel: 'YouTube audio', instance: RELAY_BASE, videoId: id, catalogId: id, title: pick.title, channel: pick.channel || pick.author, duration: pick.duration || track.duration, alternatives: []};
-      }
-      last = 'Relay answered ' + r.status;
-    } catch (e) { if (signal?.aborted || relayOff > Date.now()) throw e; last = e.message; }
-    finally { clearTimeout(timer); }
-  }
-  throw new Error(last);
+    const r = await fetch(url, {headers: {Range: 'bytes=0-1'}, signal: probeSignal, credentials: 'omit'});
+    if (r.status === 404 && !(r.headers.get('content-type') || '').includes('json')) { relayOff = Date.now() + 30 * 60e3; throw new Error('Relay is not deployed'); }
+    if (r.status !== 206 && r.status !== 200) { r.body?.cancel?.().catch(() => {}); throw new Error('Relay answered ' + r.status); }
+    r.body?.cancel?.().catch(() => {});
+    const pick = matches.find((m) => m?.id === id) || {};
+    return {url, mime: (r.headers.get('content-type') || 'audio/mp4').split(';')[0], bitrate: RELAY_BITRATE[fmt] || 128000, kind: 'ytrelay', engineLabel: 'YouTube audio', instance: RELAY_BASE, videoId: id, catalogId: id, title: pick.title, channel: pick.channel || pick.author, duration: pick.duration || track.duration, alternatives: []};
+  };
+  // Two rounds: YouTube's bot check on the server comes and goes, and each new request gets a fresh session.
+  const queue = [...ids, ...ids.slice(0, 2)];
+  return new Promise((resolve, reject) => {
+    const live = new Map(); // id -> AbortController of its probe in flight
+    let last = 'No audio', done = false, hedge = null;
+    const finish = (settle, value) => {
+      if (done) return;
+      done = true; clearTimeout(hedge);
+      for (const ctl of live.values()) ctl.abort();
+      signal?.removeEventListener?.('abort', onAbort);
+      settle(value);
+    };
+    const onAbort = () => finish(reject, signal.reason || new Error('Aborted'));
+    const launch = () => {
+      clearTimeout(hedge);
+      if (done) return;
+      if (!live.size && !queue.length) return finish(reject, new Error(last));
+      // The same upload is never asked twice at once; its second round waits for the first to finish.
+      const next = queue.findIndex((id) => !live.has(id));
+      if (next < 0 || live.size >= RELAY_PARALLEL) return;
+      const [id] = queue.splice(next, 1);
+      const ctl = new AbortController();
+      live.set(id, ctl);
+      const timer = setTimeout(() => ctl.abort(), RELAY_PROBE_MS);
+      probe(id, ctl.signal).then((stream) => finish(resolve, stream), (error) => {
+        if (relayOff > Date.now()) return finish(reject, error);
+        last = error?.message || last;
+      }).finally(() => { clearTimeout(timer); live.delete(id); launch(); });
+      if (queue.length) hedge = setTimeout(launch, RELAY_HEDGE_MS);
+    };
+    if (signal?.aborted) return onAbort();
+    signal?.addEventListener?.('abort', onAbort, {once: true});
+    launch();
+  });
 }
 // Ask the worker once (on the first song) whether SoundCloud is set up, so nothing waits on it when it is not.
 let scKnown = '';
