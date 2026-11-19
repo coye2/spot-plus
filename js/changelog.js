@@ -1,8 +1,106 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
-  {version: '1.9.23', date: '2026-11-19', title: 'Spot+ is open again', items: [
+  {version: '1.9.43', date: '2026-11-19', title: 'Spot+ is open again', items: [
     'The maintenance screen is off. Opening Spot+ loads the app.',
+  ]},
+  {version: '1.9.42', date: '2026-11-19', title: 'Songs recover when a stream drops', items: [
+    'If a song’s stream drops partway, Spot+ retries from the same spot using another upload of the song, instead of giving up on it.',
+  ]},
+  {version: '1.9.41', date: '2026-11-19', title: 'Backgrounds sized for your screen', items: [
+    'On a phone, Backgrounds shows tall phone wallpapers from Alpha Coders; on a computer, wide ones. No more stretched or cropped-to-nothing backgrounds.',
+  ]},
+  {version: '1.9.40', date: '2026-11-19', title: 'Correct song times, and no more stuck playback', items: [
+    'Song times are right again on iPhone. Songs showed 6–9 minutes because Safari guessed the length from the file size; Spot+ now uses the real length from YouTube.',
+    'Fixed songs refusing to play until the app was restarted: one failed check of the Spot+ server (often right after the phone wakes up) switched the YouTube audio off for 5 minutes. It now just checks again.',
+    'Skipping a non-music outro now moves straight to the next song.',
+    'Fixed an error at the start of each song that could leave the play button and song title out of date.',
+  ]},
+  {version: '1.9.39', date: '2026-11-19', title: 'Faster starts when YouTube is picky', items: [
+    'When YouTube is slow to hand over one upload of a song, Spot+ starts trying the next one after 1.5 seconds instead of waiting up to 7, and plays whichever answers first.',
+  ]},
+  {version: '1.9.38', date: '2026-11-19', title: 'Songs no longer cut off', items: [
+    'Fixed songs on iPhone stopping at 0:00 or after the first minute. YouTube changed what it allows in August, and the Spot+ server now asks for audio the way that still gets the whole song.',
+    'Before a song starts, the server checks that YouTube will deliver all of it, so a song never plays partway and stops.',
+    'If YouTube drops the connection in the middle of a song, the server picks up from the same spot without a gap.',
+  ]},
+  {version: '1.9.37', date: '2026-11-19', title: 'More songs play in full', items: [
+    'When YouTube briefly refuses the Spot+ server, it waits out the moment and tries again instead of giving up.',
+    'If the usual uploads of a song aren’t available, Spot+ also tries lyric videos and other uploads of the same song.',
+  ]},
+  {version: '1.9.36', date: '2026-11-19', title: 'Spotube-style audio', items: [
+    'Higher quality: Opus 160 kbps on Android and computers, AAC on iPhone. Data saver in Settings → Playback switches to a light 48 kbps stream.',
+    'Skips the non-music parts of YouTube uploads (spoken intros, skits, long outros) using SponsorBlock, like Spotube.',
+  ]},
+  {version: '1.9.35', date: '2026-11-19', title: 'Maintenance', items: [
+    'Spot+ is down for maintenance while playback is upgraded. It will be back soon.',
+  ]},
+  {version: '1.9.34', date: '2026-11-19', title: 'No 30-second clips', items: [
+    'Automatic never plays a 30-second preview anymore. Every song is the full song.',
+    'Spot+ tries harder to find the full song: more attempts through the Spot+ server, and a song that drops mid-play retries from the same spot.',
+    'In the rare case no full version can be found, Spot+ tells you and moves to the next song instead of playing a clip.',
+  ]},
+  {version: '1.9.33', date: '2026-11-19', title: 'No ads', items: [
+    'Automatic never uses YouTube’s player anymore, so no ads ever play. Every song plays in Spot+’s own player.',
+    'If the Spot+ server is briefly refused by YouTube, Spot+ tries again with more uploads before moving on.',
+    'YouTube’s player is still there if you pick “YouTube player” in Settings → Playback.',
+  ]},
+  {version: '1.9.32', date: '2026-11-19', title: 'Music keeps playing when you leave the app', items: [
+    'Fixed music stopping when you switch away from Spot+ or lock the phone.',
+    'With effects on, the song keeps playing in the background without reverb and bass, at the same spot. Effects come back when you open Spot+ again; speed and pitch keep working.',
+    'Fewer ads: when YouTube briefly refuses the Spot+ server, it retries with a fresh session and tries other uploads before falling back to YouTube’s player.',
+  ]},
+  {version: '1.9.31', date: '2026-11-19', title: 'Full YouTube songs in Spot+’s own player', items: [
+    'New: YouTube audio through the Spot+ server. Full songs play in Spot+’s own player instead of YouTube’s, so there are no ads and no extra tap, on iPhone too.',
+    'Background playback, lock-screen controls and the queue work like any other Spot+ song.',
+    'Spot+ checks that the audio really streams before it plays a song from this source.',
+    'YouTube’s player (with ads) is now only a backup when this doesn’t work.',
+  ]},
+  {version: '1.9.30', date: '2026-11-19', title: 'SoundCloud: full songs, no ads, no extra tap', items: [
+    'New audio source: SoundCloud through its official API. Songs play in Spot+’s own player straight from your tap, with no YouTube box, no ads, and sound in about a third of a second, on iPhone too.',
+    'Automatic tries SoundCloud first and waits for it a moment before YouTube’s player, so most songs play ad-free.',
+    'Turns on once the Spot+ server has a SoundCloud app key.',
+  ]},
+  {version: '1.9.29', date: '2026-11-19', title: 'Spot+ for iPhone app', items: [
+    'New iPhone app: SpotPlus.ipa on the GitHub releases page (ios-latest). In it, one tap on a song plays it, with no tap in the YouTube box, and music keeps playing with the screen off.',
+    'Install it from a computer with Sideloadly or AltStore. With a free Apple ID it needs re-signing every 7 days.',
+  ]},
+  {version: '1.9.28', date: '2026-11-19', title: 'InstantPlay: the next song is ready before you ask', items: [
+    'A hidden second YouTube player loads the next song in your queue (and the song you touch) ahead of time. Skipping swaps players instead of loading, and the next song starts in under a second.',
+    'The YouTube player loads when the app opens, so the first song starts about twice as fast.',
+    'Songs start on YouTube right away instead of waiting for the lossless servers. When a lossless server answers, Spot+ still switches to it mid-song.',
+    'Blocked uploads are found in the background, before you press play.',
+    'Android and computers: one tap on a song plays it. No extra tap.',
+    'iPhone: Apple only lets YouTube’s player start from a tap inside it, so the first song of each session still needs one tap in the YouTube box. After that, songs start on their own.',
+  ]},
+  {version: '1.9.27', date: '2026-11-19', title: 'Full songs on iPhone', items: [
+    'Fixed songs sitting at 0:00. Spot+ was trying shortcut links to public YouTube mirrors that are down, and waiting on each one. Automatic no longer uses them.',
+    'Turned off the worker’s stream links. They only work from Cloudflare’s servers, not from phones.',
+    'On iPhone, a small YouTube box now appears when it needs one tap to start. Tap ▶ in it once; after that, songs start on their own.',
+    'Removed the 30-second preview button from that box.',
+  ]},
+  {version: '1.9.26', date: '2026-11-19', title: 'InstantPlay: full songs, faster starts, lossless upgrades', items: [
+    'Fixed the main cause of 30-second clips. Many labels block their official uploads from playing outside YouTube. Spot+ now tries up to 8 uploads of the same song (music video, lyric video, live) and remembers which ones are blocked, so each blocked upload only costs time once.',
+    'Fixed InstantPlay preloading a 30-second clip for the next song when the lossless servers were busy.',
+    'Songs start on YouTube’s player within about a second. If a lossless server answers afterwards, Spot+ crossfades to lossless at the same spot, mid-song.',
+    'The YouTube player stays loaded between songs and swaps the next one in place, so skipping starts the next song almost at once.',
+    'With effects on, a song that has no effects-friendly server now plays in full without effects, instead of as a clip.',
+  ]},
+  {version: '1.9.25', date: '2026-11-18', title: 'Spot+ is open again', items: [
+    'Maintenance is over. Everyone can open Spot+ again, with full songs and the new wallpaper search.',
+  ]},
+  {version: '1.9.24', date: '2026-11-18', title: 'Search every Alpha Coders wallpaper', items: [
+    'Search on Background now covers all of Alpha Coders, not only the 2,670 wallpapers saved in the app. Results keep loading as you scroll.',
+    'Picking a category keeps going past the saved set. Scroll to the end and more wallpapers from that category load in.',
+    'The wallpaper grid loads in batches as you scroll, so the page opens fast and scrolling stays smooth.',
+    'Tapping a wallpaper sets it in place. The list keeps your spot and your search results.',
+    'A wallpaper you found through search stays set after you close and reopen the app.',
+  ]},
+  {version: '1.9.23', date: '2026-11-18', title: 'Full songs instead of 30-second previews', items: [
+    'Automatic playback no longer falls back to a 30-second preview when the free audio servers are busy. If none of them answers within about 2.5 seconds, the full song plays through YouTube’s official player.',
+    'When the servers have been failing, the next songs go straight to YouTube’s player, so they start almost at once. Spot+ tries the lossless servers again after 10 minutes.',
+    'Audius is no longer part of Automatic. It often returned fan uploads instead of the real song. You can still pick it in Playback settings.',
+    'Previews are now the last resort. They only play when effects are on or no full recording can be found.',
   ]},
   {version: '1.9.22', date: '2026-11-18', title: 'The wallpaper list takes the swipe', items: [
     'On Background, a finger on the wallpaper database moves that list. The rest of the page stays still, including while you search.',

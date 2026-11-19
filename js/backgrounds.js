@@ -12,8 +12,18 @@ const clamp01 = (n, fallback) => {
 export function normalizeScene(scene) {
   if (!scene || (scene.kind !== 'catalog' && scene.kind !== 'upload')) return null;
   if (!/^[\w-]{1,40}$/.test(String(scene.id || ''))) return null;
-  return {kind: scene.kind, id: String(scene.id), x: clamp01(scene.x, 0.5), y: clamp01(scene.y, 0.42)};
+  const out = {kind: scene.kind, id: String(scene.id), x: clamp01(scene.x, 0.5), y: clamp01(scene.y, 0.42)};
+  const item = scene.kind === 'catalog' ? liveItem(scene.item) : null;
+  if (item && item.id === out.id) out.item = item;
+  return out;
 }
+
+/** A wallpaper found through the live Alpha Coders search; only safe image-host parts are kept. */
+export function liveItem(x) {
+  if (!x || !/^\d{1,10}$/.test(String(x.id || '')) || !/^(images\d{0,2}|mfiles)$/.test(String(x.host || '')) || !/^\d{1,6}$/.test(String(x.folder || '')) || !/^(jpe?g|png|webp)$/.test(String(x.ext || ''))) return null;
+  return {id: String(x.id), host: String(x.host), folder: String(x.folder), ext: String(x.ext), name: String(x.name || 'Wallpaper').slice(0, 140), category: String(x.category || 'Alpha Coders').slice(0, 60), w: Number(x.w) || 0, h: Number(x.h) || 0};
+}
+const live = new Map();
 
 export function readViewport(screen = globalThis) {
   return {
@@ -21,6 +31,11 @@ export function readViewport(screen = globalThis) {
     height: Number(screen.innerHeight || screen.height) || 800,
     dpr: Number(screen.devicePixelRatio) || 1,
   };
+}
+
+/** Which wallpapers fit this screen: portrait phone wallpapers on a tall screen, landscape ones otherwise. */
+export function wallpaperDevice(viewport = readViewport()) {
+  return (viewport.height || 0) > (viewport.width || 0) ? 'phone' : 'desktop';
 }
 
 /** Longest edge this screen can actually show, capped at 4K. */
@@ -72,14 +87,15 @@ export function positionOf(scene) {
   return `${x}% ${y}%`;
 }
 
-export function findWallpaper(id) {
-  return CATALOG.find(item => item.id === id) || null;
+export function findWallpaper(id, scene) {
+  if (scene?.item?.id === id) { live.set(id, scene.item); return scene.item; }
+  return CATALOG.find(item => item.id === id) || live.get(id) || null;
 }
 export function stageURL(scene, viewport = readViewport()) {
   const picked = normalizeScene(scene);
   if (!picked) return '';
   if (picked.kind === 'catalog') {
-    const item = findWallpaper(picked.id);
+    const item = findWallpaper(picked.id, picked);
     return item ? sourceForDevice(item, viewport).url : '';
   }
   const rec = uploads.get(picked.id);
@@ -215,7 +231,7 @@ function syncStudio(scene) {
   }
   const preview = studio.querySelector('#bgStage img');
   if (preview && scene?.kind === 'catalog') {
-    const item = findWallpaper(scene.id);
+    const item = findWallpaper(scene.id, scene);
     const next = item ? sourceForDevice(item, viewport).url : '';
     if (next && preview.getAttribute('src') !== next) preview.src = next;
   }
@@ -227,7 +243,7 @@ export function apply(settings = {}) {
   if (!scene) { clearScene(); return; }
   place(scene);
   if (scene.kind === 'catalog') {
-    const item = findWallpaper(scene.id);
+    const item = findWallpaper(scene.id, scene);
     if (!item) { clearScene(); return; }
     const picked = sourceForDevice(item, readViewport());
     show(picked.url, scene, picked.fallback);
@@ -264,18 +280,23 @@ export function install(getSettings) {
 let activeSearchQuery = '';
 let activeCategorySlug = '';
 let savedGridScroll = 0;
+// The grid paints in batches as you scroll, so thousands of wallpapers never load at once.
+const BATCH = 48;
+export const WALLPAPER_ENDPOINT = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/wallpapers';
+const PHONE_ALL = '\u0000all-phone'; // L.key for a phone's "All": every category's phone wallpapers in turn
+const catalogIds = new Set(CATALOG.map(item => item.id));
 
 function rows(items, scene, kind, esc) {
   return items.map(item => {
-    const on = scene?.kind === kind && scene.id === item.id;
-    const preview = kind === 'catalog' ? wallpaperURLs(item).preview : '';
-    const res = item.w && item.h ? `${item.w}×${item.h}` : '—';
+    const on = scene?.kind === (kind === 'live' ? 'catalog' : kind) && scene.id === item.id;
+    const preview = kind === 'catalog' || kind === 'live' ? wallpaperURLs(item).preview : '';
+    const res = item.w && item.h ? `${item.w}×${item.h}` : item.host === 'mfiles' ? 'Phone' : '—';
     const remove = kind === 'upload' ? `<button type="button" class="bg-remove" data-act="bg-delete" data-id="${esc(item.id)}">Remove</button>` : '';
-    return `<tr class="bg-card${on ? ' is-on' : ''}" data-act="bg-pick" data-kind="${kind}" data-id="${esc(item.id)}" tabindex="0" aria-pressed="${on}">
+    return `<tr class="bg-card${on ? ' is-on' : ''}" data-act="bg-pick" data-kind="${kind === 'live' ? 'catalog' : kind}" data-id="${esc(item.id)}" tabindex="0" aria-pressed="${on}">
       <td class="bg-col-preview">${preview ? `<img class="bg-thumb" alt="${esc(item.name)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${esc(preview)}" width="350" height="197">` : '<span class="bg-thumb bg-thumb-file"></span>'}</td>
       <td class="bg-col-name"><b>${esc(item.name)}</b><small>${esc(item.category || 'On this device')}</small></td>
       <td class="bg-col-res">${res}</td>
-      <td class="bg-col-source">${kind === 'catalog' ? 'Alpha Coders' : 'Upload'}</td>
+      <td class="bg-col-source">${kind === 'upload' ? 'Upload' : 'Alpha Coders'}</td>
       <td class="bg-col-act">${on ? '<span class="bg-on">Active</span>' : '<span class="bg-set">Use</span>'}${remove}</td>
     </tr>`;
   }).join('');
@@ -288,9 +309,11 @@ function categories() {
 }
 
 /** All includes the entire catalog. Filtering by category or search never drops records. */
-export function wallpaperGroups({category = '', query = ''} = {}) {
+export function wallpaperGroups({category = '', query = '', device = 'desktop'} = {}) {
   const cats = categories();
   const active = cats.find(item => item.slug === category || item.name === category) || null;
+  // The built-in catalog is all landscape desktop wallpapers; phones get portrait phone wallpapers live instead.
+  if (device === 'phone') return {active, groups: [], count: 0};
   const tokens = String(query || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
   let items = active ? CATALOG.filter(item => item.category === active.name) : CATALOG;
   if (tokens.length) {
@@ -318,14 +341,16 @@ function statusText(count, active, query) {
 
 export function page({category = '', settings = {}, uploads: saved = [], viewport = readViewport(), esc = String} = {}) {
   const scene = normalizeScene(settings.scene);
-  const {active, groups, count} = wallpaperGroups({category, query: activeSearchQuery});
+  const device = wallpaperDevice(viewport);
+  const phone = device === 'phone';
+  const {active, groups, count} = wallpaperGroups({category, query: activeSearchQuery, device});
   const nextSlug = active?.slug || '';
   if (nextSlug !== activeCategorySlug) {
     activeCategorySlug = nextSlug;
     savedGridScroll = 0;
   }
   const cats = categories();
-  const picked = scene?.kind === 'catalog' ? findWallpaper(scene.id) : saved.find(item => item.id === scene?.id);
+  const picked = scene?.kind === 'catalog' ? findWallpaper(scene.id, scene) : saved.find(item => item.id === scene?.id);
   const tier = deviceTier(viewport);
   const pixels = targetPixels(viewport);
   const frame = viewport.width >= 900 ? 'wide' : 'tall';
@@ -336,8 +361,9 @@ export function page({category = '', settings = {}, uploads: saved = [], viewpor
   const preview = stageURL(settings.scene, viewport);
   const body = tableBody(groups, scene, esc);
   const mine = saved.length ? `<tbody class="bg-uploads-body"><tr class="bg-group"><th colspan="5">On this device (${saved.length})</th></tr>${rows(saved, scene, 'upload', esc)}</tbody>` : '';
-  const hasEmpty = !groups.length && !saved.length;
-  return `<div class="bg-studio" data-category="${esc(nextSlug)}" data-scene-kind="${esc(scene?.kind || '')}" data-scene-id="${esc(scene?.id || '')}">
+  const liveLabel = liveQueryFor(active, activeSearchQuery);
+  const hasEmpty = !phone && !groups.length && !saved.length;
+  return `<div class="bg-studio" data-device="${device}" data-category="${esc(nextSlug)}" data-scene-kind="${esc(scene?.kind || '')}" data-scene-id="${esc(scene?.id || '')}">
     <div class="studio-heading"><div><div class="kicker">Appearance</div><h1>Background</h1><p class="muted">Covers the app and your library. The player stays on its own color. Drag the preview to crop. This ${esc(viewport.width >= 900 ? 'screen' : 'phone')} uses a ${tier === '4k' ? '4K' : '1920'} source, painted at ${pixels.width}×${pixels.height}.</p></div>
     <div class="row-btns"><button class="btn" type="button" data-act="bg-upload">Upload</button><button class="btn" type="button" data-act="bg-clear">None</button></div></div>
     <div class="bg-layout ${frame}">
@@ -348,16 +374,18 @@ export function page({category = '', settings = {}, uploads: saved = [], viewpor
       <p class="bg-note">${picked ? esc(picked.name) : 'No background'} · ${tier === '4k' ? '4K file, cropped to this device' : '1920 file, cropped to this phone'} · Alpha Coders and your uploads</p>
     </div>
     <div class="bg-search-bar">
-      <label class="bg-search"><input id="bgSearch" type="search" value="${esc(activeSearchQuery)}" placeholder="Search ${CATALOG.length.toLocaleString()} wallpapers by title, category, or 4K" aria-label="Search wallpapers" enterkeyhint="search" autocomplete="off"></label>
+      <label class="bg-search"><input id="bgSearch" type="search" value="${esc(activeSearchQuery)}" placeholder="Search every Alpha Coders ${phone ? 'phone ' : ''}wallpaper" aria-label="Search wallpapers" enterkeyhint="search" autocomplete="off"></label>
       <button type="button" class="btn small bg-search-clear" id="bgSearchClear" data-act="bg-reset-search"${activeSearchQuery ? '' : ' hidden'}>Clear</button>
     </div>
-    <div class="bg-status-row"><span id="bgStatus">${esc(statusText(count, active, activeSearchQuery.trim()))}</span></div>
+    <div class="bg-status-row"><span id="bgStatus">${esc(phone ? 'Finding phone wallpapers…' : statusText(count, active, activeSearchQuery.trim()))}</span></div>
     <div class="chips bg-filters">${chips}</div>
     <div class="bg-table-wrap" id="bgList">
       <table class="bg-table">
         <thead><tr><th>Preview</th><th>Name</th><th class="bg-col-res">Resolution</th><th class="bg-col-source">Source</th><th></th></tr></thead>
-        ${body}${mine}
+        ${mine}${body}
+        <tbody class="bg-live-body" hidden><tr class="bg-group"><th colspan="5" id="bgLiveHead">More from Alpha Coders</th></tr></tbody>
       </table>
+      <div class="bg-more" id="bgMore" aria-live="polite">${count > BATCH ? 'Scroll for more' : liveLabel || phone ? 'Loading more from Alpha Coders…' : ''}</div>
       <div class="bg-empty" id="bgEmpty"${hasEmpty ? '' : ' hidden'}>
         <p>No wallpapers match “<span id="bgEmptyQuery">${esc(activeSearchQuery.trim())}</span>”.</p>
         <button type="button" class="btn small" data-act="bg-reset-search">Show all wallpapers</button>
@@ -393,8 +421,50 @@ export function fitWallpaperList(root = document) {
   return space;
 }
 
-function tableBody(groups, scene, esc) {
-  return groups.map(([name, items]) => items.length ? `<tbody class="bg-catalog-body"><tr class="bg-group"><th colspan="5">${esc(name)} · ${items.length.toLocaleString()}</th></tr>${rows(items, scene, 'catalog', esc)}</tbody>` : '').join('');
+/** First batch only; mount() paints the rest as the list nears its end. */
+function tableBody(groups, scene, esc, limit = BATCH) {
+  const items = groups.flatMap(([, list]) => list);
+  return items.length ? `<tbody class="bg-catalog-body">${rows(items.slice(0, limit), scene, 'catalog', esc)}</tbody>` : '';
+}
+
+/** What to ask the live search: the typed words, or the open category so it keeps going past our copy. */
+function liveQueryFor(active, query) {
+  const typed = String(query || '').trim();
+  if (typed.length >= 2) return typed;
+  return active ? active.name : '';
+}
+
+/** Scene for a tapped card; wallpapers from the live search carry their own image address. */
+export function sceneFor(kind, id, cur) {
+  const base = {kind, id: String(id), x: cur?.x ?? 0.5, y: cur?.y ?? 0.42};
+  if (kind === 'catalog' && !catalogIds.has(String(id)) && live.has(String(id))) base.item = live.get(String(id));
+  return base;
+}
+
+/** Update the active card, preview, and note without rebuilding the page (keeps your place in the list). */
+export function markPicked(root, picked) {
+  const studio = root.querySelector?.('.bg-studio');
+  if (!studio) return;
+  const scene = normalizeScene(picked);
+  studio.dataset.sceneKind = scene?.kind || '';
+  studio.dataset.sceneId = scene?.id || '';
+  studio.querySelectorAll('.bg-card').forEach(card => {
+    const on = !!scene && card.dataset.kind === scene.kind && card.dataset.id === scene.id;
+    card.classList.toggle('is-on', on);
+    card.setAttribute('aria-pressed', String(on));
+    const slot = card.querySelector('.bg-on,.bg-set');
+    if (slot) { slot.className = on ? 'bg-on' : 'bg-set'; slot.textContent = on ? 'Active' : 'Use'; }
+  });
+  const stage = studio.querySelector('#bgStage');
+  const url = stageURL(scene);
+  if (stage && url) {
+    let img = stage.querySelector('img');
+    if (!img) { stage.querySelector('.bg-stage-empty')?.remove(); img = document.createElement('img'); img.alt = ''; stage.prepend(img); }
+    if (img.getAttribute('src') !== url) img.src = url;
+  }
+  const note = studio.querySelector('.bg-note');
+  const item = scene?.kind === 'catalog' ? findWallpaper(scene.id, scene) : null;
+  if (note && item) note.textContent = `${item.name} · ${note.textContent.split('·').slice(1).join('·').trim()}`;
 }
 
 export function mount(root, hooks) {
@@ -405,32 +475,122 @@ export function mount(root, hooks) {
   const emptyEl = root.querySelector('#bgEmpty');
   const emptyQueryEl = root.querySelector('#bgEmptyQuery');
 
-  const applyFilter = ({ resetScroll = true } = {}) => {
-    const studio = root.querySelector('.bg-studio') || root;
+  const table = root.querySelector('.bg-table');
+  const moreEl = root.querySelector('#bgMore');
+  const liveBody = root.querySelector('.bg-live-body');
+  const liveHead = root.querySelector('#bgLiveHead');
+  const studioOf = () => root.querySelector('.bg-studio') || root;
+  const sceneNow = () => ({kind: studioOf().dataset.sceneKind, id: studioOf().dataset.sceneId});
+  const device = () => studioOf().dataset.device || wallpaperDevice();
+  let flat = [], shown = root.querySelectorAll('.bg-catalog-body .bg-card').length, local = 0;
+  // key: what the list shows (typed words, a category, or every category on a phone); queue: searches still to run.
+  const L = {key: '', q: '', queue: [], page: 0, more: false, busy: false, token: 0, count: 0, failed: false, timer: 0, seen: new Set()};
+
+  const status = () => {
+    const studio = studioOf();
+    const {active} = wallpaperGroups({category: studio.dataset.category || ''});
+    const trimmed = (search?.value || '').trim();
+    let text = statusText(local, active, trimmed);
+    if (device() === 'phone') {
+      text = `${L.count.toLocaleString()} phone wallpaper${L.count === 1 ? '' : 's'}${trimmed ? ` for “${trimmed}”` : active ? ` in ${active.name}` : ''}`;
+      if (L.busy) text += ' · loading…';
+    } else if (L.count) text += ` · +${L.count.toLocaleString()} from all of Alpha Coders`;
+    else if (L.busy && L.q) text += ' · searching all of Alpha Coders…';
+    if (statusEl) statusEl.textContent = text;
+    if (moreEl) moreEl.textContent = shown < flat.length ? 'Scroll for more' : L.busy ? 'Loading more from Alpha Coders…' : L.failed ? 'Alpha Coders did not answer. Scroll to try again.' : L.q && L.more ? 'Scroll for more' : L.q && L.count ? 'That is everything Alpha Coders has for this.' : '';
+    if (emptyEl) {
+      const hasUploads = !!root.querySelector('.bg-uploads-body');
+      emptyEl.hidden = local > 0 || L.count > 0 || hasUploads || (L.q && (L.busy || L.more));
+      if (emptyQueryEl) emptyQueryEl.textContent = trimmed;
+    }
+  };
+
+  const paintLocal = () => {
+    if (shown >= flat.length) return false;
+    let body = root.querySelector('.bg-catalog-body');
+    if (!body) { table?.querySelector('.bg-live-body')?.insertAdjacentHTML('beforebegin', '<tbody class="bg-catalog-body"></tbody>'); body = root.querySelector('.bg-catalog-body'); }
+    body?.insertAdjacentHTML('beforeend', rows(flat.slice(shown, shown + BATCH), sceneNow(), 'catalog', htmlEscape));
+    shown = Math.min(flat.length, shown + BATCH);
+    return true;
+  };
+
+  const loadLive = async () => {
+    if (!L.q || L.busy || (!L.more && L.page) || !liveBody) return;
+    L.busy = true; L.failed = false; status();
+    const token = L.token, page = L.page + 1;
+    try {
+      const phone = device() === 'phone';
+      const r = await fetch(`${WALLPAPER_ENDPOINT}?q=${encodeURIComponent(L.q)}&page=${page}${phone ? '&device=phone' : ''}`, {credentials: 'omit'});
+      if (!r.ok) throw new Error('unavailable');
+      const data = await r.json();
+      if (token !== L.token) return;
+      const fresh = (data.items || []).map(liveItem).filter(item => item && !catalogIds.has(item.id) && !L.seen.has(item.id));
+      for (const item of fresh) { L.seen.add(item.id); live.set(item.id, item); }
+      L.page = page; L.more = !!data.more && page < 200;
+      if (fresh.length) {
+        liveBody.hidden = false;
+        if (liveHead) liveHead.textContent = !phone ? `More “${L.q}” from all of Alpha Coders` : L.key === PHONE_ALL ? 'Phone wallpapers from Alpha Coders' : `“${L.q}” phone wallpapers from Alpha Coders`;
+        // Phone "All" runs through every category; label each one like the catalog's groups.
+        if (L.key === PHONE_ALL && page === 1) liveBody.insertAdjacentHTML('beforeend', `<tr class="bg-group"><th colspan="5">${htmlEscape(L.q)}</th></tr>`);
+        liveBody.insertAdjacentHTML('beforeend', rows(fresh, sceneNow(), 'live', htmlEscape));
+        L.count += fresh.length;
+      }
+      // This search is used up: go on to the next one (the next category on a phone's "All").
+      if (!L.more && L.queue.length) { L.q = L.queue.shift(); L.page = 0; L.more = true; }
+    } catch {
+      if (token === L.token) L.failed = true;
+    } finally {
+      if (token === L.token) { L.busy = false; status(); fill(); }
+    }
+  };
+
+  // Keep painting until the list can scroll (or there is nothing left), so the end is never a dead stop.
+  const nearEnd = () => list && list.scrollTop + list.clientHeight >= list.scrollHeight - 900;
+  const fill = () => {
+    let guard = 0;
+    while (list && nearEnd() && paintLocal() && guard++ < 40) { /* paint the next batch */ }
+    if (list && nearEnd() && shown >= flat.length && !L.failed) loadLive();
+    status();
+  };
+
+  const resetLive = (key) => {
+    clearTimeout(L.timer);
+    const queue = key === PHONE_ALL ? categories().map(item => item.name) : key ? [key] : [];
+    Object.assign(L, {key, q: queue.shift() || '', queue, page: 0, more: !!key, busy: false, token: L.token + 1, count: 0, failed: false, seen: new Set()});
+    if (liveBody) { liveBody.hidden = true; liveBody.querySelectorAll('.bg-card, .bg-group:not(:first-child)').forEach(node => node.remove()); }
+  };
+
+  const applyFilter = ({ resetScroll = true, keepRendered = false } = {}) => {
+    const studio = studioOf();
     const query = search?.value || '';
     activeSearchQuery = query;
     const trimmed = query.trim();
     if (clearBtn) clearBtn.hidden = !trimmed;
-    const scene = {kind: studio.dataset.sceneKind, id: studio.dataset.sceneId};
-    const {active, groups, count} = wallpaperGroups({category: studio.dataset.category || '', query});
-    root.querySelectorAll('.bg-catalog-body').forEach(node => node.remove());
-    root.querySelector('.bg-table')?.insertAdjacentHTML('afterbegin', tableBody(groups, scene, htmlEscape));
-    if (statusEl) statusEl.textContent = statusText(count, active, trimmed);
-    if (emptyEl) {
-      const hasUploads = !!root.querySelector('.bg-uploads-body');
-      emptyEl.hidden = groups.length > 0 || hasUploads;
-      if (emptyQueryEl) emptyQueryEl.textContent = trimmed;
+    const {active, groups, count} = wallpaperGroups({category: studio.dataset.category || '', query, device: device()});
+    flat = groups.flatMap(([, items]) => items);
+    local = count;
+    if (!keepRendered) {
+      root.querySelectorAll('.bg-catalog-body').forEach(node => node.remove());
+      shown = 0;
+      paintLocal();
     }
+    const nextLive = liveQueryFor(active, query) || (device() === 'phone' ? PHONE_ALL : '');
+    if (nextLive !== L.key || !keepRendered) resetLive(nextLive);
     if (list && resetScroll) {
       list.scrollTop = 0;
       savedGridScroll = 0;
     }
     fitWallpaperList(root);
+    status();
+    // Wait for typing to settle before asking Alpha Coders; local matches show at once.
+    if (L.q) L.timer = setTimeout(fill, trimmed ? 450 : 0);
   };
+  if (list) applyFilter({resetScroll: false, keepRendered: true});
 
   if (search && !search.dataset.bound) {
     search.dataset.bound = '1';
-    search.addEventListener('input', () => applyFilter({ resetScroll: true }));
+    let typing = 0;
+    search.addEventListener('input', () => { clearTimeout(typing); typing = setTimeout(() => applyFilter({ resetScroll: true }), 120); });
   }
 
   root.querySelectorAll('[data-act="bg-reset-search"]').forEach((btn) => {
@@ -446,18 +606,31 @@ export function mount(root, hooks) {
     });
   });
 
+  const restore = () => {
+    if (!list || savedGridScroll <= 0) return;
+    let guard = 0;
+    while (list.scrollHeight < savedGridScroll + list.clientHeight && paintLocal() && guard++ < 80) { /* paint up to the saved spot */ }
+    list.scrollTop = savedGridScroll;
+  };
   if (list) {
-    if (savedGridScroll > 0) list.scrollTop = savedGridScroll;
+    restore();
     if (!list.dataset.bound) {
       list.dataset.bound = '1';
-      list.addEventListener('scroll', () => { savedGridScroll = list.scrollTop; }, { passive: true });
+      let ticking = false;
+      list.addEventListener('scroll', () => {
+        savedGridScroll = list.scrollTop;
+        if (ticking) return;
+        ticking = true;
+        requestAnimationFrame(() => { ticking = false; fill(); });
+      }, { passive: true });
     }
   }
 
   fitWallpaperList(root);
   requestAnimationFrame(() => {
     fitWallpaperList(root);
-    if (list && savedGridScroll > 0) list.scrollTop = savedGridScroll;
+    restore();
+    fill();
   });
 
   if (!root.dataset.fit) {

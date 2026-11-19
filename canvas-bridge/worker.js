@@ -3,6 +3,9 @@ import {devProfile} from './dev-profile.js';
 import {liveStats, InstallCounter} from './installs.js';
 export {InstallCounter};
 import {youtubeMatch} from './youtube-match.js';
+import {wallpapers} from './wallpapers.js';
+import {soundcloud} from './soundcloud.js';
+import {youtubeRelay} from './youtube-relay.js';
 import {youtubeStream} from './youtube-stream.js';
 // A narrow public-metadata adapter, never an arbitrary URL or credential proxy.
 import {spotifyStats} from './spotify-stats.js';
@@ -79,9 +82,12 @@ export async function handle(request, {fetcher=fetch,cache,waitUntil=()=>{},env}
   if (['/podcasts','/podcast','/audiobooks'].includes(url.pathname)) return podcasts(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/dev') return devProfile(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/match') return youtubeMatch(request,{fetcher,cache,waitUntil});
+  if (url.pathname === '/wallpapers') return wallpapers(request,{fetcher,cache,waitUntil});
+  if (url.pathname === '/sc') return soundcloud(request,{env,fetcher,cache,waitUntil});
+  if (url.pathname === '/yta') return youtubeRelay(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/stream') return youtubeStream(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/spotify-public') return spotifyPublic(request,{fetcher,cache,waitUntil});
-  if (url.pathname === '/health') return json({service:'Spot+ Canvas bridge',status:'ok',lyrics:true,spotifyPublic:true,match:true,stream:true,stats:true,dev:true,podcasts:true});
+  if (url.pathname === '/health') return json({service:'Spot+ Canvas bridge',status:'ok',lyrics:true,spotifyPublic:true,match:true,wallpapers:true,sc:!!(env?.SC_CLIENT_ID&&env?.SC_CLIENT_SECRET),relay:true,stream:true,stats:true,dev:true,podcasts:true});
   if (url.pathname === '/lyrics-search') return lyricsSearch(url,{fetcher,cache,waitUntil});
   if (url.pathname !== '/canvas') return json({error:'Not found'},404);
   const query = queryFor(url.searchParams);
@@ -113,6 +119,8 @@ const SECURITY_HEADERS = {
   'Strict-Transport-Security':'max-age=63072000; includeSubDomains','Permissions-Policy':'interest-cohort=()',
 };
 const RATE = {limit:120, windowMs:60000}, hits = new Map();
+// Audio streaming makes many small range requests, so the relay has its own, higher limit.
+const RELAY_RATE = {limit:900, windowMs:60000}, relayHits = new Map();
 export function rateLimited(ip, now = Date.now(), table = hits, rate = RATE) {
   const entry = table.get(ip);
   if (!entry || now - entry.start > rate.windowMs) { table.set(ip,{start:now,count:1}); if (table.size > 5000) table.clear(); return false; }
@@ -132,7 +140,8 @@ export async function secureHandle(request, options = {}) {
   if (!allowed) return finish(json({error:'Origin not allowed'},403));
   if (new URL(request.url).search.length > 1200) return finish(json({error:'Request too long'},414));
   const ip = request.headers.get('CF-Connecting-IP') || 'local';
-  if (rateLimited(ip)) { const r = json({error:'Too many requests. Try again in a minute.'},429); return finish(new Response(r.body,{status:429,headers:{...Object.fromEntries(r.headers),'Retry-After':'60'}})); }
+  const relay = new URL(request.url).pathname === '/yta';
+  if (relay ? rateLimited(ip, Date.now(), relayHits, RELAY_RATE) : rateLimited(ip)) { const r = json({error:'Too many requests. Try again in a minute.'},429); return finish(new Response(r.body,{status:429,headers:{...Object.fromEntries(r.headers),'Retry-After':'60'}})); }
   return finish(await handle(request, options));
 }
 export default {fetch(request,env,ctx) { return secureHandle(request,{env,cache:caches.default,waitUntil:promise=>ctx.waitUntil(promise)}); }};

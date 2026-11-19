@@ -7,7 +7,8 @@ browserMocks();
 function installDomMocks() {
   const host = {
     children: [],
-    replaceChildren(...nodes) { this.children = nodes; }
+    replaceChildren(...nodes) { this.children = nodes; },
+    appendChild(node) { this.children.push(node); node.parentNode = this; }
   };
   const iframes = [];
   const messageListeners = [];
@@ -44,6 +45,7 @@ function installDomMocks() {
           title: '',
           posted,
           setAttribute() {},
+          classList: { set: new Set(), add(c) { this.set.add(c); }, remove(c) { this.set.delete(c); }, contains(c) { return this.set.has(c); } },
           addEventListener(type, fn) { (listeners[type] ||= []).push(fn); },
           trigger(type) { (listeners[type] || []).forEach(fn => fn()); },
           contentWindow: {
@@ -63,8 +65,8 @@ function installDomMocks() {
     host,
     iframes,
     setJsonpResponder(fn) { jsonpResponder = fn; },
-    emitMessage(origin, data) {
-      const event = { origin, data: typeof data === 'string' ? data : JSON.stringify(data) };
+    emitMessage(origin, data, source) {
+      const event = { origin, source, data: typeof data === 'string' ? data : JSON.stringify(data) };
       for (const fn of [...messageListeners]) fn(event);
     }
   };
@@ -75,7 +77,7 @@ const api = await import('../js/api.js');
 const player = await import('../js/player.js');
 const { YouTubeEmbedPlayer } = await import('../js/yt-embed.js');
 
-test('auto mode never uses youtube-embed and falls back to preview when servers fail; youtube mode uses youtube-embed', async () => {
+test('auto mode never uses YouTube’s player (no ads); youtube mode uses youtube-embed', async () => {
   localStorage.clear();
   localStorage.setItem('spotplus.settings', JSON.stringify({ source: 'auto' }));
   const prevFetch = globalThis.fetch;
@@ -109,12 +111,11 @@ test('auto mode never uses youtube-embed and falls back to preview when servers 
     return new Response('down', { status: 503 });
   };
   try {
-    const autoRes = await api.resolve(
+    // Automatic: no YouTube player (ads) and no 30-second clip; the song is reported unavailable instead.
+    await assert.rejects(api.resolve(
       { id: 'yt-fb-1', title: 'Blinding Lights', artist: 'The Weeknd', duration: 200 },
       { allowEmbed: true }
-    );
-    assert.notEqual(autoRes.kind, 'youtube-embed');
-    assert.equal(autoRes.kind, 'preview');
+    ));
 
     // Explicit youtube source uses youtube-embed, while download / cors never receives embed
     localStorage.setItem('spotplus.settings', JSON.stringify({ source: 'youtube' }));
@@ -136,7 +137,7 @@ test('auto mode never uses youtube-embed and falls back to preview when servers 
   }
 });
 
-test('auto mode falls back to Deezer preview if /match also fails', async () => {
+test('auto mode never plays a clip, even if /match also fails', async () => {
   localStorage.clear();
   localStorage.setItem('spotplus.settings', JSON.stringify({ source: 'auto' }));
   const prevFetch = globalThis.fetch;
@@ -154,13 +155,10 @@ test('auto mode falls back to Deezer preview if /match also fails', async () => 
   });
   globalThis.fetch = async () => new Response('down', { status: 503 });
   try {
-    const res = await api.resolve(
+    await assert.rejects(api.resolve(
       { id: '9001', title: 'Preview Song', artist: 'Preview Artist', duration: 190 },
       { allowEmbed: true }
-    );
-    assert.equal(res.kind, 'preview');
-    assert.equal(res.preview, true);
-    assert.equal(res.url, 'https://cdnt-preview.dzcdn.net/api/1/1/preview.mp3');
+    ));
   } finally {
     dom.setJsonpResponder(null);
     globalThis.fetch = prevFetch;
@@ -215,7 +213,23 @@ test('YouTubeEmbedPlayer handles lifecycle messages, candidate rotation, seek, p
   assert.equal(events.filter(e => e === 'ended').length, 1);
   yt.stop();
   assert.equal(yt.active, false);
-  assert.equal(frame.src, 'about:blank');
+  // The booted player stays loaded (stopped, silent) so the next song swaps in instantly.
+  assert.notEqual(frame.src, 'about:blank');
+  assert.ok(frame.posted.some(p => p.msg.func === 'stopVideo'));
+});
+
+test('a booted YouTube player swaps the next song in place instead of reloading', () => {
+  const yt = new YouTubeEmbedPlayer({});
+  assert.equal(yt.warm('ccccccccccc'), true);
+  const frame = dom.iframes.at(-1);
+  assert.match(frame.src, /embed\/ccccccccccc\?enablejsapi=1&autoplay=0/);
+  dom.emitMessage('https://www.youtube.com', { event: 'onReady' });
+  assert.equal(yt.live, true);
+  const src = frame.src;
+  yt.load(['ddddddddddd'], { startAt: 0, autoplay: true, volume: 1 });
+  assert.equal(frame.src, src, 'no full reload');
+  assert.ok(frame.posted.some(p => p.msg.func === 'loadVideoById' && p.msg.args[0].videoId === 'ddddddddddd'));
+  yt.stop();
 });
 
 test('player unifies position, pause, seek, and preview fallback only when YouTube player is selected', async () => {
@@ -264,4 +278,52 @@ test('player unifies position, pause, seek, and preview fallback only when YouTu
     dom.setJsonpResponder(null);
     globalThis.fetch = prevFetch;
   }
+});
+
+test('a wider YouTube net keeps the same song and drops covers, remixes, and wrong lengths', async () => {
+  const api = await import('../js/api.js');
+  const t = { title: 'Blinding Lights', artist: 'The Weeknd', duration: 200 };
+  const items = [
+    { id: 'aaaaaaaaaaa', title: 'The Weeknd - Blinding Lights (Official Video)', channel: 'TheWeekndVEVO', duration: 263 },
+    { id: 'bbbbbbbbbbb', title: 'The Weeknd - Blinding Lights (Lyrics)', channel: 'Lyric Hub', duration: 201 },
+    { id: 'ccccccccccc', title: 'Blinding Lights - piano cover', channel: 'Some Pianist The Weeknd fan', duration: 200 },
+    { id: 'ddddddddddd', title: 'The Weeknd - Blinding Lights (slowed + reverb)', channel: 'x', duration: 260 },
+    { id: 'eeeeeeeeeee', title: 'The Weeknd - Blinding Lights 1 hour', channel: 'x', duration: 3600 },
+    { id: 'fffffffffff', title: 'Dua Lipa - Levitating', channel: 'Dua Lipa', duration: 203 },
+  ];
+  assert.deepEqual(api.looseEmbedMatches(items, t).map(x => x.id), ['aaaaaaaaaaa', 'bbbbbbbbbbb']);
+});
+
+test('the hidden player cues the next song and a skip swaps players instead of loading', () => {
+  const yt = new YouTubeEmbedPlayer({});
+  yt.warm('aaaaaaaaaaa');
+  const main = dom.iframes.at(-1);
+  dom.emitMessage('https://www.youtube.com', { event: 'onReady' }, main.contentWindow);
+  assert.equal(yt.preload('bbbbbbbbbbb'), true);
+  const spare = dom.iframes.at(-1);
+  assert.notEqual(spare, main);
+  assert.match(spare.src, /embed\/bbbbbbbbbbb\?enablejsapi=1&autoplay=0/);
+  dom.emitMessage('https://www.youtube.com', { event: 'onReady' }, spare.contentWindow);
+  assert.equal(yt.spareLive, true);
+  const spareSrc = spare.src;
+  yt.load(['bbbbbbbbbbb'], { autoplay: true, volume: 1 });
+  assert.equal(yt.iframe, spare, 'the prepared player takes over');
+  assert.equal(spare.src, spareSrc, 'no reload');
+  assert.ok(spare.posted.some(p => p.msg.func === 'playVideo'));
+  assert.ok(main.posted.some(p => p.msg.func === 'stopVideo'), 'the old player goes quiet');
+  yt.stop();
+});
+
+test('a blocked upload is found by the hidden player before anyone presses play', () => {
+  const blocked = [];
+  const yt = new YouTubeEmbedPlayer({ onCandidateError: (id, code) => blocked.push([id, code]) });
+  yt.warm('ccccccccccc');
+  const main = dom.iframes.at(-1);
+  dom.emitMessage('https://www.youtube.com', { event: 'onReady' }, main.contentWindow);
+  yt.preload('ddddddddddd');
+  const spare = dom.iframes.at(-1);
+  dom.emitMessage('https://www.youtube.com', { event: 'onReady' }, spare.contentWindow);
+  dom.emitMessage('https://www.youtube.com', { event: 'onError', info: 150 }, spare.contentWindow);
+  assert.deepEqual(blocked, [['ddddddddddd', 150]]);
+  assert.equal(yt.spareId, '');
 });

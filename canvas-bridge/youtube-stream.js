@@ -1,6 +1,6 @@
 // /stream: resolve a YouTube video id to a direct audio URL from Cloudflare's edge.
 // Browser clients can no longer rely on public Invidious/Piped CORS mirrors (most are
-// down or return 403). The bridge talks to YouTube InnerTube (ANDROID_VR / IOS) and
+// down or return 403). The bridge talks to YouTube InnerTube (VISIONOS, then ANDROID_VR / IOS) and
 // server-side Invidious/Piped mirrors, returning direct URLs + mirror alternatives.
 const headers = {
   'Content-Type': 'application/json; charset=utf-8',
@@ -13,47 +13,35 @@ const reply = (data, status = 200, maxAge = 0) => new Response(JSON.stringify(da
   headers: {...headers, 'Cache-Control': maxAge ? `public, max-age=${maxAge}` : 'no-store'},
 });
 
+// YouTube keeps changing which app identities it serves full audio to without extra tokens. yt-dlp tracks
+// this closely: since Aug 17, 2026 links issued to ANDROID_VR 1.65.10 are refused, and IOS links stop after
+// the first chunk unless the request carries a PO token. VISIONOS needs neither YouTube's JavaScript nor a
+// PO token, so it goes first; the others stay as fallbacks, and callers can check a link before using it.
+const VISIONOS_VERSION = '1.02';
+const VISIONOS_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15';
 const ANDROID_VR_VERSION = '1.65.10';
 const ANDROID_VR_UA = `com.google.android.apps.youtube.vr.oculus/${ANDROID_VR_VERSION} (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip`;
-const IOS_VERSION = '19.45.4';
-const IOS_UA = `com.google.ios.youtube/${IOS_VERSION} (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)`;
+const IOS_VERSION = '21.26.4';
+const IOS_UA = `com.google.ios.youtube/${IOS_VERSION} (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)`;
 const API_UA = 'SpotPlus/2.0 (https://coye2.github.io/spot-plus/)';
 const PLAYER = 'https://www.youtube.com/youtubei/v1/player';
 const VISITOR = 'https://youtubei.googleapis.com/youtubei/v1/visitor_id';
 
+const PROFILES = {
+  visionos: {number: '101', ua: VISIONOS_UA, client: {clientName: 'VISIONOS', clientVersion: VISIONOS_VERSION, deviceMake: 'Apple', deviceModel: 'RealityDevice17,1', osName: 'visionOS', osVersion: '26.5.23O471', userAgent: VISIONOS_UA}},
+  android_vr: {number: '28', ua: ANDROID_VR_UA, client: {clientName: 'ANDROID_VR', clientVersion: ANDROID_VR_VERSION, deviceMake: 'Oculus', deviceModel: 'Quest 3', androidSdkVersion: 32, osName: 'Android', osVersion: '12L', userAgent: ANDROID_VR_UA}},
+  ios: {number: '5', ua: IOS_UA, client: {clientName: 'IOS', clientVersion: IOS_VERSION, deviceMake: 'Apple', deviceModel: 'iPhone16,2', osName: 'iPhone', osVersion: '18.3.2.22D82', userAgent: IOS_UA}},
+};
+export const PROFILE_ORDER = ['visionos', 'android_vr', 'ios'];
+
 // Prefer AAC for InstantPlay on iPhone; Opus is fine elsewhere when the client asks.
-export const AUDIO_ITAGS = {aac: 140, opus: 251, opus70: 250, opus50: 249};
+export const AUDIO_ITAGS = {aac: 140, opus: 251, opus70: 250, opus50: 249, aacLow: 139};
 
 let visitorData = '';
 let visitorFetched = 0;
 
-function clientContext(profile = 'android_vr') {
-  const client = profile === 'ios'
-    ? {
-      clientName: 'IOS',
-      clientVersion: IOS_VERSION,
-      deviceMake: 'Apple',
-      deviceModel: 'iPhone16,2',
-      osName: 'iPhone',
-      osVersion: '18.1.0.22B83',
-      userAgent: IOS_UA,
-      hl: 'en',
-      gl: 'US',
-    }
-    : {
-      clientName: 'ANDROID_VR',
-      clientVersion: ANDROID_VR_VERSION,
-      deviceMake: 'Oculus',
-      deviceModel: 'Quest 3',
-      androidSdkVersion: 32,
-      osName: 'Android',
-      osVersion: '12L',
-      userAgent: ANDROID_VR_UA,
-      hl: 'en',
-      gl: 'US',
-      timeZone: 'UTC',
-      utcOffsetMinutes: 0,
-    };
+function clientContext(profile = 'visionos') {
+  const client = {...(PROFILES[profile] || PROFILES.visionos).client, hl: 'en', gl: 'US'};
   if (visitorData) client.visitorData = visitorData;
   return {client};
 }
@@ -66,8 +54,8 @@ export async function ensureVisitor(fetcher = fetch, {force = false} = {}) {
     const response = await fetcher(VISITOR, {
       method: 'POST',
       signal: controller.signal,
-      headers: {'Content-Type': 'application/json', 'User-Agent': ANDROID_VR_UA},
-      body: JSON.stringify({context: {client: {clientName: 'ANDROID_VR', clientVersion: ANDROID_VR_VERSION}}}),
+      headers: {'Content-Type': 'application/json', 'User-Agent': VISIONOS_UA},
+      body: JSON.stringify({context: {client: {clientName: 'VISIONOS', clientVersion: VISIONOS_VERSION}}}),
     });
     if (!response.ok) return visitorData;
     const data = await response.json();
@@ -78,14 +66,14 @@ export async function ensureVisitor(fetcher = fetch, {force = false} = {}) {
   finally { clearTimeout(timer); }
 }
 
-export function pickAudioFormat(formats, {preferAac = false} = {}) {
+export function pickAudioFormat(formats, {preferAac = false, order: wanted = null} = {}) {
   const direct = (formats || []).filter(f =>
     typeof f?.url === 'string' && f.url.startsWith('https://') &&
     String(f.mimeType || f.type || '').toLowerCase().startsWith('audio/'));
   if (!direct.length) return null;
-  const order = preferAac
+  const order = wanted || (preferAac
     ? [AUDIO_ITAGS.aac, AUDIO_ITAGS.opus, AUDIO_ITAGS.opus70, AUDIO_ITAGS.opus50]
-    : [AUDIO_ITAGS.opus, AUDIO_ITAGS.aac, AUDIO_ITAGS.opus70, AUDIO_ITAGS.opus50];
+    : [AUDIO_ITAGS.opus, AUDIO_ITAGS.aac, AUDIO_ITAGS.opus70, AUDIO_ITAGS.opus50]);
   for (const itag of order) {
     const hit = direct.find(f => Number(f.itag) === itag);
     if (hit) return hit;
@@ -113,6 +101,7 @@ export function shapeStream(format, videoId, engine = 'bridge', alternatives = [
     mime,
     bitrate: Number(format.bitrate) || (Number(format.itag) === 251 ? 160000 : 128000),
     itag: Number(format.itag) || null,
+    length: Number(format.contentLength) || 0,
     videoId,
     kind: 'bridge',
     instance: 'https://spot-plus-canvas.pwr97pnmkn.workers.dev',
@@ -122,14 +111,14 @@ export function shapeStream(format, videoId, engine = 'bridge', alternatives = [
   };
 }
 
-async function innertubeStream(videoId, {fetcher, preferAac}) {
+// validate(stream) -> true when the link really serves the whole file; a link that fails it is skipped
+// and the next client is tried.
+export async function innertubeStream(videoId, {fetcher, preferAac, order = null, validate = null, profiles = PROFILE_ORDER}) {
   await ensureVisitor(fetcher);
-  const attempt = async (profile = 'android_vr') => {
+  const attempt = async (profile) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 7000);
-    const ua = profile === 'ios' ? IOS_UA : ANDROID_VR_UA;
-    const clientName = profile === 'ios' ? '5' : '28';
-    const clientVer = profile === 'ios' ? IOS_VERSION : ANDROID_VR_VERSION;
+    const {ua, number, client} = PROFILES[profile];
     try {
       const response = await fetcher(PLAYER, {
         method: 'POST',
@@ -137,9 +126,11 @@ async function innertubeStream(videoId, {fetcher, preferAac}) {
         headers: {
           'Content-Type': 'application/json',
           'User-Agent': ua,
-          'X-YouTube-Client-Name': clientName,
-          'X-YouTube-Client-Version': clientVer,
+          'X-YouTube-Client-Name': number,
+          'X-YouTube-Client-Version': client.clientVersion,
+          'Origin': 'https://www.youtube.com',
           'Accept-Language': 'en-US,en;q=0.9',
+          ...(visitorData ? {'X-Goog-Visitor-Id': visitorData} : {}),
         },
         body: JSON.stringify({
           context: clientContext(profile),
@@ -155,7 +146,7 @@ async function innertubeStream(videoId, {fetcher, preferAac}) {
         return {error: status, reason: data?.playabilityStatus?.reason || '', login: status === 'LOGIN_REQUIRED'};
       }
       const formats = data?.streamingData?.adaptiveFormats || data?.streamingData?.formats || [];
-      const picked = pickAudioFormat(formats, {preferAac});
+      const picked = pickAudioFormat(formats, {preferAac, order});
       if (!picked) return {error: 'No direct audio URL'};
       // Include a companion AAC fallback when Opus was chosen so Safari/constrained decoders stay covered.
       const extra = [];
@@ -169,16 +160,20 @@ async function innertubeStream(videoId, {fetcher, preferAac}) {
     } finally { clearTimeout(timer); }
   };
 
-  let result = await attempt('android_vr');
-  if (result.login) {
-    await ensureVisitor(fetcher, {force: true});
-    result = await attempt('android_vr');
+  let firstFailure = null;
+  for (const profile of profiles.filter(name => PROFILES[name])) {
+    let result = await attempt(profile);
+    if (result.login) {
+      await ensureVisitor(fetcher, {force: true});
+      result = await attempt(profile);
+    }
+    if (result.stream && validate && !(await Promise.resolve(validate(result.stream)).catch(() => false))) {
+      result = {error: `YouTube refused the ${profile} link past the first chunk`};
+    }
+    if (result.stream) return result;
+    firstFailure ||= result;
   }
-  if (!result.stream) {
-    const iosResult = await attempt('ios');
-    if (iosResult.stream) return iosResult;
-  }
-  return result;
+  return firstFailure || {error: 'No audio'};
 }
 
 const MIRROR_BASES = [

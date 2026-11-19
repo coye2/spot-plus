@@ -35,10 +35,13 @@ export async function youtubeMatch(request, {fetcher = fetch, cache, waitUntil =
   const video = url.searchParams.get('type') === 'video';
   const key = new Request(url.origin + '/match?q=' + encodeURIComponent(q.toLowerCase()) + (video ? '&type=video' : ''));
   const cached = await cache?.match(key); if (cached) return cached;
-  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 4000);
+  const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 6000);
   try {
-    const response = await fetcher(SEARCH, {method:'POST',signal:controller.signal,redirect:'manual',headers:{'Content-Type':'application/json'},
+    // YouTube's search hiccups now and then; one quick retry turns most of those into results.
+    const ask = () => fetcher(SEARCH, {method:'POST',signal:controller.signal,redirect:'manual',headers:{'Content-Type':'application/json'},
       body: JSON.stringify({context:{client:{clientName:'WEB',clientVersion:'2.20251110.01.00',hl:'en',gl:'US'}},query:q + (video ? ' official music video' : ' audio')})});
+    let response = await ask().catch(() => null);
+    if (!response?.ok) { await new Promise((ok) => setTimeout(ok, 250)); response = await ask(); }
     if (!response.ok) return reply({error:'Search unavailable'},503);
     const text = await response.text();
     if (text.length > 3_000_000) return reply({error:'Search unavailable'},502);

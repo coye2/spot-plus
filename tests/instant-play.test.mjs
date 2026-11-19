@@ -48,6 +48,7 @@ test('NextAudioBuffer reports readiness without consuming the warm entry', () =>
 browserMocks();
 test('fast path forces AAC on Apple mobile and still offers AAC fallback for Opus', async () => {
   localStorage.setItem('spotplus.goodInstance', JSON.stringify({invidious: 'https://inv.example'}));
+  localStorage.setItem('spotplus.settings', JSON.stringify({source: 'invidious'}));
   Object.defineProperty(globalThis, 'navigator', {
     value: {userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)', platform: 'iPhone', maxTouchPoints: 5},
     configurable: true,
@@ -72,4 +73,11 @@ test('fast path forces AAC on Apple mobile and still offers AAC fallback for Opu
   assert.ok(desktop.alternatives.length >= 1);
   assert.match(desktop.alternatives[0].url, /itag=140/);
   await settle();
+});
+
+test('gapless handoff uses the real song length when Safari misjudges a streamed file', () => {
+  // Safari reports 480 s for a 180 s YouTube audio file; the relay knows the song is 180 s.
+  const media = {paused: false, duration: 480, currentTime: 179.8};
+  assert.equal(seamlessHandoffWindow(media), false);
+  assert.equal(seamlessHandoffWindow(media, 180), true);
 });

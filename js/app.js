@@ -591,7 +591,7 @@ async function viewSettings() {
   ${toggle('notifyReleases','New releases','When an artist you follow drops a song or album.')}${toggle('notifyStats','Weekly recap','Sunday evening: your minutes and most-played artist.')}${toggle('notifyUpdates','App updates','When a new version of Spot+ is ready.')}</section>
   <section class="box"><h2>Appearance</h2>${themeModeSwitch(s)}<p class="settings-note">Light, dark, automatic, or clear. Clear keeps your wallpaper in view while panels stay readable.</p><div class="row-btns"><a class="btn" href="#/themes">Themes</a><a class="btn" href="#/backgrounds">Background</a></div><label class="field"><span>Library and track spacing</span>${sel('density',[['comfortable','Comfortable'],['compact','Compact']])}</label><label class="field"><span>Text size</span>${sel('textSize',[['normal','Default'],['large','Larger']])}</label><label class="field"><span>Motion</span>${sel('motion',[['system','Follow system'],['reduced','Reduced']])}</label></section>
   <section class="box"><h2>Playback</h2>
-    <label class="field"><span>Audio source<small>Automatic races JioSaavn (320 kbps AAC), HiFi / Monochrome, Invidious, Piped, and Audius, with Deezer &amp; iTunes previews as fallback.</small></span>${((cur) => `<select data-setting="source">${[['auto', 'Automatic (best available)'], ['deezer', 'Deezer'], ['jiosaavn', 'JioSaavn (320 kbps AAC)'], ['hifi', 'HiFi / Monochrome (Lossless)'], ['audius', 'Audius public releases'], ['piped', 'Piped'], ['invidious', 'Invidious'], ['youtube', 'YouTube player']].map(([v, l]) => `<option value="${v}"${cur === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`)(s.source === 'preview' ? 'deezer' : s.source)}</label>
+    <label class="field"><span>Audio source<small>Automatic plays full songs in Spot+’s own player first (YouTube audio through the Spot+ server, Monochrome lossless, JioSaavn, and SoundCloud when set up), never YouTube’s player, so there are no ads. Pick “YouTube player” to use it anyway (it may show ads).</small></span>${((cur) => `<select data-setting="source">${[['auto', 'Automatic (best available)'], ['soundcloud', 'SoundCloud (full songs, no ads)'], ['ytrelay', 'YouTube audio (full songs, no ads)'], ['deezer', 'Deezer'], ['jiosaavn', 'JioSaavn (320 kbps AAC)'], ['hifi', 'HiFi / Monochrome (Lossless)'], ['audius', 'Audius public releases'], ['piped', 'Piped'], ['invidious', 'Invidious'], ['youtube', 'YouTube player']].map(([v, l]) => `<option value="${v}"${cur === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`)(s.source === 'preview' ? 'deezer' : s.source)}</label>
     <label class="field"><span>Streaming quality</span>${sel('quality', [['high', 'High'], ['low', 'Data saver']])}</label>
     ${toggle('smartRadio','Smart Radio','When your queue ends, keep playing similar songs. It learns from what you skip.')}
     <label class="field"><span>AutoMix<small>${player.crossfadeSupported?'Blend each song into the next, like a DJ. Off while effects are on.':'Blending songs isn’t possible on iPhone and iPad (Safari doesn’t let apps fade audio).'}</small></span>${sel('automix',[['0','Off'],['3','3 seconds'],['6','6 seconds'],['9','9 seconds']])}</label>
@@ -1063,8 +1063,11 @@ async function handleAct(act, el) {
       break;
     case 'bg-pick': {
       const cur = scene.normalizeScene(store.getSettings().scene);
-      store.setSettings({ scene: { kind: el.dataset.kind, id: el.dataset.id, x: cur?.x ?? 0.5, y: cur?.y ?? 0.42 } });
-      route({ keepScroll: true });
+      const next = scene.sceneFor(el.dataset.kind, el.dataset.id, cur);
+      store.setSettings({ scene: next });
+      // Update in place so the list keeps its scroll spot and live search results.
+      scene.apply(store.getSettings());
+      scene.markPicked(document, next);
       break;
     }
     case 'bg-clear':
@@ -1145,7 +1148,7 @@ function syncPlayer() {
   $$('[data-role=like],[data-role=shuffle],[data-role=repeat],[data-act=prev],[data-act=next],[data-act=np-open],[data-act=np-lyrics]').forEach(b=>b.disabled=!t);
   $$('[data-role=seek]').forEach(b=>b.disabled=!t||!player.canSeek());
   const ytDock=$('#ytDock');
-  if(ytDock){const embed=player.isEmbed()&&store.getSettings().source==='youtube';ytDock.hidden=!embed;ytDock.classList.toggle('visible',embed&&s.needsTap&&!s.ytHidden);}
+  if(ytDock){const embed=player.isEmbed()&&['youtube','auto'].includes(store.getSettings().source);ytDock.hidden=!embed;ytDock.classList.toggle('visible',embed&&s.needsTap&&!s.ytHidden);}
   if (!t) {$('#barArt').src='icons/icon-192.png';$('#barTitle').textContent='Choose something to play';$('#barArtist').textContent='Spot+';$$('[data-role=like]').forEach(b=>setIcon(b,'plus'));$$('[data-role=repeat]').forEach(b=>setIcon(b,'repeat'));return;}
   if (bar.dataset.id !== t.id) {
     bar.dataset.id = t.id;
@@ -1155,7 +1158,9 @@ function syncPlayer() {
   }
   if (!s.loading && bar.dataset.colorId !== t.id) {
     bar.dataset.colorId = t.id;
-    (globalThis.requestIdleCallback || setTimeout)(() => { if (player.current()?.id === t.id) playerColors.setTrack(t); }, 0);
+    // requestIdleCallback takes an options object, not a delay: a number throws and stopped the rest of this update.
+    const tint = () => { if (player.current()?.id === t.id) playerColors.setTrack(t); };
+    if (globalThis.requestIdleCallback) globalThis.requestIdleCallback(tint, {timeout: 500}); else setTimeout(tint, 0);
   }
   const playing = player.isPlaying();
   $$('[data-role=play]').forEach((b) => setIcon(b, playing ? 'pause' : 'play'));
@@ -1266,7 +1271,7 @@ function syncNP() {
     np.dataset.statsId = t.id;
     getTrackStats(t).then(data=>{if(player.current()?.id!==t.id)return;const count=matchPlayCount(t,data);$('#npPlays').textContent=count?count.plays.toLocaleString()+' plays on Spotify':'';});
   }
-  $('#npSrc').textContent = s.offline ? (t.local?'Local audio · On this device':'Downloaded audio · On this device') : s.source?.preview ? `30-second preview · ${s.source.engineLabel || 'Deezer'}` : s.source?.kind === 'youtube-embed' ? (s.needsTap ? 'YouTube player · Tap play above to start' : 'Full track · YouTube player') : s.source?.engineLabel ? `${s.source.engineLabel} · ${api.host(s.source.instance)}` : s.source ? `Audio · ${api.host(s.source.instance)}` : s.loading ? 'Finding audio… Tap play to cancel.' : s.error?'Audio unavailable. Retry or change audio source.':'Ready to play';
+  $('#npSrc').textContent = s.offline ? (t.local?'Local audio · On this device':'Downloaded audio · On this device') : s.source?.preview ? `30-second preview · ${s.source.engineLabel || 'Deezer'}` : s.source?.kind === 'youtube-embed' ? (s.needsTap ? 'Tap ▶ in the YouTube box below once to unlock full songs' : 'Full track · YouTube player') : s.source?.engineLabel ? `${s.source.engineLabel} · ${api.host(s.source.instance)}` : s.source ? `Audio · ${api.host(s.source.instance)}` : s.loading ? 'Finding audio… Tap play to cancel.' : s.error?'Audio unavailable. Retry or change audio source.':'Ready to play';
   syncCanvas();
   if (npMode === 'queue') renderQueue();
   if (!s.loading) loadLyrics();
@@ -1592,7 +1597,7 @@ player.on('time',()=>{if(player.el===fxEl&&!fx.isCaptured(fxEl)&&fx.needsGraph(f
 const fxBadge=()=>{$('.np-fx')?.classList.toggle('on',fx.isActive(fx.get()));const note=$('#sheetPanel .fx-note');if(note&&fx.isBlocked())note.textContent='This song’s audio server doesn’t allow reverb, pitch or bass, so it plays normally. Speed still works, and effects come back on the next song that allows them.';};
 $('.np-fx')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();fxSheet();});
 player.on('state',fxBind);fx.onChange(fxBadge);fxBadge();
-addEventListener('spotplus:music-play',fx.resume);document.addEventListener('visibilitychange',()=>{if(!document.hidden)fx.resume();});
+addEventListener('spotplus:music-play',fx.resume);document.addEventListener('visibilitychange',()=>{if(!document.hidden){fx.resume();fx.restoreAfterBackground(player.el);}});
 function sleepMenu(){openSheet({head:'<div class="sheet-title">Sleep timer</div>',items:[...[5,15,30,60].map(minutes=>({icon:I.history,label:`${minutes} minutes`,fn:()=>{clearTimeout(sleepTimer);sleepTimer=setTimeout(()=>{player.pause();dj.stop();toast('Sleep timer ended');},minutes*60000);toast(`Playback will pause in ${minutes} minutes`);}})),{icon:I.close,label:'Turn off timer',fn:()=>{clearTimeout(sleepTimer);sleepTimer=null;toast('Sleep timer off');}}]});}
 function trapFocus(e,root){if(e.key!=='Tab')return;const focusable=$$('button:not(:disabled),a[href],input:not(:disabled),select,textarea,[tabindex="0"]',root).filter(el=>el.getClientRects().length);if(!focusable.length)return;const first=focusable[0],last=focusable.at(-1);if(e.shiftKey&&(document.activeElement===first||!root.contains(document.activeElement))){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}
 document.addEventListener('keydown',e=>{if(!sheet.hidden)trapFocus(e,sheet);else if(npOpen&&matchMedia(MOBILE_QUERY).matches)trapFocus(e,np);if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();go('#/search');}if(!e.target.closest('input,textarea,select,button')&&e.altKey){if(e.key==='ArrowRight'){e.preventDefault();player.next();}if(e.key==='ArrowLeft'){e.preventDefault();player.prev();}}});
@@ -1928,6 +1933,7 @@ $$('[data-icon]').forEach((el) => setIcon(el, el.dataset.icon));
 player.on('state', syncPlayer);
 player.on('time', syncTime);
 player.on('error', (msg) => { if (!/^Playback failed/.test(msg || '')) toast(msg); });
+player.on('notice', (msg) => toast(msg));
 store.onChange((key) => {
   const h = location.hash;
   if(key==='settings'){applyPreferences();if(!store.getSettings().djVoice)dj.voice.cancelSpeech();}

@@ -315,8 +315,141 @@ export function instances(force = false) {
 // Shared match & stream lookup on the Spot+ bridge: edge-cached search and stream resolution.
 export const MATCH_ENDPOINT = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/match';
 export const STREAM_ENDPOINT = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/stream';
+// Full songs from SoundCloud's official API through the worker (off until the worker has a SoundCloud key).
+export const SC_ENDPOINT = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/sc';
+const SC_BASE = 'https://soundcloud.com';
+let scOff = 0;
+async function soundcloudStream(track, signal, ms = 3000) {
+  if (scOff > Date.now()) throw new Error('SoundCloud is not set up');
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), ms);
+  try {
+    const params = new URLSearchParams({title: track.searchTitle || track.title || '', artist: track.artist || '', album: track.album || '', duration: String(Math.round(Number(track.duration) || 0))});
+    const r = await fetch(`${SC_ENDPOINT}?${params}`, {signal: signal ? AbortSignal.any([signal, ctl.signal]) : ctl.signal, credentials: 'omit'});
+    if (r.status === 503 || r.status === 404 && !r.headers.get('content-type')?.includes('json')) scOff = Date.now() + 30 * 60e3;
+    if (!r.ok) throw new Error('Not on SoundCloud');
+    const d = await r.json();
+    if (!/^https:\/\//.test(d.url || '')) throw new Error('No SoundCloud link');
+    return {url: d.url, mime: 'audio/mpeg', bitrate: 128000, kind: 'soundcloud', engineLabel: 'SoundCloud', instance: SC_BASE, title: d.title, channel: d.artist, duration: d.duration || track.duration, verified: true, alternatives: []};
+  } finally { clearTimeout(timer); }
+}
+export const soundcloudReady = () => scOff <= Date.now();
+
+// Full YouTube audio relayed through the Spot+ worker into Spot+'s own player (no YouTube player, no ads,
+// no extra tap). Unofficial: depends on YouTube's internal API and can break when YouTube changes it.
+export const RELAY_ENDPOINT = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/yta';
+const RELAY_BASE = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/yta';
+let relayOff = 0;
+/** Spotube-style quality: Opus 160 kbps where it plays, AAC 128 kbps on iPhone/Safari, or the data-saver tier. */
+export function relayFormat(quality = getSettings().quality, ua = globalThis.navigator?.userAgent || '') {
+  const apple = appleMobile() || (/Safari\//.test(ua) && !/Chrome|Chromium|CriOS|Android|Edg/.test(ua));
+  let opus = false;
+  try { opus = !apple && !!globalThis.document?.createElement('audio').canPlayType('audio/webm; codecs="opus"'); } catch { opus = false; }
+  if (quality === 'low') return opus ? 'low-opus' : 'low';
+  return opus ? 'opus' : 'aac';
+}
+const RELAY_BITRATE = {opus: 160000, aac: 128000, low: 48000, 'low-opus': 50000};
+// The relay usually answers in well under a second. When YouTube refuses an upload, the worker spends a few
+// seconds retrying before it gives up, so the next upload starts in parallel after a short wait (hedging)
+// instead of queueing behind it. The first upload that really streams wins; the others are cancelled.
+// Uploads whose stream just dropped are tried last for a few minutes, so a retry lands on another upload.
+const relayAvoid = new Map();
+export function avoidRelayVideo(id) { if (id) relayAvoid.set(id, Date.now() + 5 * 60e3); }
+const avoided = (id) => (relayAvoid.get(id) || 0) > Date.now();
+export const RELAY_HEDGE_MS = 1500;
+const RELAY_PROBE_MS = 9000;
+const RELAY_PARALLEL = 2;
+export async function relayStream(track, signal, matches) {
+  if (relayOff > Date.now()) throw new Error('Relay is off');
+  const all = uniq((matches || []).map((m) => m?.id).filter((id) => /^[\w-]{11}$/.test(id || '')));
+  const ids = [...all.filter((id) => !avoided(id)), ...all.filter(avoided)].slice(0, 3);
+  if (!ids.length) throw new Error('No YouTube match');
+  const fmt = relayFormat();
+  // Ask for two bytes: proves the relay really streams this song before the player commits to it.
+  const probe = async (id, probeSignal) => {
+    const url = `${RELAY_ENDPOINT}?id=${id}&fmt=${fmt}`;
+    const r = await fetch(url, {headers: {Range: 'bytes=0-1'}, signal: probeSignal, credentials: 'omit'});
+    if (r.status === 404 && !(r.headers.get('content-type') || '').includes('json')) { relayOff = Date.now() + 30 * 60e3; throw new Error('Relay is not deployed'); }
+    if (r.status !== 206 && r.status !== 200) { r.body?.cancel?.().catch(() => {}); throw new Error('Relay answered ' + r.status); }
+    r.body?.cancel?.().catch(() => {});
+    const pick = matches.find((m) => m?.id === id) || {};
+    return {url, mime: (r.headers.get('content-type') || 'audio/mp4').split(';')[0], bitrate: RELAY_BITRATE[fmt] || 128000, kind: 'ytrelay', engineLabel: 'YouTube audio', instance: RELAY_BASE, videoId: id, catalogId: id, title: pick.title, channel: pick.channel || pick.author, duration: pick.duration || track.duration, alternatives: []};
+  };
+  // Two rounds: YouTube's bot check on the server comes and goes, and each new request gets a fresh session.
+  const queue = [...ids, ...ids.slice(0, 2)];
+  return new Promise((resolve, reject) => {
+    const live = new Map(); // id -> AbortController of its probe in flight
+    let last = 'No audio', done = false, hedge = null;
+    const finish = (settle, value) => {
+      if (done) return;
+      done = true; clearTimeout(hedge);
+      for (const ctl of live.values()) ctl.abort();
+      signal?.removeEventListener?.('abort', onAbort);
+      settle(value);
+    };
+    const onAbort = () => finish(reject, signal.reason || new Error('Aborted'));
+    const launch = () => {
+      clearTimeout(hedge);
+      if (done) return;
+      if (!live.size && !queue.length) return finish(reject, new Error(last));
+      // The same upload is never asked twice at once; its second round waits for the first to finish.
+      const next = queue.findIndex((id) => !live.has(id));
+      if (next < 0 || live.size >= RELAY_PARALLEL) return;
+      const [id] = queue.splice(next, 1);
+      const ctl = new AbortController();
+      live.set(id, ctl);
+      const timer = setTimeout(() => ctl.abort(), RELAY_PROBE_MS);
+      probe(id, ctl.signal).then((stream) => finish(resolve, stream), (error) => {
+        if (relayOff > Date.now()) return finish(reject, error);
+        last = error?.message || last;
+      }).finally(() => { clearTimeout(timer); live.delete(id); launch(); });
+      if (queue.length) hedge = setTimeout(launch, RELAY_HEDGE_MS);
+    };
+    if (signal?.aborted) return onAbort();
+    signal?.addEventListener?.('abort', onAbort, {once: true});
+    launch();
+  });
+}
+// Ask the worker once (on the first song) whether SoundCloud is set up, so nothing waits on it when it is not.
+let scKnown = '';
+let relayKnown = '';
+let scCheck = null;
+function checkSoundcloud() {
+  if (scCheck) return scCheck;
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 5000);
+  scCheck = fetch(SC_ENDPOINT.replace(/\/sc$/, '/health'), {credentials: 'omit', signal: ctl.signal}).then((r) => r.json()).finally(() => clearTimeout(timer))
+    .then((h) => {
+      scKnown = h?.sc ? 'on' : 'off'; if (!h?.sc) scOff = Date.now() + 30 * 60e3;
+      relayKnown = h?.relay ? 'on' : 'off'; if (!h?.relay) relayOff = Date.now() + 30 * 60e3;
+    })
+    // Couldn't reach the worker (the phone just woke up, a network switch): ask again on the next song.
+    // This used to switch the relay off for 5 minutes, so every song failed until the app was restarted.
+    .catch(() => { scKnown = ''; relayKnown = ''; scCheck = null; });
+  return scCheck;
+}
 let matchDown = 0;
 let streamDown = 0;
+// When every direct server failed recently, Auto goes straight to YouTube's player (instant start).
+let directDown = 0;
+const appleMobile = () => /iP(hone|ad|od)/.test(globalThis.navigator?.userAgent || '') || (globalThis.navigator?.platform === 'MacIntel' && globalThis.navigator?.maxTouchPoints > 1);
+/**
+ * How long lossless servers get before YouTube's player starts. Elsewhere a known video starts at once
+ * (lossless takes over mid-song). On iPhone the YouTube player needs its own tap, while a lossless link
+ * plays straight from the tap on the song, so lossless gets longer there.
+ */
+// Inside the Spot+ iPhone app, the web view lets YouTube's player start without its own tap.
+let embedUnlocked = /SpotPlusApp\//.test(globalThis.navigator?.userAgent || '');
+/** The player reports when YouTube's player has played with sound this session (iPhone then autoplays it too). */
+export function setEmbedUnlocked(on = true) { embedUnlocked = !!on; }
+export function embedWait(t, now = Date.now()) {
+  if (directDown > now) return 0;
+  // SoundCloud plays ad-free straight from the tap; give it a moment before YouTube's player.
+  if (scOff <= now && scKnown === 'on') return 1800;
+  // The relay plays the same full YouTube songs in Spot+'s own player, without ads; let it answer first.
+  if (relayOff <= now && relayKnown === 'on') return 7000;
+  if (scOff <= now && !scKnown) return 900;
+  if (appleMobile() && !embedUnlocked) return 2600;
+  return 0;
+}
 async function bridgeMatches(t, signal) {
   if (matchDown > Date.now()) throw new Error('Match lookup paused');
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 3500);
@@ -329,8 +462,10 @@ async function bridgeMatches(t, signal) {
     return matches;
   } finally { clearTimeout(timer); }
 }
+// The worker's /stream hands out YouTube links tied to Cloudflare's address, which phones cannot play. Off.
+const BRIDGE_STREAM_ON = false;
 export async function bridgeStream(videoId, { signal, preferAac = false, timeoutMs = 900 } = {}) {
-  if (!videoId || streamDown > Date.now() || !router.isAvailable(STREAM_ENDPOINT)) return null;
+  if (!BRIDGE_STREAM_ON || !videoId || streamDown > Date.now() || !router.isAvailable(STREAM_ENDPOINT)) return null;
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), timeoutMs);
   const combined = signal ? AbortSignal.any([signal, ctl.signal]) : ctl.signal;
   let onAbort = null;
@@ -676,13 +811,16 @@ export async function resolveVideoLoop(track, {signal, source, skip = []} = {}) 
 }
 
 function kinds(s = getSettings().source) {
+  if (s === 'soundcloud') return ['soundcloud'];
+  if (s === 'ytrelay') return ['ytrelay'];
   if (s === 'jiosaavn') return ['jiosaavn'];
   if (s === 'hifi') return ['hifi'];
   if (s === 'piped') return ['piped'];
   if (s === 'invidious') return ['invidious'];
   if (s === 'audius') return ['audius'];
   if (s === 'youtube') return ['youtube'];
-  return ['monochrome', 'jiosaavn', 'hifi', 'invidious', 'piped', 'audius'];
+  // HiFi relays are inactive and public Invidious/Piped servers are blocked by YouTube (their links stall).
+  return ['soundcloud', 'ytrelay', 'monochrome', 'jiosaavn'];
 }
 
 export async function previewStream(t) {
@@ -723,10 +861,64 @@ async function itunesPreview(t) {
   return { url: matched[0].previewUrl, mime: 'audio/mp4', bitrate: 256000, kind: 'preview', engineLabel: 'iTunes AAC preview', instance: 'https://itunes.apple.com', preview: true, alternatives: [] };
 }
 
+// Uploads a label blocked from playing outside YouTube (errors 101/150). Remembered so each costs time once.
+const BLOCKED_KEY = 'spotplus.ytBlocked';
+let blockedEmbeds = null;
+const blockedSet = () => {
+  if (!blockedEmbeds) { try { blockedEmbeds = new Set(JSON.parse(globalThis.localStorage?.getItem(BLOCKED_KEY) || '[]')); } catch { blockedEmbeds = new Set(); } }
+  return blockedEmbeds;
+};
+export function markEmbedBlocked(id) {
+  if (!/^[\w-]{11}$/.test(String(id || ''))) return;
+  const set = blockedSet(); set.delete(id); set.add(id);
+  try { globalThis.localStorage?.setItem(BLOCKED_KEY, JSON.stringify([...set].slice(-600))); } catch { /* storage full */ }
+}
+/** The upload that actually played: try it first next time. */
+export function rememberEmbed(t, id) {
+  if (!t?.id || !/^[\w-]{11}$/.test(String(id || ''))) return;
+  const old = getVideoCache(t.id);
+  if (old?.manual && old.id !== id) return;
+  setVideoCache(t.id, { id, manual: !!old?.manual, matchVersion: 3, embedOk: true });
+}
+const NOT_THE_SONG = /\b(cover|karaoke|instrumental|8d|slowed|sped ?up|nightcore|reverb|bass ?boost|1 ?hour|loop|reaction|tutorial|lesson|piano version|guitar version)\b/i;
+const foldText = (v) => String(v || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\([^)]*\)|\[[^\]]*\]/g, ' ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+/** A wider net for YouTube's player: lyric videos, music videos, and live uploads of the same song. */
+export function looseEmbedMatches(items, t) {
+  const title = foldText(t.searchTitle || t.title), artistWords = foldText(t.artist).split(' ').filter((w) => w.length > 2);
+  const own = `${t.title} ${t.album || ''}`;
+  return (items || []).filter((x) => {
+    const name = foldText(x?.title), who = foldText(`${x?.title} ${x?.channel || x?.author || ''}`);
+    if (!/^[\w-]{11}$/.test(String(x?.id || '')) || !title || !name.includes(title)) return false;
+    if (artistWords.length && !artistWords.some((w) => who.includes(w))) return false;
+    if (NOT_THE_SONG.test(x.title) && !NOT_THE_SONG.test(own)) return false;
+    if (/\bremix\b/i.test(x.title) && !/\bremix\b/i.test(own)) return false;
+    const d = Number(x.duration || x.lengthSeconds) || 0, want = Number(t.duration) || 0;
+    return !(d && want && (d < want * 0.8 || d > want * 1.6));
+  });
+}
+/** More uploads to try after every candidate was blocked; empty when there are none left. */
+export async function moreEmbedCandidates(t, tried = [], signal) {
+  const skip = new Set([...tried, ...blockedSet()]);
+  // Lyric videos are uploaded by fan channels and are almost never blocked outside YouTube.
+  const lookups = [[query(t), ''], [query(t), '&type=video'], [query(t) + ' lyrics', '']].map(async ([q, extra]) => {
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 3500);
+    try {
+      const r = await fetch(MATCH_ENDPOINT + '?q=' + encodeURIComponent(q) + extra, {signal: signal ? AbortSignal.any([signal, ctl.signal]) : ctl.signal, credentials: 'omit'});
+      return r.ok ? ((await r.json()).items || []) : [];
+    } catch { return []; } finally { clearTimeout(timer); }
+  });
+  const all = (await Promise.all(lookups)).flat();
+  return uniq(looseEmbedMatches(all, t).map((x) => x.id)).filter((id) => !skip.has(id)).slice(0, 8);
+}
+
 function youtubeEmbedStream(matches, t) {
-  const ids = uniq((matches || []).map((m) => m?.id).filter((id) => /^[\w-]{11}$/.test(id || '')));
+  const blocked = blockedSet(), known = getVideoCache(t.id);
+  let ids = uniq([...(known?.embedOk ? [known.id] : []), ...(matches || []).map((m) => m?.id)].filter((id) => /^[\w-]{11}$/.test(id || '')));
+  // Skip uploads that already refused to play here; keep them only if nothing else is left.
+  const open = ids.filter((id) => !blocked.has(id));
+  if (open.length) ids = open;
   if (!ids.length) return null;
-  setVideoCache(t.id, { id: ids[0], manual: !!getVideoCache(t.id)?.manual, matchVersion: 3 });
+  if (known?.id !== ids[0]) setVideoCache(t.id, { id: ids[0], manual: !!known?.manual, matchVersion: 3 });
   return {
     url: `https://www.youtube.com/embed/${ids[0]}`,
     videoId: ids[0],
@@ -752,7 +944,7 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
   const cached = stored?.manual || stored?.matchVersion === 3 ? stored : null;
   const control = new AbortController();
   const isAuto = set.source === 'auto';
-  const deadline = setTimeout(() => control.abort(), isAuto ? 9000 : 16000);
+  const deadline = setTimeout(() => control.abort(), isAuto ? 14000 : 16000);
   const combined = signal ? AbortSignal.any([signal, control.signal]) : control.signal;
   // Ask the shared lookup once; every server below can skip its own search when it answers first.
   let sharedMatches = cached ? [cached] : null;
@@ -798,6 +990,9 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
     const ytKinds = activeKinds.filter((k) => ['piped', 'invidious'].includes(k));
     const streamGroups = ytKinds.map((kind) => orderedInstances(kind, inst, set).slice(0, perKind).map((base) => ({ kind, base })));
     const sources = [];
+    if (activeKinds.includes('soundcloud') || activeKinds.includes('ytrelay')) checkSoundcloud();
+    if (activeKinds.includes('ytrelay') && !skip.includes(RELAY_BASE) && relayOff <= Date.now()) sources.push({ kind: 'ytrelay', base: RELAY_BASE });
+    if (activeKinds.includes('soundcloud') && !skip.includes(SC_BASE) && scOff <= Date.now()) sources.push({ kind: 'soundcloud', base: SC_BASE });
     if (activeKinds.includes('monochrome') && !skip.includes(MONO_BASE)) sources.push({ kind: 'monochrome', base: MONO_BASE });
     if (activeKinds.includes('jiosaavn')) {
       for (const base of orderedInstances('jiosaavn', inst, set).slice(0, 2)) {
@@ -813,12 +1008,14 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
     for (let i = 0; i < perKind; i++) for (const group of streamGroups) if (group[i] && !skip.includes(group[i].base)) sources.push(group[i]);
     if (activeKinds.includes('audius') && !skip.includes('https://api.audius.co')) sources.push({ kind: 'audius', base: 'https://api.audius.co' });
 
-    const result = await raceAudioSources(sources, async ({ kind, base }) => {
+    const directRace = raceAudioSources(sources, async ({ kind, base }) => {
       raceSignal.throwIfAborted();
       const began = performance.now();
       try {
         let value;
-        if (kind === 'monochrome') value = await monochromeStream(base, t, raceSignal, reqMs);
+        if (kind === 'soundcloud') value = await soundcloudStream(t, raceSignal);
+        else if (kind === 'ytrelay') value = await relayStream(t, raceSignal, sharedMatches?.length ? sharedMatches : await (shared || Promise.resolve([])));
+        else if (kind === 'monochrome') value = await monochromeStream(base, t, raceSignal, reqMs);
         else if (kind === 'audius') value = await audiusStream(t, raceSignal);
         else if (kind === 'jiosaavn') value = await jiosaavnStream(base, t, raceSignal, reqMs);
         else if (kind === 'hifi') value = await hifiStream(base, t, raceSignal, reqMs);
@@ -836,6 +1033,28 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
         throw error;
       }
     }, { signal: raceSignal, quality: set.quality, concurrency: 8, qualityWait: 180 });
+    // Auto: full song through YouTube's official player if no direct server answers quickly.
+    let embedTimer = 0;
+    const embedFallback = isAuto && allowEmbed && !cors && shared !== undefined ? new Promise((resolve, reject) => {
+      const wait = embedWait(t);
+      let fired = false;
+      const fire = async () => {
+        if (fired) return; fired = true; clearTimeout(embedTimer);
+        try {
+          const matches = sharedMatches?.length ? sharedMatches : await (shared || Promise.reject(new Error('no lookup')));
+          const embed = youtubeEmbedStream(matches, t);
+          embed ? resolve(embed) : reject(new Error('no embed'));
+        } catch (e) { reject(e); }
+      };
+      embedTimer = setTimeout(fire, wait);
+      // Every direct server already failed: start YouTube's player now instead of waiting.
+      directRace.catch(() => { directDown = Date.now() + 10 * 60e3; fire(); });
+    }) : null;
+    directRace.then(() => { directDown = 0; }, () => {});
+    let result;
+    try { result = embedFallback ? await Promise.any([directRace, embedFallback]) : await directRace; }
+    finally { clearTimeout(embedTimer); }
+    if (result.kind === 'youtube-embed') { raceControl.abort(); directRace.catch(() => { directDown = Date.now() + 10 * 60e3; }); }
     async function attemptServer(kind, base) {
       router.claimHalfOpen(base);
       const choices = cached ? [cached] : (await Promise.any([shared, ENGINES[kind].search(base, t, raceSignal, reqMs)].filter(Boolean))).slice(0, 2);
@@ -877,9 +1096,23 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
       const canonical = await canonicalTrack(t).catch(() => null);
       if (canonical) return resolveUncached({ ...t, title: canonical.title, searchTitle: canonical.searchTitle || canonical.title, artist: canonical.artist, duration: t.duration || canonical.duration }, { skip, signal, cors, allowEmbed, fullOnly }, 'catalog');
     }
-    if (isAuto && !fullOnly) {
-      const rescued = await previewRescue(t);
-      if (rescued) return rescued;
+    if (isAuto && allowEmbed && !cors) {
+      directDown = Date.now() + 10 * 60e3;
+      const matches = sharedMatches?.length ? sharedMatches : await (shared ? Promise.race([shared, new Promise((_, rej) => setTimeout(() => rej(new Error('slow')), 2500))]).catch(() => null) : null);
+      const embed = youtubeEmbedStream(matches, t);
+      if (embed) return embed;
+    }
+    // No 30-second clips in Automatic: give the relay one last, patient try (YouTube's bot check on the server
+    // comes and goes), then report the song as unavailable so the player can move on.
+    if (isAuto && !fullOnly && kinds(set.source).includes('ytrelay') && relayOff <= Date.now() && !skip.includes(RELAY_BASE)) {
+      const matches = sharedMatches?.length ? sharedMatches : await (shared ? shared.catch(() => []) : []);
+      // Wider net, as when uploads are unavailable here: lyric videos and other uploads of the same song.
+      const wider = await moreEmbedCandidates(t, matches.map((m) => m?.id), signal).catch(() => []);
+      for (const [wait, list] of [[0, wider.map((id) => ({id}))], [1500, matches]]) {
+        if (wait) await new Promise((ok) => setTimeout(ok, wait));
+        if (signal?.aborted || !list.length) continue;
+        try { return await relayStream(t, signal, list); } catch { /* next round */ }
+      }
     }
     throw new Error('No audio server answered. Try Deezer, JioSaavn, HiFi, Audius, your own server in Settings, or a local audio file.');
   } finally { clearTimeout(raceCap); clearTimeout(deadline); control.abort(); }
@@ -961,7 +1194,9 @@ export function instantMirrors(videoId, bases, { opus = false } = {}) {
   }));
 }
 async function fastStream(t,{cached,shared,set,cors,skip,signal}){
-  if(['piped','audius','preview','deezer','youtube','jiosaavn','hifi'].includes(set.source))return null;
+  // Unchecked mirror links: public Invidious servers are mostly down, and a dead link costs seconds of
+  // silence before the stall check gives up. Auto uses checked servers and YouTube's player instead.
+  if(['auto','piped','audius','preview','deezer','youtube','jiosaavn','hifi'].includes(set.source))return null;
   const customMirrors = (set.customInvidious || '').split(/[\s,]+/).map(clean).filter(isAllowedCustomOrigin);
   const hasMirrorCandidate = !!(customMirrors.length || lastGood().invidious);
   const bridgeReady = !cors && streamDown <= Date.now() && router.isAvailable(STREAM_ENDPOINT);
@@ -1055,11 +1290,13 @@ export async function resolve(t,options={}) {
   if(hit&&(!options.fullOnly||(!hit.preview&&hit.kind!=='youtube-embed'))&&(allowEmbed||hit.kind!=='youtube-embed')&&(!options.cors||(hit.kind!=='youtube-embed'&&await corsOK(hit.url)))){options.signal?.throwIfAborted();return {...hit,cacheLayer:'memory'};}
   if(options.skip?.length)forget(key);
   const warm=warmups.get(key);
-  if(warm&&!options.skip?.length){try {const stream=await abortable(warm,options.signal);options.signal?.throwIfAborted();if((!options.fullOnly||(!stream.preview&&stream.kind!=='youtube-embed'))&&(allowEmbed||stream.kind!=='youtube-embed')&&(!options.cors||(stream.kind!=='youtube-embed'&&await corsOK(stream.url)))){const check=validateSourceCandidate(stream,{canPlay:mime=>!!probe?.canPlayType(mime),requireCors:options.cors,corsKnown:knownCors});if(check.ok)return {...stream,cacheLayer:'prewarm'};}}catch {options.signal?.throwIfAborted();}}
+  if(warm&&!options.skip?.length){try {const stream=await abortable(warm,options.signal);options.signal?.throwIfAborted();if(!(stream.preview&&settings.source==='auto')&&(!options.fullOnly||(!stream.preview&&stream.kind!=='youtube-embed'))&&(allowEmbed||stream.kind!=='youtube-embed')&&(!options.cors||(stream.kind!=='youtube-embed'&&await corsOK(stream.url)))){const check=validateSourceCandidate(stream,{canPlay:mime=>!!probe?.canPlayType(mime),requireCors:options.cors,corsKnown:knownCors});if(check.ok)return {...stream,cacheLayer:'prewarm'};}}catch {options.signal?.throwIfAborted();}}
   // With effects on, prefer servers that allow them; if none do, play the song normally.
   let stream;
   const opts={...options,allowEmbed};
-  if(opts.cors){try{stream=await resolveUncached(t,opts);}catch(e){if(opts.signal?.aborted)throw e;stream=await resolveUncached(t,{...opts,cors:false});}}
+  if(opts.cors){try{stream=await resolveUncached(t,opts);}catch(e){if(opts.signal?.aborted)throw e;stream=await resolveUncached(t,{...opts,cors:false});}
+    // No effects-friendly full song: play the whole song without effects rather than a 30-second clip.
+    if(stream?.preview&&allowEmbed){try{const full=await resolveUncached(t,{...opts,cors:false});if(!full.preview)stream=full;}catch(e){if(opts.signal?.aborted)throw e;}}}
   else stream=await resolveUncached(t,opts);
   opts.signal?.throwIfAborted();
   remember(streamKey(t,settings,stream.videoId||getVideoCache(t.id)?.id||''),stream);
@@ -1080,15 +1317,18 @@ export async function resolveEquivalent(t, options = {}) {
   }
   return candidate;
 }
+let embedHook=null;
+/** The player boots YouTube's player early when a prewarm finds a song's video. */
+export function onEmbedFound(fn){embedHook=typeof fn==='function'?fn:null;}
 export function prewarm(t){
   if(!t||t.local||t.direct||navigator.connection?.saveData||/2g/.test(navigator.connection?.effectiveType||''))return;
   const settings=getSettings(),allowEmbed=settings.source==='youtube',key=streamKey(t,settings);if(warmups.has(key))return warmups.get(key);
-  const hit=cachedStream(key);if(hit&&(allowEmbed||hit.kind!=='youtube-embed'))return Promise.resolve({...hit,cacheLayer:'memory'});
+  const hit=cachedStream(key);if(hit&&!(hit.preview&&settings.source==='auto')&&(allowEmbed||hit.kind!=='youtube-embed')){if(hit.kind==='youtube-embed')try{embedHook?.(hit.videoId);}catch{}return Promise.resolve({...hit,cacheLayer:'memory'});}
   warmConnections();
   // Keep up to three predictive resolves (restore + next + next+1).
   if(warmControllers.size>=3){const oldest=warmControllers.keys().next().value;warmControllers.get(oldest).abort();warmControllers.delete(oldest);warmups.delete(oldest);}
   const controller=new AbortController();warmControllers.set(key,controller);
-  const promise=resolveUncached(t,{signal:controller.signal,allowEmbed}).then(stream=>{controller.signal.throwIfAborted();remember(streamKey(t,settings,stream.videoId||getVideoCache(t.id)?.id||''),stream);if(stream.kind!=='youtube-embed')preconnect(stream.url);return stream;}).finally(()=>{if(warmControllers.get(key)===controller){warmups.delete(key);warmControllers.delete(key);}});
+  const promise=resolveUncached(t,{signal:controller.signal,allowEmbed}).then(stream=>{controller.signal.throwIfAborted();if(stream.kind==='youtube-embed')try{embedHook?.(stream.videoId);}catch{}remember(streamKey(t,settings,stream.videoId||getVideoCache(t.id)?.id||''),stream);if(stream.kind!=='youtube-embed')preconnect(stream.url);return stream;}).finally(()=>{if(warmControllers.get(key)===controller){warmups.delete(key);warmControllers.delete(key);}});
   warmups.set(key,promise);promise.catch(()=>{});
   return promise;
 }
