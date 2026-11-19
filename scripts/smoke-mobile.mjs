@@ -53,7 +53,7 @@ try {
     await guestPage.waitForFunction(()=>document.documentElement.dataset.maintenance!=='checking'&&document.documentElement.dataset.maintenance!=='1'&&document.querySelector('.app'),{timeout:15000});
     const guestState=await guestPage.evaluate(()=>({
       appCount:document.querySelectorAll('.app').length,
-      blocking:document.documentElement.dataset.maintenance==='1'||(document.getElementById('maintenanceScreen')&&!document.getElementById('maintenanceScreen').hidden),
+      blocking:document.documentElement.dataset.maintenance==='1'||!!(document.getElementById('maintenanceScreen')&&!document.getElementById('maintenanceScreen').hidden),
     }));
     assert.ok(guestState.appCount>=1,'Public visitor should see the app');
     assert.equal(guestState.blocking,false,'Maintenance screen must stay down');
