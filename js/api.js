@@ -369,12 +369,6 @@ export async function relayStream(track, signal, matches) {
     const url = `${RELAY_ENDPOINT}?id=${id}&fmt=${fmt}`;
     const r = await fetch(url, {headers: {Range: 'bytes=0-1'}, signal: probeSignal, credentials: 'omit'});
     if (r.status === 404 && !(r.headers.get('content-type') || '').includes('json')) { relayOff = Date.now() + 30 * 60e3; throw new Error('Relay is not deployed'); }
-    if (r.status === 502 || r.status === 503) {
-      // YouTube's bot check is a burst. Stop this song waiting on it; try the relay again shortly.
-      relayOff = Date.now() + 20e3;
-      r.body?.cancel?.().catch(() => {});
-      throw new Error('Relay is checking for bots');
-    }
     if (r.status !== 206 && r.status !== 200) { r.body?.cancel?.().catch(() => {}); throw new Error('Relay answered ' + r.status); }
     r.body?.cancel?.().catch(() => {});
     const pick = matches.find((m) => m?.id === id) || {};
