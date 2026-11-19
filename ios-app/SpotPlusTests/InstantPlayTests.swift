@@ -86,6 +86,7 @@ final class InstantPlayTests: XCTestCase {
     /// uploads are blocked outside YouTube, which used to end as 30-second clips.
     func testRealSpotPlusSongsStartWithNoTapAndPlayFullSongs() throws {
         let songs: [(String, String, Int)] = [
+            ("Never Gonna Give You Up", "Rick Astley", 213),
             ("Blinding Lights", "The Weeknd", 200),
             ("Uptown Funk (feat. Bruno Mars)", "Mark Ronson, Bruno Mars", 270),
             ("the cure", "Olivia Rodrigo", 297),
@@ -94,6 +95,22 @@ final class InstantPlayTests: XCTestCase {
         let skipIntro = """
         try { localStorage.setItem('spotplus.landing','1'); localStorage.setItem('spotplus.onboarded.v2','1');
               localStorage.setItem('spotplus.onboarded.v2.installed','1'); localStorage.setItem('spotplus.seenVersion','9.9.9'); } catch (_) {}
+        window.__ytLog = [];
+        addEventListener('message', e => {
+          if (!/youtube/.test(e.origin)) return;
+          try { const d = JSON.parse(e.data);
+            if (d.event === 'onError') window.__ytLog.push('error ' + d.info);
+            if (d.event === 'infoDelivery' && d.info && d.info.videoData && d.info.videoData.errorCode) window.__ytLog.push('videoData error ' + d.info.videoData.errorCode);
+          } catch (_) {}
+        });
+        const realFetch = window.fetch;
+        window.fetch = async (...args) => {
+          const url = String(args[0] && args[0].url || args[0]);
+          try { const r = await realFetch(...args);
+            if (/workers\.dev\/match/.test(url)) { const c = r.clone(); c.json().then(j => window.__ytLog.push('match ' + r.status + ' ' + (j.items || []).length + ' items')).catch(() => window.__ytLog.push('match ' + r.status)); }
+            return r;
+          } catch (err) { if (/workers\.dev/.test(url)) window.__ytLog.push('match failed ' + err); throw err; }
+        };
         """
         let webView = makeWebView(SpotPlusWebView.makeConfiguration(), probe: probe, startScript: skipIntro)
         webView.load(URLRequest(url: URL(string: "https://coye2.github.io/spot-plus/#/home")!))
@@ -118,7 +135,7 @@ final class InstantPlayTests: XCTestCase {
                 let poll = self.expectation(description: "poll")
                 webView.callAsyncJavaScript("""
                     const P = window.__P, s = P.state;
-                    return {phase: s.phase, kind: s.source?.kind || '', preview: !!s.source?.preview, pos: P.position(), tap: !!s.needsTap};
+                    return {phase: s.phase, kind: s.source?.kind || '', preview: !!s.source?.preview, pos: P.position(), tap: !!s.needsTap, log: (window.__ytLog || []).slice(-12).join(' | ')};
                     """, arguments: [:], in: nil, in: .page) { result in
                     if case .success(let value) = result, let dict = value as? [String: Any] { status = dict }
                     poll.fulfill()
@@ -129,6 +146,7 @@ final class InstantPlayTests: XCTestCase {
                 return pos > 3 && (status["phase"] as? String) == "PLAYING"
             }
             print(String(format: "SONG %@ — %@: first sound %.2fs, status %@", song.1, song.0, firstSound, status.description))
+            _ = webView.callAsyncJavaScript("window.__ytLog = []; return 1;", arguments: [:], in: nil, in: .page) { _ in }
             if !ok { failures.append("\(song.0) did not play: \(status)") }
             if (status["preview"] as? Bool) == true { failures.append("\(song.0) played a 30-second clip") }
             if (status["tap"] as? Bool) == true { failures.append("\(song.0) asked for a tap") }
