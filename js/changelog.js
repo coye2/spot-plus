@@ -1,6 +1,10 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.53', date: '2026-11-19', title: 'A real backup when YouTube says no', items: [
+    'When YouTube refuses a song, Automatic now plays it in lossless quality from HiFi / Monochrome, which iPhone can now play. Before, these songs were skipped.',
+    'Automatic moves to the backup after two refused YouTube uploads instead of three, so you wait less.',
+  ]},
   {version: '1.9.52', date: '2026-11-19', title: 'Smarter search, better Up next, a livelier home', items: [
     'Search shows a Top result and puts artists first: type “just” and Justin Bieber comes up, type a song title and the song does. Results appear as you type.',
     'Up next keeps playing your music: songs you have on repeat and songs from your library by the same or similar artists, mixed with similar songs.',

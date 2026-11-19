@@ -422,6 +422,8 @@ export async function relayStream(track, signal, matches) {
 }
 // Ask the worker once (on the first song) whether SoundCloud is set up, so nothing waits on it when it is not.
 let scKnown = '';
+// The worker relabels Monochrome's FLAC (sent as application/octet-stream) so Safari plays it.
+let monoProxy = false;
 /** SoundCloud is offered only once the Spot+ server says it is set up. */
 export const soundcloudAvailable = () => scKnown === 'on';
 let relayKnown = '';
@@ -433,6 +435,7 @@ function checkSoundcloud() {
     .then((h) => {
       scKnown = h?.sc ? 'on' : 'off'; if (!h?.sc) scOff = Date.now() + 30 * 60e3;
       relayKnown = h?.relay ? 'on' : 'off'; if (!h?.relay) relayOff = Date.now() + 30 * 60e3;
+      monoProxy = !!h?.mono;
     })
     // Couldn't reach the worker (the phone just woke up, a network switch): ask again on the next song.
     // This used to switch the relay off for 5 minutes, so every song failed until the app was restarted.
@@ -723,9 +726,10 @@ async function monochromeStream(base, track, signal, ms = 2200) {
   if (!matches.length) throw new Error('No matching Monochrome track');
   const chosen = matches[0];
   const mime = 'audio/flac';
-  if (probe && !probe.canPlayType(mime) && !probe.canPlayType('audio/x-flac')) throw new Error('This device cannot play lossless audio');
+  // iPhone Safari plays FLAC but may not say so in canPlayType, so only a plain "no" on a non-Apple browser stops it.
+  if (probe && !monoProxy && !probe.canPlayType(mime) && !probe.canPlayType('audio/x-flac')) throw new Error('This device cannot play lossless audio');
   return {
-    url: `${base}/track/${encodeURIComponent(chosen.id)}`,
+    url: monoProxy ? `${RELAY_BASE.replace(/\/yta$/, '')}/mono?id=${encodeURIComponent(chosen.id)}` : `${base}/track/${encodeURIComponent(chosen.id)}`,
     mime,
     bitrate: 900000,
     lossless: true,

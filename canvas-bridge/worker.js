@@ -1,3 +1,4 @@
+import {monochromeAudio} from './monochrome.js';
 import {podcasts} from './podcasts.js';
 import {devProfile} from './dev-profile.js';
 import {liveStats, InstallCounter} from './installs.js';
@@ -77,7 +78,7 @@ export async function handle(request, {fetcher=fetch,cache,waitUntil=()=>{},env}
   const url = new URL(request.url);
   if (['/stats','/installs','/listening'].includes(url.pathname) && (request.method === 'GET' ? url.pathname === '/stats' : request.method === 'POST' && url.pathname !== '/stats'))
     return liveStats(request, env, async text => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('spotplus:' + text)))].slice(0, 8).map(b => b.toString(16).padStart(2, '0')).join(''));
-  if (request.method !== 'GET' && !(url.pathname === '/yta' && request.method === 'HEAD')) return json({error:'Use GET'},405);
+  if (request.method !== 'GET' && !(['/yta','/mono'].includes(url.pathname) && request.method === 'HEAD')) return json({error:'Use GET'},405);
   if (url.pathname === '/spotify-stats') return spotifyStats(request,{fetcher,cache,waitUntil});
   if (['/podcasts','/podcast','/audiobooks'].includes(url.pathname)) return podcasts(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/dev') return devProfile(request,{fetcher,cache,waitUntil});
@@ -85,9 +86,10 @@ export async function handle(request, {fetcher=fetch,cache,waitUntil=()=>{},env}
   if (url.pathname === '/wallpapers') return wallpapers(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/sc') return soundcloud(request,{env,fetcher,cache,waitUntil});
   if (url.pathname === '/yta') return youtubeRelay(request,{fetcher,cache,waitUntil});
+  if (url.pathname === '/mono') return monochromeAudio(request,{fetcher});
   if (url.pathname === '/stream') return youtubeStream(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/spotify-public') return spotifyPublic(request,{fetcher,cache,waitUntil});
-  if (url.pathname === '/health') return json({service:'Spot+ Canvas bridge',status:'ok',lyrics:true,spotifyPublic:true,match:true,wallpapers:true,sc:!!(env?.SC_CLIENT_ID&&env?.SC_CLIENT_SECRET),relay:true,relayIntegrity:'v3',stream:true,stats:true,dev:true,podcasts:true});
+  if (url.pathname === '/health') return json({service:'Spot+ Canvas bridge',status:'ok',lyrics:true,spotifyPublic:true,match:true,wallpapers:true,sc:!!(env?.SC_CLIENT_ID&&env?.SC_CLIENT_SECRET),relay:true,relayIntegrity:'v3',mono:true,stream:true,stats:true,dev:true,podcasts:true});
   if (url.pathname === '/lyrics-search') return lyricsSearch(url,{fetcher,cache,waitUntil});
   if (url.pathname !== '/canvas') return json({error:'Not found'},404);
   const query = queryFor(url.searchParams);
@@ -141,7 +143,7 @@ export async function secureHandle(request, options = {}) {
   if (!allowed) return finish(json({error:'Origin not allowed'},403));
   if (new URL(request.url).search.length > 1200) return finish(json({error:'Request too long'},414));
   const ip = request.headers.get('CF-Connecting-IP') || 'local';
-  const relay = new URL(request.url).pathname === '/yta';
+  const relay = ['/yta', '/mono'].includes(new URL(request.url).pathname);
   if (relay ? rateLimited(ip, Date.now(), relayHits, RELAY_RATE) : rateLimited(ip)) { const r = json({error:'Too many requests. Try again in a minute.'},429); return finish(new Response(r.body,{status:429,headers:{...Object.fromEntries(r.headers),'Retry-After':'60'}})); }
   return finish(await handle(request, options));
 }

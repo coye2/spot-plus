@@ -2,6 +2,12 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.53 — A real backup when YouTube says no
+_2026-11-19_
+
+- When YouTube refuses a song, Automatic now plays it in lossless quality from HiFi / Monochrome, which iPhone can now play. Before, these songs were skipped.
+- Automatic moves to the backup after two refused YouTube uploads instead of three, so you wait less.
+
 ## 1.9.52 — Smarter search, better Up next, a livelier home
 _2026-11-19_
 
