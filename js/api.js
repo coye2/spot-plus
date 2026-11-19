@@ -401,12 +401,16 @@ export function noteRelaySong(ok) {
 // Uploads YouTube just refused are tried last for a few minutes, so a retry lands on another upload.
 const relayAvoid = new Map();
 export function avoidRelayVideo(id) { if (id) relayAvoid.set(id, Date.now() + 5 * 60e3); }
+/** True when every upload of these matches was refused lately: the next try reuses one, so wait a moment first. */
+export function relayAllAvoided(matches) { const ids = (matches || []).map((m) => m?.id).filter(Boolean); return ids.length > 0 && ids.every(avoided); }
 const avoided = (id) => (relayAvoid.get(id) || 0) > Date.now();
 export async function relayStream(track, signal, matches) {
   if (relayOff > Date.now()) throw new Error('Relay is off');
   if (signal?.aborted) throw signal.reason || new Error('Aborted');
   const all = uniq((matches || []).map((m) => m?.id).filter((id) => /^[\w-]{11}$/.test(id || '')));
-  const id = [...all.filter((v) => !avoided(v)), ...all.filter(avoided)][0];
+  // Uploads not refused lately first; when all were, the one refused longest ago (YouTube's refusals are per
+  // lookup, so the same upload often plays a few seconds later).
+  const id = [...all.filter((v) => !avoided(v)), ...all.filter(avoided).sort((a, b) => relayAvoid.get(a) - relayAvoid.get(b))][0];
   if (!id) throw new Error('No YouTube match');
   // No separate check request: every request to the relay is a fresh YouTube lookup, and YouTube's bot check
   // refuses many lookups from Cloudflare, so a check that passed said little about the playback request after
@@ -417,7 +421,7 @@ export async function relayStream(track, signal, matches) {
   const pick = matches.find((m) => m?.id === id) || {};
   return {url: `${RELAY_ENDPOINT}?id=${id}&fmt=${fmt}`, mime: fmt.includes('opus') ? 'audio/webm' : 'audio/mp4',
     bitrate: RELAY_BITRATE[fmt] || 128000, kind: 'ytrelay', engineLabel: 'Spot+ YouTube Relay', instance: RELAY_BASE,
-    videoId: id, catalogId: id, title: pick.title, channel: pick.channel || pick.author, why: pick.why || '',
+    videoId: id, candidates: all.slice(0, 6), catalogId: id, title: pick.title, channel: pick.channel || pick.author, why: pick.why || '',
     duration: pick.duration || track.duration, alternatives: []};
 }
 // Ask the worker once (on the first song) whether SoundCloud is set up, so nothing waits on it when it is not.

@@ -354,7 +354,7 @@ function recoverMedia(mediaErr = null) {
     memoryEngine.forgetStream(api.streamKey(cur));
   }
   const relayFailed = failed?.kind === 'ytrelay';
-  if (!state.offline && !cur.local && failed && !failed.preview && errRetries < (relayFailed && store.getSettings().source !== 'auto' ? 3 : 2)) {
+  if (!state.offline && !cur.local && failed && !failed.preview && errRetries < (relayFailed ? 4 : 2)) {
     errRetries++;
     // A relay stream that drops is usually YouTube refusing that one upload for a moment: try again from the
     // same spot, preferring another upload of the song, instead of giving up on the relay for this song.
@@ -362,7 +362,11 @@ function recoverMedia(mediaErr = null) {
     if (retryRelay) { api.avoidRelayVideo(failed.videoId); memoryEngine.forgetStream(api.streamKey(cur)); }
     else if (failed.instance) skipList.push(failed.instance);
     telemetry.endRecovery(recStart, true);
-    load({ keepSkip: true, startAt: audio.currentTime || 0 });
+    // Asking YouTube again for an upload it just refused: give the refusal a moment to clear first.
+    const again = retryRelay && api.relayAllAvoided((failed.candidates || [failed.videoId]).map((id) => ({id})));
+    const at = audio.currentTime || 0, mine = token;
+    if (again) setTimeout(() => { if (mine === token && current() === cur) load({ keepSkip: true, startAt: at }); }, 1500);
+    else load({ keepSkip: true, startAt: at });
     return;
   }
 

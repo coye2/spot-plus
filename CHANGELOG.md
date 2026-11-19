@@ -2,6 +2,11 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.56 — Far fewer skipped songs
+_2026-11-19_
+
+- When YouTube refuses a song, Spot+ now keeps trying (up to four times, rotating between uploads and pausing a moment before asking again) instead of giving up after two quick tries. Then HiFi / Monochrome takes over before a song is ever skipped.
+
 ## 1.9.55 — Lock screen skips songs, cleaner home and search
 _2026-11-19_
 

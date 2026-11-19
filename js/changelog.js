@@ -1,6 +1,9 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.56', date: '2026-11-19', title: 'Far fewer skipped songs', items: [
+    'When YouTube refuses a song, Spot+ now keeps trying (up to four times, rotating between uploads and pausing a moment before asking again) instead of giving up after two quick tries. Then HiFi / Monochrome takes over before a song is ever skipped.',
+  ]},
   {version: '1.9.55', date: '2026-11-19', title: 'Lock screen skips songs, cleaner home and search', items: [
     'Lock screen and Control Center now show previous / next song buttons instead of 10-second skips.',
     'Fixed daylist, On Repeat and Discover Weekly not opening.',
