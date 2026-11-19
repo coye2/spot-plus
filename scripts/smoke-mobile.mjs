@@ -82,11 +82,12 @@ try {
   page.on('pageerror',error=>errors.push(error.message));
   await page.goto(host+'#/backgrounds',{waitUntil:'domcontentloaded'});
   await page.locator('#bgList').waitFor({timeout:30000});
-  await page.waitForTimeout(750);
+  // A phone loads portrait wallpapers from Alpha Coders instead of the built-in landscape catalog.
+  await page.locator('#bgList .bg-card').first().waitFor({timeout:20000});
   const layout=await page.evaluate(()=>{
     const main=document.querySelector('main'),list=document.querySelector('#bgList');
     const b=list.getBoundingClientRect();
-    return {viewport:[innerWidth,innerHeight],rows:list.querySelectorAll('.bg-catalog-body [data-act="bg-pick"]').length,
+    return {viewport:[innerWidth,innerHeight],rows:list.querySelectorAll('.bg-card').length,
       listHeight:list.clientHeight,listTop:b.top,listBottom:b.bottom,
       listScrollHeight:list.scrollHeight,mainScrollTop:main.scrollTop,
       barTop:(()=>{const bar=document.querySelector('.bar');return bar&&!bar.hidden&&getComputedStyle(bar).display!=='none'?bar.getBoundingClientRect().top:Infinity;})(),
@@ -97,11 +98,10 @@ try {
   console.log('Mobile wallpaper layout:',JSON.stringify(layout));
   assert.equal(layout.viewport[0],390);
   assert.equal(layout.viewport[1],844);
-  // The grid paints in batches; the status line still counts the whole database.
-  assert.ok(layout.rows>=48,'The first wallpaper batch must render');
-  assert.match(await page.locator('#bgStatus').textContent(),/2,6\d\d wallpapers/,'Status must count the full database');
+  assert.ok(layout.rows>=1,'The first phone wallpapers must render');
+  assert.match(await page.locator('#bgStatus').textContent(),/phone wallpaper/i,'Status must count the phone wallpapers');
   assert.ok(layout.listHeight>=220,'Wallpaper list must be useful on iPhone, not a tiny strip');
-  assert.ok(layout.listScrollHeight>layout.listHeight*5,'Wallpaper list must be internally scrollable');
+  assert.ok(layout.listScrollHeight>layout.listHeight,'Wallpaper list must be internally scrollable');
   assert.equal(layout.mainScrollTop,0,'Main must stay still');
   assert.equal(layout.listOverflow,'scroll');
   assert.ok(layout.listBottom<=Math.min(layout.barTop ?? 844,layout.navTop)+2,'List must end above bars');
@@ -114,27 +114,25 @@ try {
   const lastRow=await page.evaluate(()=>{
     const list=document.querySelector('#bgList');
     list.scrollTop=list.scrollHeight;
-    const last=list.querySelector('.bg-catalog-body tr:last-child');
+    const last=list.querySelector('.bg-card:last-of-type');
     return {list: list.scrollTop, lastBottom:last?.getBoundingClientRect().bottom,listBottom:list.getBoundingClientRect().bottom};
   });
   assert.ok(lastRow.list>0,'Cannot reach the catalog end');
   assert.ok(lastRow.lastBottom<=lastRow.listBottom+2,'Last wallpaper is clipped');
 
-  // Verify wallpaper search filters across the database and Clear restores the full catalog.
+  // Search asks Alpha Coders for phone wallpapers, then Clear brings the browse list back.
   await page.fill('#bgSearch','sunset');
-  await page.waitForTimeout(250);
+  await page.waitForFunction(()=>/sunset/i.test(document.querySelector('#bgStatus')?.textContent||'')&&document.querySelectorAll('#bgList .bg-card').length>0,{timeout:20000});
   const filtered=await page.evaluate(()=>({
-    count:document.querySelectorAll('#bgList .bg-catalog-body [data-act="bg-pick"]').length,
+    count:document.querySelectorAll('#bgList .bg-card').length,
     clearHidden:document.getElementById('bgSearchClear')?.hidden,
     mainScroll:document.querySelector('main').scrollTop,
   }));
-  assert.ok(filtered.count>0&&filtered.count<layout.rows,'Wallpaper search must filter catalog');
+  assert.ok(filtered.count>0,'Wallpaper search must show matches');
   assert.equal(filtered.clearHidden,false,'Clear search button must appear when query is set');
   assert.equal(filtered.mainScroll,0,'Searching wallpapers must not scroll main');
   await page.click('#bgSearchClear');
-  await page.waitForTimeout(250);
-  const clearedCount=await page.locator('#bgList .bg-catalog-body [data-act="bg-pick"]').count();
-  assert.equal(clearedCount,layout.rows,'Clear search must restore the full catalog');
+  await page.waitForFunction(()=>!/sunset/i.test(document.querySelector('#bgStatus')?.textContent||'')&&document.querySelectorAll('#bgList .bg-card').length>0,{timeout:20000});
 
   // Check the *input itself* has no background, border, or native search control chrome.
   for(const [route,id] of [['#/home','homeDJPrompt'],['#/search','q'],['#/library','pageLibraryQ']]){
