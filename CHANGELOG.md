@@ -2,6 +2,13 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.38 — Songs no longer cut off
+_2026-11-19_
+
+- Fixed songs on iPhone stopping at 0:00 or after the first minute. YouTube changed what it allows in August, and the Spot+ server now asks for audio the way that still gets the whole song.
+- Before a song starts, the server checks that YouTube will deliver all of it, so a song never plays partway and stops.
+- If YouTube drops the connection in the middle of a song, the server picks up from the same spot without a gap.
+
 ## 1.9.37 — More songs play in full
 _2026-11-19_
 
