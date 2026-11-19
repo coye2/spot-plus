@@ -338,6 +338,15 @@ export const soundcloudReady = () => scOff <= Date.now();
 // no extra tap). Unofficial: depends on YouTube's internal API and can break when YouTube changes it.
 export const RELAY_ENDPOINT = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/yta';
 const RELAY_BASE = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/yta';
+// Exact address match. A substring check would also match a different host that merely contains this text.
+function skipsBase(list, base) {
+  if (!Array.isArray(list)) return false;
+  let expected;
+  try { expected = new URL(base).href; } catch { expected = base; }
+  return list.some((item) => {
+    try { return new URL(item).href === expected; } catch { return item === base; }
+  });
+}
 let relayOff = 0;
 /** Spotube-style quality: Opus 160 kbps where it plays, AAC 128 kbps on iPhone/Safari, or the data-saver tier. */
 export function relayFormat(quality = getSettings().quality, ua = globalThis.navigator?.userAgent || '') {
@@ -1104,7 +1113,7 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
     }
     // No 30-second clips in Automatic: give the relay one last, patient try (YouTube's bot check on the server
     // comes and goes), then report the song as unavailable so the player can move on.
-    if (isAuto && !fullOnly && kinds(set.source).includes('ytrelay') && relayOff <= Date.now() && !skip.includes(RELAY_BASE)) {
+    if (isAuto && !fullOnly && kinds(set.source).includes('ytrelay') && relayOff <= Date.now() && !skipsBase(skip, RELAY_BASE)) {
       const matches = sharedMatches?.length ? sharedMatches : await (shared ? shared.catch(() => []) : []);
       // Wider net, as when uploads are unavailable here: lyric videos and other uploads of the same song.
       const wider = await moreEmbedCandidates(t, matches.map((m) => m?.id), signal).catch(() => []);
