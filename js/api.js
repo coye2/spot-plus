@@ -369,10 +369,24 @@ export async function relayStream(track, signal, matches) {
     const url = `${RELAY_ENDPOINT}?id=${id}&fmt=${fmt}`;
     const r = await fetch(url, {headers: {Range: 'bytes=0-1'}, signal: probeSignal, credentials: 'omit'});
     if (r.status === 404 && !(r.headers.get('content-type') || '').includes('json')) { relayOff = Date.now() + 30 * 60e3; throw new Error('Relay is not deployed'); }
-    if (r.status !== 206 && r.status !== 200) { r.body?.cancel?.().catch(() => {}); throw new Error('Relay answered ' + r.status); }
-    r.body?.cancel?.().catch(() => {});
-    const pick = matches.find((m) => m?.id === id) || {};
-    return {url, mime: (r.headers.get('content-type') || 'audio/mp4').split(';')[0], bitrate: RELAY_BITRATE[fmt] || 128000, kind: 'ytrelay', engineLabel: 'YouTube audio', instance: RELAY_BASE, videoId: id, catalogId: id, title: pick.title, channel: pick.channel || pick.author, duration: pick.duration || track.duration, alternatives: []};
+    if (r.status !== 206) { r.body?.cancel?.().catch(() => {}); throw new Error('Relay answered ' + r.status); }
+    const range = /^bytes 0-1\/(\d+)$/.exec(r.headers.get('content-range') || '');
+    if (!range || Number(range[1]) < 2) { r.body?.cancel?.().catch(() => {}); throw new Error('Relay sent an invalid audio range'); }
+    // Confirm the server actually supplied both bytes. A 206 with a truncated body
+    // must not win the source race and strand the player on a dead song.
+    const bytes = await r.arrayBuffer();
+    if (bytes.byteLength !== 2) throw new Error('Relay returned a truncated audio probe');
+    const pick = (matches || []).find((m) => m?.id === id) || {};
+    const accurateDuration = Number(r.headers.get('X-Spotplus-Duration')) || 0;
+    const expectedDuration = Number(track.duration) || 0;
+    if (accurateDuration > 0 && expectedDuration > 0 &&
+        Math.abs(accurateDuration - expectedDuration) > Math.max(10, expectedDuration * 0.06)) {
+      throw new Error('YouTube recording duration does not match the requested song');
+    }
+    return {url, mime: (r.headers.get('content-type') || 'audio/mp4').split(';')[0], bitrate: RELAY_BITRATE[fmt] || 128000,
+      kind: 'ytrelay', engineLabel: 'Spot+ YouTube Relay', instance: RELAY_BASE, videoId: id, catalogId: id,
+      title: pick.title, channel: pick.channel || pick.author, duration: accurateDuration || pick.duration || track.duration,
+      alternatives: []};
   };
   // Two rounds: YouTube's bot check on the server comes and goes, and each new request gets a fresh session.
   const queue = [...ids, ...ids.slice(0, 2)];
