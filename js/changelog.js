@@ -1,6 +1,9 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.23', date: '2026-11-19', title: 'Spot+ is open again', items: [
+    'The maintenance screen is off. Opening Spot+ loads the app.',
+  ]},
   {version: '1.9.22', date: '2026-11-18', title: 'The wallpaper list takes the swipe', items: [
     'On Background, a finger on the wallpaper database moves that list. The rest of the page stays still, including while you search.',
   ]},

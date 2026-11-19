@@ -1,7 +1,6 @@
-// Mandatory development gate.
-// Keep MAINTENANCE_MODE = true (and MAINTENANCE = true in js/boot.js) while
-// developing on main. Only turn off when the maintainer explicitly marks the build stable.
-export const MAINTENANCE_MODE = true;
+// Public release. Set this back to true, and var MAINTENANCE in js/boot.js,
+// to lock the app behind the maintenance screen during development.
+export const MAINTENANCE_MODE = false;
 export const OWNER_SALT = 'spotplus-gate-v2:';
 export const ALLOWED_ID_HASHES = Object.freeze([
   '79c4cfae747eb72c8024860365cad93fb4cc243b91ab0b4c787ed1d2687c8a38',
@@ -179,7 +178,11 @@ export function canBypassMaintenance({
   origin,
   now = Date.now(),
 } = {}) {
-  if (!MAINTENANCE_MODE) return { allowed: true, reason: 'disabled', persistAccount: false };
+  // A plaintext handle is never a session, even while the gate is open.
+  try {
+    const saved = storage?.getItem?.(DEV_ACCESS_STORAGE_KEY) || '';
+    if (saved && !verifySessionToken(saved, { origin, now })) storage?.removeItem?.(DEV_ACCESS_STORAGE_KEY);
+  } catch { /* private mode */ }
 
   const param = readAccessParam(search, hash);
   if (param && !getUnlockCooldown(storage, now) && isAllowedSpotifyId(param)) {
@@ -192,6 +195,8 @@ export function canBypassMaintenance({
       return { allowed: true, reason: 'dev-param', persistAccount: false, stripParam: true };
     }
   }
+
+  if (!MAINTENANCE_MODE) return { allowed: true, reason: 'disabled', persistAccount: false };
 
   let savedAccess = '';
   try { savedAccess = storage?.getItem?.(DEV_ACCESS_STORAGE_KEY) || ''; } catch { /* private mode */ }

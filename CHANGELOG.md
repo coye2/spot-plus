@@ -2,6 +2,11 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.23 — Spot+ is open again
+_2026-11-19_
+
+- The maintenance screen is off. Opening Spot+ loads the app.
+
 ## 1.9.22 — The wallpaper list takes the swipe
 _2026-11-18_
 

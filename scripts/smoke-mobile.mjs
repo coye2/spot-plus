@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
 import {existsSync} from 'node:fs';
-import {ALLOWED_ID_HASHES, DEV_ACCESS_STORAGE_KEY, createSessionToken} from '../js/maintenance.js';
+import {ALLOWED_ID_HASHES, DEV_ACCESS_STORAGE_KEY, MAINTENANCE_MODE, createSessionToken} from '../js/maintenance.js';
 import {APP_VERSION} from '../js/changelog.js';
 
 const {chromium} = await import('playwright').catch(() => import('/usr/local/share/bun-global/node_modules/playwright-core/index.mjs'));
@@ -32,22 +32,32 @@ try {
     ...(existsSync(bundledShell) ? {executablePath: bundledShell} : {}),
   });
 
-  // 1. Verify public guest visitor is locked behind the maintenance screen with zero leaked app nodes.
+  // 1. A public visitor follows the maintenance flag: locked while it is on, and into the app while it is off.
   const guestCtx=await browser.newContext({
     viewport:{width:390,height:844},deviceScaleFactor:3,hasTouch:true,isMobile:true,serviceWorkers:'block',
   });
   const guestPage=await guestCtx.newPage();
   await guestPage.goto(host+'#/backgrounds',{waitUntil:'domcontentloaded'});
-  await guestPage.locator('#maintenanceScreen').waitFor({timeout:15000});
-  await guestPage.waitForTimeout(400);
-  const guestState=await guestPage.evaluate(()=>({
-    appCount:document.querySelectorAll('.app').length,
-    screenVisible:!document.getElementById('maintenanceScreen')?.hidden,
-    unlockHidden:!!document.getElementById('maintUnlockWrap')?.hidden,
-  }));
-  assert.equal(guestState.appCount,0,'Public guest must not retain .app nodes');
-  assert.equal(guestState.screenVisible,true,'Maintenance screen must be visible for guests');
-  assert.equal(guestState.unlockHidden,true,'Unlock form must remain hidden until developer gesture');
+  if(MAINTENANCE_MODE){
+    await guestPage.locator('#maintenanceScreen').waitFor({timeout:15000});
+    await guestPage.waitForTimeout(400);
+    const guestState=await guestPage.evaluate(()=>({
+      appCount:document.querySelectorAll('.app').length,
+      screenVisible:!document.getElementById('maintenanceScreen')?.hidden,
+      unlockHidden:!!document.getElementById('maintUnlockWrap')?.hidden,
+    }));
+    assert.equal(guestState.appCount,0,'Public guest must not retain .app nodes');
+    assert.equal(guestState.screenVisible,true,'Maintenance screen must be visible for guests');
+    assert.equal(guestState.unlockHidden,true,'Unlock form must remain hidden until developer gesture');
+  }else{
+    await guestPage.waitForFunction(()=>document.documentElement.dataset.maintenance!=='checking'&&document.documentElement.dataset.maintenance!=='1'&&document.querySelector('.app'),{timeout:15000});
+    const guestState=await guestPage.evaluate(()=>({
+      appCount:document.querySelectorAll('.app').length,
+      blocking:document.documentElement.dataset.maintenance==='1'||(document.getElementById('maintenanceScreen')&&!document.getElementById('maintenanceScreen').hidden),
+    }));
+    assert.ok(guestState.appCount>=1,'Public visitor should see the app');
+    assert.equal(guestState.blocking,false,'Maintenance screen must stay down');
+  }
   await guestCtx.close();
 
   // 2. Verify full 390x844 authenticated owner session layout, background grid scroll, search & clear.

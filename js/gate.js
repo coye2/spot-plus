@@ -138,6 +138,7 @@ async function boot() {
   if (!maintenance.MAINTENANCE_MODE) {
     delete document.documentElement.dataset.maintenance;
     document.getElementById('maintenanceScreen')?.remove();
+    cleanAccessUrl();
     await import('./app.js');
     return;
   }
