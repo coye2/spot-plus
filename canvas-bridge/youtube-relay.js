@@ -4,6 +4,7 @@
 // streams it to the app's own <audio> element: no YouTube player, no ads, and no extra tap.
 // Unofficial: this depends on YouTube's internal player API and can break when YouTube changes it.
 import {innertubeStream, ensureVisitor, AUDIO_ITAGS} from './youtube-stream.js';
+import {parseRequestRange, validateUpstreamRange, resolveRequestRange} from './relay-integrity.js';
 
 // Like Spotube's quality setting: Opus 160 kbps where the browser plays it, AAC 128 kbps for iPhone/Safari,
 // and a data-saver tier. Each falls back to the next format YouTube has for the song.
@@ -26,16 +27,22 @@ function expiresOf(link) {
 }
 
 // v2: links cached before the switch to the VISIONOS client stop after the first chunk, so they are not reused.
-const linkKey = (id, fmt) => `https://relay.internal/link/v2/${fmt}/${id}`;
+const linkKey = (id, fmt) => `https://relay.internal/link/v3/${fmt}/${id}`;
 const UA = 'Mozilla/5.0';
 
 // YouTube sometimes hands out a link that plays the first chunk and refuses the rest (it wants a PO token
 // for that client). Asking for the last two bytes catches that before the app gets a song that cuts out.
 async function servesWholeFile(stream, fetcher) {
-  if (!stream.length) return true;
-  const probe = await fetcher(stream.url, {headers: {Range: `bytes=${stream.length - 2}-${stream.length - 1}`, 'User-Agent': UA}, redirect: 'follow'});
-  probe.body?.cancel?.();
-  return probe.ok;
+  if (!Number.isSafeInteger(stream.length) || stream.length < 2) return true;
+  const from = stream.length - 2, to = stream.length - 1;
+  const probe = await fetcher(stream.url, {
+    headers: {Range: 'bytes=' + from + '-' + to, 'User-Agent': UA}, redirect: 'follow',
+  });
+  const range = validateUpstreamRange(probe, from, to, stream.length);
+  if (!range) { await probe.body?.cancel?.().catch(() => {}); return false; }
+  // A returned 206 header is not proof the upstream sent the complete final bytes.
+  try { return (await probe.arrayBuffer()).byteLength === 2; }
+  catch { return false; }
 }
 
 async function resolveLink(id, {fetcher, cache, waitUntil, fresh = false, fmt = 'aac'}) {
@@ -57,7 +64,8 @@ async function resolveLink(id, {fetcher, cache, waitUntil, fresh = false, fmt = 
   }
   const stream = result?.stream;
   if (!stream?.url) throw new Error(result?.reason || result?.error || 'No audio');
-  const entry = {url: stream.url, mime: String(stream.mime || 'audio/mp4').split(';')[0], expires: expiresOf(stream.url)};
+  const entry = {url: stream.url, mime: String(stream.mime || 'audio/mp4').split(';')[0], expires: expiresOf(stream.url),
+    length: Number(stream.length) || 0, duration: Number(stream.duration) || 0, itag: Number(stream.itag) || 0};
   memo.set(`${fmt}:${id}`, entry);
   if (memo.size > MAX_MEMO) memo.delete(memo.keys().next().value);
   const life = Math.floor((entry.expires - Date.now()) / 1000) - 900;
