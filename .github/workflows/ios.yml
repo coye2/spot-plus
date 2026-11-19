@@ -21,13 +21,24 @@ jobs:
         run: xcodegen generate
       - name: Prove InstantPlay in the iPhone Simulator (no taps)
         working-directory: ios-app
+        timeout-minutes: 25
         run: |
           SIM=$(xcrun simctl list devices available -j | python3 -c "import json,sys;d=json.load(sys.stdin)['devices'];print(next(x['udid'] for k,v in sorted(d.items(),reverse=True) if 'iOS' in k for x in v if x['name'].startswith('iPhone')))")
           echo "Simulator: $SIM"
-          set -o pipefail
+          xcrun simctl boot "$SIM" || true
+          xcrun simctl bootstatus "$SIM" -b
+          set +e
           xcodebuild test -project SpotPlus.xcodeproj -scheme SpotPlus -destination "id=$SIM" \
-            -derivedDataPath build-sim CODE_SIGNING_ALLOWED=NO 2>&1 | tee test.log | grep -E "APP CONFIG|SAFARI RULES|SONG |Test Case|error:|failed|passed" || true
-          grep -q "TEST SUCCEEDED" test.log
+            -derivedDataPath build-sim CODE_SIGNING_ALLOWED=NO \
+            -test-timeouts-enabled YES -default-test-execution-time-allowance 240 -maximum-test-execution-time-allowance 300 \
+            > test.log 2>&1
+          STATUS=$?
+          grep -E "APP CONFIG|SAFARI RULES|SONG |Test Case|error:|XCTAssert|TEST (SUCCEEDED|FAILED)" test.log | head -80
+          exit $STATUS
+      - name: Test log
+        if: always()
+        working-directory: ios-app
+        run: tail -120 test.log || true
       - name: Build (unsigned; Sideloadly or AltStore signs it on install)
         working-directory: ios-app
         run: |
