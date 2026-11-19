@@ -5,6 +5,22 @@ import {
 } from '../canvas-bridge/relay-integrity.js';
 import {youtubeRelay, SLICE, NEXT_SLICE} from '../canvas-bridge/youtube-relay.js';
 
+// Cloudflare's FixedLengthStream fails the response when the bytes written don't match the declared length.
+// The relay relies on it (it pipes natively instead of counting bytes in JavaScript), so tests get the same rule.
+globalThis.FixedLengthStream ??= class FixedLengthStream extends TransformStream {
+  constructor(expected) {
+    let seen = 0;
+    super({
+      transform(chunk, controller) {
+        seen += chunk.byteLength;
+        if (seen > expected) throw new Error('FixedLengthStream: too many bytes');
+        controller.enqueue(chunk);
+      },
+      flush() { if (seen !== expected) throw new Error(`FixedLengthStream: ${seen}/${expected} bytes`); },
+    });
+  }
+};
+
 test('range parser accepts explicit, open-ended and suffix ranges but rejects reversed and invalid input', () => {
   assert.deepEqual(parseRequestRange('bytes=1-9'), {start: 1, end: 9});
   assert.deepEqual(parseRequestRange('bytes=42-'), {start: 42, end: null});

@@ -100,22 +100,13 @@ async function discard(response) {
   try { await response?.body?.cancel?.(); } catch { /* best effort */ }
 }
 
-// Do not let an upstream return 5 bytes while claiming 5 MB. An early EOF is
-// a failed stream, not a successful full-length song.
-async function pipeExact(response, expectedBytes, writer) {
+// Audio is piped natively (pipeTo), never copied chunk by chunk in JavaScript: Cloudflare's free plan
+// allows 10 ms of CPU per request, and a JavaScript copy loop ran out of it mid-song (live, 1.9.48:
+// streams stopped after 77 bytes, 1 MB or 5 MB). Byte counts are still enforced: every slice's
+// Content-Range is checked before use, and FixedLengthStream fails the response if the total differs.
+async function pipeSlice(response, writable) {
   if (!response.body) throw new Error('Missing upstream audio body');
-  const reader = response.body.getReader();
-  let actual = 0;
-  try {
-    while (true) {
-      const {done, value} = await reader.read();
-      if (done) break;
-      actual += value.byteLength;
-      if (actual > expectedBytes) throw new Error('Audio range exceeded its declared length');
-      await writer.write(value);
-    }
-  } finally { reader.releaseLock(); }
-  if (actual !== expectedBytes) throw new Error('Audio stream truncated: ' + actual + '/' + expectedBytes);
+  await response.body.pipeTo(writable, {preventClose: true});
 }
 
 function unsatisfiable(total = 0) {
@@ -190,10 +181,9 @@ export async function youtubeRelay(request, {fetcher = fetch, cache, waitUntil =
   const {readable, writable} = globalThis.FixedLengthStream
     ? new globalThis.FixedLengthStream(expected) : new TransformStream();
   const task = (async () => {
-    const writer = writable.getWriter();
     let active = first;
     try {
-      await pipeExact(first, firstSpan.length, writer);
+      await pipeSlice(first, writable);
       active = null;
       let renewed = false;
       for (let from = firstSpan.end + 1; from <= last;) {
@@ -217,15 +207,15 @@ export async function youtubeRelay(request, {fetcher = fetch, cache, waitUntil =
           span = validateUpstreamRange(part, from, to, total);
         }
         if (!span) throw new Error('Upstream returned an invalid or incomplete range');
-        await pipeExact(part, span.length, writer);
+        await pipeSlice(part, writable);
         active = null;
         from = span.end + 1;
       }
-      await writer.close();
+      await writable.close();
     } catch (error) {
       await discard(active);
-      try { await writer.abort(error); } catch { /* listener already gone */ }
-    } finally { writer.releaseLock(); }
+      try { await writable.abort(error); } catch { /* listener already gone */ }
+    }
   })();
   waitUntil(task);
   return new Response(readable, {status: 206, headers});
