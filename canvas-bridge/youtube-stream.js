@@ -102,6 +102,7 @@ export function shapeStream(format, videoId, engine = 'bridge', alternatives = [
     bitrate: Number(format.bitrate) || (Number(format.itag) === 251 ? 160000 : 128000),
     itag: Number(format.itag) || null,
     length: Number(format.contentLength) || 0,
+    duration: Number(format.approxDurationMs) > 0 ? Number(format.approxDurationMs) / 1000 : 0,
     videoId,
     kind: 'bridge',
     instance: 'https://spot-plus-canvas.pwr97pnmkn.workers.dev',
@@ -154,7 +155,11 @@ export async function innertubeStream(videoId, {fetcher, preferAac, order = null
         const aac = pickAudioFormat(formats, {preferAac: true});
         if (aac && aac.url !== picked.url) extra.push(asAlt(aac, `innertube-${profile}`));
       }
-      return {stream: shapeStream(picked, videoId, `innertube-${profile}`, extra)};
+      const stream = shapeStream(picked, videoId, `innertube-${profile}`, extra);
+      // Prefer the player-reported timeline over file-size estimates on Safari.
+      const seconds = Number(data?.videoDetails?.lengthSeconds) || stream.duration;
+      if (Number.isFinite(seconds) && seconds > 0 && seconds < 86400) stream.duration = seconds;
+      return {stream};
     } catch (error) {
       return {error: String(error?.message || error).slice(0, 160)};
     } finally { clearTimeout(timer); }
