@@ -2,6 +2,13 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.32 — Music keeps playing when you leave the app
+_2026-11-19_
+
+- Fixed music stopping when you switch away from Spot+ or lock the phone.
+- With effects on, the song keeps playing in the background without reverb and bass, at the same spot. Effects come back when you open Spot+ again; speed and pitch keep working.
+- Fewer ads: when YouTube briefly refuses the Spot+ server, it retries with a fresh session and tries other uploads before falling back to YouTube’s player.
+
 ## 1.9.31 — Full YouTube songs in Spot+’s own player
 _2026-11-19_
 

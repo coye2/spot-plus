@@ -577,16 +577,37 @@ function unlock() {
 }
 window.addEventListener('pointerdown', unlock, { capture: true, passive: true });
 const isRealSrc = () => audio.src && !audio.src.startsWith('data:');
-/** Stop every Spot+ sound when the app is closed for good (iOS can keep a closed web app's audio alive). */
-window.addEventListener('pagehide', (e) => {
-  if (!e.persisted) {
-    clearTimeout(pauseClearTimer);
-    telemetry.noteListeningStop();
-    audio.pause();
-    yt.stop();
-    nextBuffer.spare.pause();
-  }
-});
+// Leaving the app must never stop the music. (iPhone fires 'pagehide' when a home-screen app is only
+// switched away from, so pausing there cut songs off. A truly closed app is ended by iOS itself.)
+window.addEventListener('pagehide', () => { telemetry.noteListeningStop(); });
+
+/**
+ * iPhone pauses Web Audio (the effects engine) when the app goes to the background, which silences a song
+ * routed through effects. When that is about to happen, hand the song to a plain, already-unlocked element
+ * at the same spot so it keeps playing, without effects. The next song picks effects up again.
+ */
+export function handOffForBackground() {
+  if (!isCaptured(audio) || audio.paused || !isRealSrc() || isEmbed() || !plainSpare) return false;
+  const old = audio, plain = plainSpare, at = old.currentTime || 0;
+  const src = old.currentSrc || old.src;
+  plainSpare = null;
+  plain.removeAttribute('crossorigin');
+  plain.preload = 'auto';
+  plain.volume = old.volume;
+  // A media fragment starts the new element at the same second without waiting for metadata.
+  plain.src = `${src.split('#')[0]}#t=${Math.max(0, at + 0.05).toFixed(2)}`;
+  audio = plain;
+  el = audio;
+  bindAudio(audio);
+  const started = audio.play();
+  old.pause();
+  old.removeAttribute('src');
+  old.load();
+  started?.catch?.(() => {});
+  emit('state');
+  return true;
+}
+globalThis.document?.addEventListener?.('visibilitychange', () => { if (globalThis.document.hidden) handOffForBackground(); });
 
 /* ---------- Loading a track ---------- */
 async function load(opts = {}) {
@@ -747,7 +768,7 @@ async function load(opts = {}) {
 
     setPhase(STATES.PREPARING);
     if (!warmed) {
-      if (isCaptured(audio) && !(await prepareElement(audio, src))) {
+      if (isCaptured(audio) && (globalThis.document?.hidden || !(await prepareElement(audio, src)))) {
         // This song's server doesn't allow effects: switch to the plain element so it still plays.
         if (my !== token) return;
         const plain = plainSpare || new Audio();

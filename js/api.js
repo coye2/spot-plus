@@ -346,7 +346,7 @@ async function relayStream(track, signal, matches) {
   let last = 'No audio';
   for (const id of ids) {
     const url = `${RELAY_ENDPOINT}?id=${id}`;
-    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 4500);
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 7000);
     try {
       // Ask for two bytes: proves the relay really streams this song before the player commits to it.
       const r = await fetch(url, {headers: {Range: 'bytes=0-1'}, signal: signal ? AbortSignal.any([signal, ctl.signal]) : ctl.signal, credentials: 'omit'});
@@ -395,7 +395,7 @@ export function embedWait(t, now = Date.now()) {
   // SoundCloud plays ad-free straight from the tap; give it a moment before YouTube's player.
   if (scOff <= now && scKnown === 'on') return 1800;
   // The relay plays the same full YouTube songs in Spot+'s own player, without ads; let it answer first.
-  if (relayOff <= now && relayKnown === 'on') return 3000;
+  if (relayOff <= now && relayKnown === 'on') return 7000;
   if (scOff <= now && !scKnown) return 900;
   if (appleMobile() && !embedUnlocked) return 2600;
   return 0;
@@ -894,7 +894,7 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
   const cached = stored?.manual || stored?.matchVersion === 3 ? stored : null;
   const control = new AbortController();
   const isAuto = set.source === 'auto';
-  const deadline = setTimeout(() => control.abort(), isAuto ? 9000 : 16000);
+  const deadline = setTimeout(() => control.abort(), isAuto ? 14000 : 16000);
   const combined = signal ? AbortSignal.any([signal, control.signal]) : control.signal;
   // Ask the shared lookup once; every server below can skip its own search when it answers first.
   let sharedMatches = cached ? [cached] : null;

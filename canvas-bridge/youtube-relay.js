@@ -3,7 +3,7 @@
 // cannot play them directly. The worker asks for the link and fetches the audio in the same request, then
 // streams it to the app's own <audio> element: no YouTube player, no ads, and no extra tap.
 // Unofficial: this depends on YouTube's internal player API and can break when YouTube changes it.
-import {innertubeStream} from './youtube-stream.js';
+import {innertubeStream, ensureVisitor} from './youtube-stream.js';
 
 const memo = new Map(); // video id -> {url, mime, expires} for this worker instance
 const MAX_MEMO = 400;
@@ -25,8 +25,14 @@ async function resolveLink(id, {fetcher, cache, waitUntil, fresh = false}) {
     const shared = await cache.match(linkKey(id)).then((r) => r?.json()).catch(() => null);
     if (shared?.url && shared.expires - Date.now() > 10 * 60e3) { memo.set(id, shared); return shared; }
   }
-  // AAC (m4a) first: every iPhone plays it in a plain <audio> element.
-  const result = await innertubeStream(id, {fetcher, preferAac: true});
+  // AAC (m4a) first: every iPhone plays it in a plain <audio> element. YouTube sometimes answers
+  // "confirm you're not a bot" for a session; a fresh session usually gets through, so try up to 3 times.
+  let result = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await ensureVisitor(fetcher, {force: true}).catch(() => {});
+    result = await innertubeStream(id, {fetcher, preferAac: true});
+    if (result?.stream?.url) break;
+  }
   const stream = result?.stream;
   if (!stream?.url) throw new Error(result?.reason || result?.error || 'No audio');
   const entry = {url: stream.url, mime: String(stream.mime || 'audio/mp4').split(';')[0], expires: expiresOf(stream.url)};

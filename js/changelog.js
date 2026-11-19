@@ -1,6 +1,11 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.32', date: '2026-11-19', title: 'Music keeps playing when you leave the app', items: [
+    'Fixed music stopping when you switch away from Spot+ or lock the phone.',
+    'With effects on, the song keeps playing in the background without reverb and bass, at the same spot. Effects come back when you open Spot+ again; speed and pitch keep working.',
+    'Fewer ads: when YouTube briefly refuses the Spot+ server, it retries with a fresh session and tries other uploads before falling back to YouTube’s player.',
+  ]},
   {version: '1.9.31', date: '2026-11-19', title: 'Full YouTube songs in Spot+’s own player', items: [
     'New: YouTube audio through the Spot+ server. Full songs play in Spot+’s own player instead of YouTube’s, so there are no ads and no extra tap, on iPhone too.',
     'Background playback, lock-screen controls and the queue work like any other Spot+ song.',

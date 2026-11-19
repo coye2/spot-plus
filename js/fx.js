@@ -127,6 +127,7 @@ function setBlocked(value) { if (blocked !== value) { blocked = value; listeners
 
 /** Called by the player before a new song is loaded. Returns false if this element can't play it. */
 export async function prepare(media, url) {
+  if (inBackground() && !sources.has(media)) { media.removeAttribute('crossorigin'); return true; }
   const ok = await corsOK(url);
   if (sources.has(media)) { setBlocked(!ok); return ok; }
   if (ok && needsGraph(settings)) media.crossOrigin = 'anonymous'; else media.removeAttribute('crossorigin');
@@ -179,8 +180,12 @@ export function bind(media) {
   route(media);
 }
 let probing = null;
+// iPhone pauses Web Audio while the app is in the background, so nothing new is routed through effects then;
+// speed and pitch still apply (they live on the element). Effects come back when the app is opened again.
+const inBackground = () => !!globalThis.document?.hidden;
 async function route(media, warm = false) {
   if (!media || (!needsGraph(settings) && !warm)) { if (nodes) applyGraph(); return; }
+  if (inBackground() && !sources.has(media)) return;
   if (!ctx) build();
   if (ctx.state !== 'running') ctx.resume().catch(() => {});
   if (sources.has(media)) { applyGraph(); return; }
@@ -207,6 +212,8 @@ export function set(patch, storage = globalThis.localStorage) {
   listeners.forEach(fn => fn(get()));
 }
 export const usePreset = name => set(fromPreset(name));
+/** Back in the app after background play: put the playing song through effects again. */
+export function restoreAfterBackground(media) { if (media && needsGraph(settings) && !sources.has(media)) { current = media; route(media); } }
 /** Called when the effects panel opens: builds the sound engine and every reverb room ahead of time. */
 export function warmUp() {
   if (!ctx) build();

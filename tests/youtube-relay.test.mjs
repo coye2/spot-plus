@@ -48,3 +48,21 @@ test('/yta rejects bad ids and bad ranges', async () => {
   assert.equal((await youtubeRelay(new Request('https://w.dev/yta?id=nope'), {fetcher})).status, 400);
   assert.equal((await youtubeRelay(new Request('https://w.dev/yta?id=ccccccccccc', {headers: {Range: 'bytes=evil'}}), {fetcher})).status, 416);
 });
+
+test('/yta retries with a fresh YouTube session after a bot check', async () => {
+  let players = 0, visitors = 0;
+  const fetcher = async (url) => {
+    const u = String(url);
+    if (u.includes('visitor_id')) { visitors++; return new Response(JSON.stringify({responseContext: {visitorData: 'v' + visitors}})); }
+    if (u.includes('/youtubei/v1/player')) {
+      players++;
+      if (players <= 3) return new Response(JSON.stringify({playabilityStatus: {status: 'LOGIN_REQUIRED', reason: 'Sign in to confirm you’re not a bot'}}));
+      return player(players);
+    }
+    if (u.includes('googlevideo.com')) return new Response('AUDIO', {status: 206, headers: {'Content-Range': 'bytes 0-4/5000'}});
+    throw new Error('unexpected ' + u);
+  };
+  const r = await youtubeRelay(new Request('https://w.dev/yta?id=ddddddddddd'), {fetcher});
+  assert.equal(r.status, 206);
+  assert.ok(visitors >= 2, 'asked YouTube for a new session');
+});
