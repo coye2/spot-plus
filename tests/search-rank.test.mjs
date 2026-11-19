@@ -57,3 +57,22 @@ test('partly typed names complete from the cached popular-artist list, no networ
   const r = rankSearch({artists: localArtistMatches('just'), tracks, albums: [], playlists: []}, 'just');
   assert.equal(r.top.item.name, 'Justin Bieber');
 });
+
+test('“just” prefers Justin Bieber over a popular song literally called “Just”', () => {
+  const r = rankSearch({
+    artists: [{id: 288166, name: 'Justin Bieber', fans: 11195266}, {id: 1, name: 'JUST', fans: 12}],
+    tracks: [{id: 'r', title: 'Just', searchTitle: 'Just', artist: 'Radiohead', artistId: 399, rank: 700000}],
+    albums: [], playlists: [],
+  }, 'just');
+  assert.equal(r.top.kind, 'artist');
+  assert.equal(r.top.item.name, 'Justin Bieber');
+});
+
+test('a full song title still beats an artist who only shares a word', () => {
+  const r = rankSearch({
+    artists: [{id: 5, name: 'Heartless Bastards', fans: 90000}],
+    tracks: [{id: 'h', title: 'Heartless', searchTitle: 'Heartless', artist: 'The Weeknd', artistId: 4050, rank: 800000}],
+    albums: [], playlists: [],
+  }, 'heartless');
+  assert.equal(r.top.kind, 'track');
+});

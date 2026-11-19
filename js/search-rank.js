@@ -27,7 +27,7 @@ export function scoreArtist(a, q, {known = new Set()} = {}) {
   if (!m) return 0;
   // Fans on a log scale from 1,000 (0) to 100 million (1): 11M beats 2.5M clearly, a namesake with 50 fans is nowhere.
   const fame = a.fans > 0 ? Math.max(0, Math.min(1, (Math.log10(a.fans) - 3) / 5)) : 0;
-  return m * 70 + fame * 30 + (known.has(String(a.id)) ? 15 : 0);
+  return m * 70 + fame * 45 + (known.has(String(a.id)) ? 15 : 0);
 }
 
 export function scoreTrack(t, q, {known = new Set()} = {}) {
@@ -35,7 +35,8 @@ export function scoreTrack(t, q, {known = new Set()} = {}) {
   const both = nameMatch(`${t.artist} ${t.searchTitle || t.title}`, q) || nameMatch(`${t.searchTitle || t.title} ${t.artist}`, q);
   const m = Math.max(title, both * 0.95);
   if (!m) return 0;
-  return m * 70 + popularity(t.rank, 6) * 30 + (known.has(String(t.id)) ? 15 : 0);
+  // A famous artist outranks a song that merely shares the word (“just” → Justin Bieber, not Radiohead’s “Just”).
+  return m * 70 + popularity(t.rank, 6) * 20 + (known.has(String(t.id)) ? 15 : 0);
 }
 
 export function scoreAlbum(a, q) {

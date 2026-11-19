@@ -2,6 +2,14 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.55 — Lock screen skips songs, cleaner home and search
+_2026-11-19_
+
+- Lock screen and Control Center now show previous / next song buttons instead of 10-second skips.
+- Fixed daylist, On Repeat and Discover Weekly not opening.
+- Search: a famous artist wins a short search (“just” → Justin Bieber, with his songs beside him), even the first time you search.
+- Cleaner home: Your Rewind moved into Made for you, the live counter is off the home screen, and one holiday shelf at a time.
+
 ## 1.9.54 — The backup source actually works now
 _2026-11-19_
 

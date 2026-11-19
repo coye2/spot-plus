@@ -1129,6 +1129,7 @@ function bindAudio(media) {
     }
   });
   listen('playing', () => {
+    sessionHandlers();
     if (state.source?.kind === 'ytrelay') api.noteRelaySong(true);
     if (!mixing) silenceOthers(); // one song at a time (AutoMix overlaps on purpose)
     unavailableRun = 0;
@@ -1447,17 +1448,21 @@ function positionState() {
   if (!d) return;
   try { navigator.mediaSession.setPositionState({ duration: d, playbackRate: isEmbed() ? 1 : (audio.playbackRate || 1), position: Math.min(position(), d) }); } catch {}
 }
-if ('mediaSession' in navigator) {
+// Lock screen and Control Center: previous/next song, like Spotify. iOS shows ±10-second buttons instead when
+// it has seek handlers, or when it lost ours after the app switched audio elements (preloading, background
+// play), so they are registered again every time a song starts playing.
+function sessionHandlers() {
+  if (!('mediaSession' in navigator)) return;
   const h = (a, fn) => { try { navigator.mediaSession.setActionHandler(a, fn); } catch {} };
   h('play', () => { updateSession(current()); if (isPaused()) toggle(); });
   h('pause', () => { pause(); updateSession(current()); });
   h('previoustrack', () => { prev(); updateSession(current()); positionState(); });
   h('nexttrack', () => { next(true); updateSession(current()); positionState(); });
   h('seekto', (d) => { if (d && typeof d.seekTime === 'number') { seek(d.seekTime); positionState(); } });
-  // Clear 10-second jump handlers so iOS Lock Screen and Notification Center show Previous/Next track buttons.
   h('seekbackward', null);
   h('seekforward', null);
 }
+sessionHandlers();
 
 /* ---------- Offline downloads ---------- */
 const offKey = (id) => new URL(`./__offline/${encodeURIComponent(id)}`, location.href).href;

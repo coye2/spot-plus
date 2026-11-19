@@ -1,6 +1,12 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.55', date: '2026-11-19', title: 'Lock screen skips songs, cleaner home and search', items: [
+    'Lock screen and Control Center now show previous / next song buttons instead of 10-second skips.',
+    'Fixed daylist, On Repeat and Discover Weekly not opening.',
+    'Search: a famous artist wins a short search (“just” → Justin Bieber, with his songs beside him), even the first time you search.',
+    'Cleaner home: Your Rewind moved into Made for you, the live counter is off the home screen, and one holiday shelf at a time.',
+  ]},
   {version: '1.9.54', date: '2026-11-19', title: 'The backup source actually works now', items: [
     'Fixed HiFi / Monochrome never playing: its search couldn’t be read from a browser at all, so when YouTube refused a song there was no backup. The Spot+ server now relays it, and those songs play in lossless quality instead of being skipped.',
   ]},

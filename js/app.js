@@ -245,10 +245,11 @@ function ensureMixes(){
 }
 async function viewMix(id){
   if(!mixList.length)await ensureMixes();
+  if(!/^\d$/.test(id)&&!feed)await ensureFeed();
   const m=mixList.find(x=>x.id===id)||feedMixes().find(x=>x.id===id);
   if(!m)return '<div class="empty"><h2>Your mixes are on the way</h2><p class="muted">Play a few songs or like some, and Spot+ makes Daily Mixes for you.</p><a class="btn" href="#/home">Back home</a></div>';
   const k=reg(m.tracks,{name:m.title});
-  return header({coverHtml:`<div class="mix-cover big" style="--mix:${m.color}">${m.picture?`<img src="${esc(m.picture)}" alt="">`:''}<span>${esc(m.title)}</span></div>`,kicker:'Made for you',title:m.title,sub:`${esc(m.subtitle)} · ${plural(m.tracks.length,'song')} · New every day`})
+  return header({coverHtml:`<div class="mix-cover big" style="--mix:${m.color}">${m.picture?`<img src="${esc(m.picture)}" alt="">`:''}<span>${esc(m.title)}</span></div>`,kicker:'Made for you',title:m.title,sub:`${esc(m.subtitle)} · ${plural(m.tracks.length,'song')}${/^\d$/.test(id)?' · New every day':''}`})
     +actions(k,`${dlButton(k)}<button class="icon" data-act="save-list" data-key="${k}" aria-label="Save as playlist">${I.plus}</button>`)+trackRows(m.tracks,k);
 }
 player.setQueueHooks({
@@ -263,6 +264,8 @@ player.setAutoMix(store.getSettings().automix||0);
 const appBase=()=>new URL('./',location.href).href;
 let libDirty=false,libTimer=0,applyingRemote=false;
 store.migrateSavedSource();
+// Popular artists for instant search completion, fetched in the background soon after start (refreshed weekly).
+setTimeout(()=>api.refreshPopularArtists(),4000);
 store.onChange(key=>{if(applyingRemote)return;if(['likes','playlists','albums','artists','folders'].includes(key)){libDirty=true;clearTimeout(libTimer);libTimer=setTimeout(()=>runLibrarySync(),4000);}
   if(key==='playlists'){clearTimeout(collabTimer);collabTimer=setTimeout(()=>runCollabSync(),2500);}});
 async function runLibrarySync(){
@@ -452,7 +455,9 @@ async function viewHome() {
   const rk = reg(recent);
   const shortcuts = `<div class="quick-grid"><a class="quick-item" href="#/spotify"><div class="ph-cover grad2">${I.library}</div><b>Spotify collections</b></a><a class="quick-item" href="#/podcasts"><div class="ph-cover grad3">${I.mic}</div><b>Podcasts</b></a><a class="quick-item" href="#/audiobooks"><div class="ph-cover grad4">${I.library}</div><b>Audiobooks</b></a><a class="quick-item" href="#/liked"><div class="ph-cover grad">${I.heartFill}</div><b>Liked Songs</b></a><a class="quick-item" href="#/dj"><div class="ph-cover dj-tile">${I.dj}</div><b>Spot+ DJ</b></a>${store.getPlaylists().slice(0,4).map(p=>`<a class="quick-item" href="#/my/${p.id}">${p.tracks[0]?.cover?img(p.tracks[0].cover):`<div class="ph-cover">${I.note}</div>`}<b>${esc(p.name)}</b></a>`).join('')}${recent.slice(0,Math.max(0,5-Math.min(4,store.getPlaylists().length))).map((t,i)=>`<button class="quick-item" data-act="track-play" data-key="${rk}" data-i="${i}">${img(t.cover)}<b>${esc(t.title)}</b></button>`).join('')}</div>`;
   const toolbar = `<div class="view-toolbar"><button class="avatar home-profile" data-act="profile" aria-label="Profile and settings">${esc((store.getSettings().displayName[0]||'S').toUpperCase())}</button><button class="chip on" data-act="home-filter" data-filter="all" aria-pressed="true">All</button><button class="chip" data-act="home-filter" data-filter="music" aria-pressed="false">Music</button><a class="chip" href="#/dj">DJ</a><span class="spacer"></span><span class="source-note">Music discovery · Deezer</span></div>`;
-  const requestBar = homeDJ()+'<div class="live-pill" data-live-box hidden><i></i><b data-live="listening">0</b> listening now · <b data-live="installs">0</b> installs</div><a class="rewind-link" href="#/rewind"><div><b>Your Rewind</b><small>Your top music, updated automatically</small></div><span class="rewind-link-icon">'+I.arrowUpRight+'</span></a>';
+  // Clean home: the DJ bar, then your music. Rewind lives in Made for you; live counts stay off the home screen.
+  const requestBar = homeDJ();
+  const rewindCard = `<a class="card mix-card" href="#/rewind" style="--mix:#4c1d95"><div class="mix-cover"><span>Your Rewind</span></div><div class="ctitle">Your Rewind</div><div class="csub">Your top music, updated automatically</div></a>`;
   if(document.body.dataset.page==='home')view.innerHTML=toolbar+shortcuts+requestBar+shelf('Jump back in',recent.slice(0,12).map((t,i)=>trackCard(t,rk,i)))+loadingHtml;
   let d;
   try { d = await api.home(); } catch (e) {
@@ -462,8 +467,8 @@ async function viewHome() {
   const tk = reg(d.tracks);
   const linked=cachedLinks(),mfy=madeForYou(linked).map(p=>`<a class="card" href="#/linked/${p.id}">${img(p.cover)}<div class="ctitle">${esc(p.name)}</div><div class="csub">From your Spotify</div></a>`),pub=(linked?.profile?.playlists||[]).map(p=>`<a class="card" href="#/linked/${p.id}">${img(p.cover)}<div class="ctitle">${esc(p.name)}</div><div class="csub">Your playlist</div></a>`);
   ensureFeed();
-  const fm=feedMixes(),seasonal=(feed?.seasonal||[]).map(s=>shelf(s.title,s.playlists.map(playlistCard))).join('');
-  return toolbar + shortcuts + requestBar + shelf('Made for you', [...fm.filter(m=>m.id!=='discover-weekly').map(mixCard), ...mixCards(), ...fm.filter(m=>m.id==='discover-weekly').map(mixCard), ...mfy]) + `<div data-home-section="recent">${shelf('Jump back in', recent.slice(0, 12).map((t, i) => trackCard(t, rk, i)))}</div>` + shelf('Your Spotify playlists', pub)
+  const fm=feedMixes(),seasonal=(feed?.seasonal||[]).slice(0,1).map(s=>shelf(s.title,s.playlists.map(playlistCard))).join('');
+  return toolbar + shortcuts + requestBar + shelf('Made for you', [...fm.filter(m=>m.id!=='discover-weekly').map(mixCard), ...mixCards(), ...fm.filter(m=>m.id==='discover-weekly').map(mixCard), rewindCard, ...mfy]) + `<div data-home-section="recent">${shelf('Jump back in', recent.slice(0, 12).map((t, i) => trackCard(t, rk, i)))}</div>` + shelf('Your Spotify playlists', pub)
     + shelf('Release Radar: new from your artists', (feed?.releaseRadar||[]).map(albumCard))
     + seasonal
     + shelf('Trending songs', d.tracks.slice(0,12).map((t,i)=>trackCard(t,tk,i)))
@@ -508,9 +513,19 @@ function renderSearchResults(box, raw, q) {
       ${q.toLowerCase()==='dj'?'<p><a class="btn primary" href="#/dj">Open Spot+ DJ</a></p>':''}
       <div id="lyricSlot"></div>${head}${order.join('')}`;
   hydrateStatistics(box);
+  // An artist as the Top result: their own popular songs go beside it, like Spotify (search results may have none).
+  if (d.top?.kind === 'artist' && !firstSongs.some((t) => String(t.artistId) === String(d.top.item.id))) {
+    const my = searchTok;
+    api.artistTop(d.top.item.id, 4).then((top) => {
+      const list = box.querySelector('.search-top section:nth-child(2)') || null;
+      if (my !== searchTok || !top.length) return;
+      const tk = reg(top), html = `<h2>Songs</h2>${trackRows(visibleTracks(top, store.getSettings()), tk)}`;
+      if (list) list.innerHTML = html; else box.querySelector('.search-top')?.insertAdjacentHTML('beforeend', `<section>${html}</section>`);
+    }).catch(() => {});
+  }
 }
 function viewSearch(q = '') {
-  api.refreshPopularArtists();
+  api.refreshPopularArtists()?.then(() => { const q2 = $('#q')?.value.trim(); if (q2 && location.hash.startsWith('#/search')) runSearch(q2); });
   setTimeout(() => {
     const inp = matchMedia('(min-width:768px)').matches?$('#globalQ'):$('#q');
     $('#globalQ').value=q;$('#globalClear').hidden=!q;
@@ -716,7 +731,7 @@ const routes = [
   [/^#\/profile$/, viewProfile],
   [/^#\/recent$/, viewRecent],
   [/^#\/rewind$/, rewindView],
-  [/^#\/mix\/(\d)$/, viewMix],
+  [/^#\/mix\/([\w-]{1,40})$/, viewMix],
   [/^#\/generate$/, viewGenerate],
   [/^#\/podcasts(?:\/search\/(.*))?$/, viewPodcasts],
   [/^#\/show\/(.+)$/, viewShow],
