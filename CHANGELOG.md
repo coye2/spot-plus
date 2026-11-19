@@ -2,6 +2,15 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.26 — InstantPlay: full songs, faster starts, lossless upgrades
+_2026-11-19_
+
+- Fixed the main cause of 30-second clips. Many labels block their official uploads from playing outside YouTube. Spot+ now tries up to 8 uploads of the same song (music video, lyric video, live) and remembers which ones are blocked, so each blocked upload only costs time once.
+- Fixed InstantPlay preloading a 30-second clip for the next song when the lossless servers were busy.
+- Songs start on YouTube’s player within about a second. If a lossless server answers afterwards, Spot+ crossfades to lossless at the same spot, mid-song.
+- The YouTube player stays loaded between songs and swaps the next one in place, so skipping starts the next song almost at once.
+- With effects on, a song that has no effects-friendly server now plays in full without effects, instead of as a clip.
+
 ## 1.9.25 — Spot+ is open again
 _2026-11-18_
 

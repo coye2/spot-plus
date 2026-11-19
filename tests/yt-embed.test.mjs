@@ -220,7 +220,23 @@ test('YouTubeEmbedPlayer handles lifecycle messages, candidate rotation, seek, p
   assert.equal(events.filter(e => e === 'ended').length, 1);
   yt.stop();
   assert.equal(yt.active, false);
-  assert.equal(frame.src, 'about:blank');
+  // The booted player stays loaded (stopped, silent) so the next song swaps in instantly.
+  assert.notEqual(frame.src, 'about:blank');
+  assert.ok(frame.posted.some(p => p.msg.func === 'stopVideo'));
+});
+
+test('a booted YouTube player swaps the next song in place instead of reloading', () => {
+  const yt = new YouTubeEmbedPlayer({});
+  assert.equal(yt.warm('ccccccccccc'), true);
+  const frame = dom.iframes.at(-1);
+  assert.match(frame.src, /embed\/ccccccccccc\?enablejsapi=1&autoplay=0/);
+  dom.emitMessage('https://www.youtube.com', { event: 'onReady' });
+  assert.equal(yt.live, true);
+  const src = frame.src;
+  yt.load(['ddddddddddd'], { startAt: 0, autoplay: true, volume: 1 });
+  assert.equal(frame.src, src, 'no full reload');
+  assert.ok(frame.posted.some(p => p.msg.func === 'loadVideoById' && p.msg.args[0].videoId === 'ddddddddddd'));
+  yt.stop();
 });
 
 test('player unifies position, pause, seek, and preview fallback only when YouTube player is selected', async () => {
@@ -269,4 +285,18 @@ test('player unifies position, pause, seek, and preview fallback only when YouTu
     dom.setJsonpResponder(null);
     globalThis.fetch = prevFetch;
   }
+});
+
+test('a wider YouTube net keeps the same song and drops covers, remixes, and wrong lengths', async () => {
+  const api = await import('../js/api.js');
+  const t = { title: 'Blinding Lights', artist: 'The Weeknd', duration: 200 };
+  const items = [
+    { id: 'aaaaaaaaaaa', title: 'The Weeknd - Blinding Lights (Official Video)', channel: 'TheWeekndVEVO', duration: 263 },
+    { id: 'bbbbbbbbbbb', title: 'The Weeknd - Blinding Lights (Lyrics)', channel: 'Lyric Hub', duration: 201 },
+    { id: 'ccccccccccc', title: 'Blinding Lights - piano cover', channel: 'Some Pianist The Weeknd fan', duration: 200 },
+    { id: 'ddddddddddd', title: 'The Weeknd - Blinding Lights (slowed + reverb)', channel: 'x', duration: 260 },
+    { id: 'eeeeeeeeeee', title: 'The Weeknd - Blinding Lights 1 hour', channel: 'x', duration: 3600 },
+    { id: 'fffffffffff', title: 'Dua Lipa - Levitating', channel: 'Dua Lipa', duration: 203 },
+  ];
+  assert.deepEqual(api.looseEmbedMatches(items, t).map(x => x.id), ['aaaaaaaaaaa', 'bbbbbbbbbbb']);
 });

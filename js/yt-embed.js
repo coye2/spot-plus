@@ -22,6 +22,9 @@ export class YouTubeEmbedPlayer {
     this.pollTimer = null;
     this.gen = 0;
     this.endedGen = 0;
+    // A booted player swaps songs in place (no page reload), which is what makes InstantPlay instant.
+    this.live = false;
+    this.warming = false;
     this._onMessage = (e) => this.handleMessage(e);
     if (typeof globalThis.window?.addEventListener === 'function') {
       globalThis.window.addEventListener('message', this._onMessage);
@@ -104,6 +107,20 @@ export class YouTubeEmbedPlayer {
       this.hooks.onError?.('Player frame unavailable');
       return;
     }
+    if (this.live && !this.warming) {
+      // Swap the song inside the running player: about a third of a second instead of a full reload.
+      this.post({event: 'command', func: this.autoplay ? 'loadVideoById' : 'cueVideoById', args: [{videoId: this.videoId, startSeconds: Math.max(0, Math.floor(this.startAt))}]});
+      this.post({event: 'command', func: 'setVolume', args: [Math.round(this.volume * 100)]});
+      this.loadTimer = setTimeout(() => {
+        // The hot swap did not answer: fall back to a fresh player for this song.
+        if (gen !== this.gen || !this.active || this.ready) return;
+        this.live = false;
+        this.mountCandidate(gen);
+      }, 2500);
+      this.loadTimer.unref?.();
+      return;
+    }
+    this.warming = false;
     frame.src = this.embedSrc(this.videoId, this.autoplay, this.startAt);
     this.pollTimer = setInterval(() => {
       if (gen === this.gen && this.active && !this.ready) this.sendListening();
@@ -127,10 +144,12 @@ export class YouTubeEmbedPlayer {
   }
 
   handleMessage(e) {
-    if (!this.active || !YT_ORIGINS.has(e.origin)) return;
+    if (!YT_ORIGINS.has(e.origin) || (this.iframe && e.source && e.source !== this.iframe.contentWindow)) return;
     let data;
     try { data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; } catch { return; }
     if (!data || typeof data !== 'object') return;
+    if (data.event === 'onReady' || data.event === 'initialDelivery' || data.event === 'infoDelivery') { this.live = true; this.warming = false; }
+    if (!this.active) return;
     const gen = this.gen;
     if (data.event === 'onReady' || data.event === 'initialDelivery') {
       const wasReady = this.ready;
@@ -165,6 +184,7 @@ export class YouTubeEmbedPlayer {
       this.handleState(data.info, gen);
     }
     if (data.event === 'onError') {
+      this.hooks.onCandidateError?.(this.videoId, Number(data.info) || 0);
       if (!this.tryNextCandidate(gen)) this.hooks.onError?.(`YouTube playback unavailable (${data.info || 'error'})`);
     }
   }
@@ -235,6 +255,20 @@ export class YouTubeEmbedPlayer {
     this.needsTap = false;
     this.currentTime = 0;
     this.duration = 0;
-    if (this.iframe) this.iframe.src = 'about:blank';
+    if (this.live) this.post({ event: 'command', func: 'stopVideo', args: [] });
+    else if (this.iframe && !this.warming) this.iframe.src = 'about:blank';
+  }
+
+  /** Boot the player in the background with a song cued (no sound), so the first tap starts at once. */
+  warm(id) {
+    if (this.active || this.live || this.warming || !/^[\w-]{11}$/.test(String(id || ''))) return false;
+    const frame = this.ensureFrame();
+    if (!frame) return false;
+    this.warming = true;
+    frame.src = this.embedSrc(id, false, 0);
+    const ping = setInterval(() => { if (this.live || !this.warming) clearInterval(ping); else this.sendListening(); }, 400);
+    ping.unref?.();
+    setTimeout(() => { clearInterval(ping); if (!this.live) this.warming = false; }, 9000)?.unref?.();
+    return true;
   }
 }

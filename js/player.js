@@ -426,12 +426,17 @@ const yt = new YouTubeEmbedPlayer({
   onNeedsTap: (needed) => {
     if (ytToken !== token) return;
     state.loading = false;
-    state.needsTap = store.getSettings().source === 'youtube' && !!needed;
+    state.needsTap = ['youtube', 'auto'].includes(store.getSettings().source) && !!needed;
     if (state.needsTap) state.ytHidden = false;
     emit('state');
   },
+  onCandidateError: (id, code) => {
+    // 101/150: the label blocked this upload outside YouTube. 100: removed.
+    if ([100, 101, 150].includes(code)) api.markEmbedBlocked?.(id);
+  },
   onPlaying: () => {
     if (ytToken !== token) return;
+    api.rememberEmbed?.(current(), yt.videoId);
     setPhase(STATES.PLAYING);
     state.needsTap = false;
     telemetry.markStage(ytToken, 'firstAudible', { sourceKind: 'youtube-embed', instance: 'youtube.com' });
@@ -475,11 +480,20 @@ const yt = new YouTubeEmbedPlayer({
       next(false);
     }
   },
-  onError: (msg) => {
+  onError: async (msg) => {
     if (ytToken !== token) return;
+    // Every upload we had was blocked: look wider (lyric videos, music videos, live) before any clip.
+    const t = current(), my = token;
+    if (t && !embedExtended && api.moreEmbedCandidates) {
+      embedExtended = true;
+      const more = await api.moreEmbedCandidates(t, yt.candidates).catch(() => []);
+      if (my !== token || ytToken !== my) return;
+      if (more.length && yt.load(more, { startAt: 0, autoplay: pendingPlay, volume: volumeLevel * (ducks.size ? .18 : 1) })) return;
+    }
     fallbackToPreview(msg);
   },
 });
+let embedExtended = false;
 
 export async function fallbackToPreview(reason = '', { allowPreview = store.getSettings().source === 'auto' } = {}) {
   const t = current();
@@ -694,7 +708,7 @@ async function load(opts = {}) {
       if (objUrl) { URL.revokeObjectURL(objUrl); objUrl = null; }
       telemetry.markStage(my, 'resolveStart');
       // Auto may fall back to YouTube's official player (full songs) before a 30-second preview.
-      const allowEmbed = ['youtube', 'auto'].includes(store.getSettings().source) && !effectsOn();
+      const allowEmbed = ['youtube', 'auto'].includes(store.getSettings().source);
       const r = opts.sourceOverride || await api.resolve(t, { skip: skipList, signal: controller.signal, cors: effectsOn(), allowEmbed });
       if (my !== token) return;
       if (r.kind === 'youtube-embed' && !allowEmbed) {
@@ -714,9 +728,12 @@ async function load(opts = {}) {
         audio.removeAttribute('src');
         audio.load();
         ytToken = my;
+        embedExtended = false;
         telemetry.markStage(my, 'mediaInit', { sourceKind: 'youtube-embed', instance: 'youtube.com' });
         yt.load(r.videoIds || [r.videoId], { startAt: opts.startAt || 0, autoplay: pendingPlay, volume: volumeLevel * (ducks.size ? .18 : 1) });
         if (!pendingPlay) { setPhase(STATES.IDLE); }
+        if (effectsOn()) emit('effects-skipped');
+        upgradeFromEmbed(t, my, controller.signal);
         failStreak = 0;
         store.addRecent(t);
         emit('state');
@@ -824,6 +841,68 @@ async function load(opts = {}) {
   save();
 }
 
+/**
+ * InstantPlay: a song may start on YouTube's player within a second. Meanwhile the lossless servers keep
+ * looking; if one answers with the same recording, Spot+ crossfades to it at the same spot, mid-song.
+ */
+export const UPGRADE_FADE_MS = 900;
+async function upgradeFromEmbed(t, my, signal) {
+  if (store.getSettings().source !== 'auto' || !t || t.local || t.direct) return;
+  let s = null;
+  try { s = await api.resolveFull(t, { signal, cors: effectsOn() }); } catch { return; }
+  if (!s || s.preview || my !== token || !isEmbed() || signal?.aborted) return;
+  // Wait until YouTube has told us its length, then refuse a different cut (it would jump).
+  for (let i = 0; i < 20 && !yt.duration && my === token && isEmbed(); i++) await new Promise(r => setTimeout(r, 250));
+  const want = Number(t.duration) || 0;
+  const len = Number(s.duration) || want;
+  if (my !== token || !isEmbed() || !yt.duration || (len && Math.abs(len - yt.duration) > 2.5)) return;
+  if (isCaptured(audio) && !(await prepareElement(audio, s.url))) return;
+  if (!isCaptured(audio) && effectsOn()) await prepareElement(audio, s.url);
+  if (my !== token || !isEmbed()) return;
+  suppressError = true;
+  audio.volume = 0;
+  audio.preload = 'auto';
+  audio.src = s.url;
+  const ready = await new Promise(ok => {
+    const done = v => { clearTimeout(timer); audio.removeEventListener('canplay', yes); audio.removeEventListener('error', no); ok(v); };
+    const yes = () => done(true), no = () => done(false);
+    const timer = setTimeout(() => done(false), 10000);
+    audio.addEventListener('canplay', yes);
+    audio.addEventListener('error', no);
+  });
+  if (!ready || my !== token || !isEmbed()) {
+    if (my === token && isEmbed()) { audio.removeAttribute('src'); audio.load(); suppressError = false; }
+    return;
+  }
+  const wasPlaying = !yt.paused;
+  // Seek a hair ahead to cover the time the element needs to start.
+  try { audio.currentTime = Math.max(0, Math.min((yt.currentTime || 0) + (wasPlaying ? 0.12 : 0), (audio.duration || len) - 1)); } catch { /* keep 0 */ }
+  mediaTicket = ++liveAttempt;
+  suppressError = false;
+  const level = () => volumeLevel * (ducks.size ? .18 : 1);
+  const before = state.source;
+  state.source = { ...s, cacheLayer: 'upgrade' };
+  if (wasPlaying) {
+    try { await audio.play(); } catch { state.source = before; audio.removeAttribute('src'); audio.load(); audio.volume = level(); return; }
+  }
+  if (my !== token) { audio.volume = level(); return; }
+  const steps = 18;
+  for (let i = 1; i <= steps && wasPlaying; i++) {
+    await new Promise(r => setTimeout(r, UPGRADE_FADE_MS / steps));
+    if (my !== token) break;
+    const k = Math.sin((i / steps) * Math.PI / 2);
+    audio.volume = level() * k;
+    yt.setVolume(level() * Math.cos((i / steps) * Math.PI / 2));
+  }
+  audio.volume = level();
+  yt.stop();
+  if (my !== token) return;
+  if (!wasPlaying) { pendingPlay = false; setPhase(STATES.IDLE); }
+  api.reportPlaybackSource(state.source, true, { startupMs: state.startupMs || 0 });
+  emit('state');
+  save();
+}
+
 function prefetch() {
   const generation = ++warmGeneration;
   clearTimeout(prefetchTimer);
@@ -842,7 +921,7 @@ function prefetch() {
   prefetchTimer = setTimeout(async () => {
     try {
       if (generation !== warmGeneration || !isPlaying() || state.loading) return;
-      if (!audioHasHeadroom(audio, needHeadroom)) {
+      if (!isEmbed() && !audioHasHeadroom(audio, needHeadroom)) {
         prefetchTimer = setTimeout(() => { if (generation === warmGeneration && isPlaying() && !state.loading) prefetch(); }, 150);
         prefetchTimer.unref?.();
         return;
@@ -855,7 +934,7 @@ function prefetch() {
       }
 
       if (generation !== warmGeneration || !isPlaying() || state.loading) return;
-      if (!audioHasHeadroom(audio, Math.max(3, needHeadroom - 2))) return;
+      if (!isEmbed() && !audioHasHeadroom(audio, Math.max(3, needHeadroom - 2))) return;
 
       // Stage B: prepare Player B when permitted, non-embed, and not rapid-skipping.
       if (netProfile.preloadStageB && !effectsOn() && source.kind !== 'youtube-embed' && !skipTracker.isRapidSkipping()) {
@@ -865,6 +944,9 @@ function prefetch() {
   }, delay);
   prefetchTimer.unref?.();
 }
+
+// Boot YouTube's player in the background as soon as a likely song's video is known.
+api.onEmbedFound?.((id) => { if (!yt.active) yt.warm(id); });
 
 /* ---------- Audio element events ---------- */
 let lastSave = 0, lastPos = 0;

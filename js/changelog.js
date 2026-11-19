@@ -1,6 +1,13 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.26', date: '2026-11-19', title: 'InstantPlay: full songs, faster starts, lossless upgrades', items: [
+    'Fixed the main cause of 30-second clips. Many labels block their official uploads from playing outside YouTube. Spot+ now tries up to 8 uploads of the same song (music video, lyric video, live) and remembers which ones are blocked, so each blocked upload only costs time once.',
+    'Fixed InstantPlay preloading a 30-second clip for the next song when the lossless servers were busy.',
+    'Songs start on YouTube’s player within about a second. If a lossless server answers afterwards, Spot+ crossfades to lossless at the same spot, mid-song.',
+    'The YouTube player stays loaded between songs and swaps the next one in place, so skipping starts the next song almost at once.',
+    'With effects on, a song that has no effects-friendly server now plays in full without effects, instead of as a clip.',
+  ]},
   {version: '1.9.25', date: '2026-11-18', title: 'Spot+ is open again', items: [
     'Maintenance is over. Everyone can open Spot+ again, with full songs and the new wallpaper search.',
   ]},

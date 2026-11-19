@@ -319,7 +319,8 @@ let matchDown = 0;
 let streamDown = 0;
 // When every direct server failed recently, Auto goes straight to YouTube's player (instant start).
 let directDown = 0;
-export const EMBED_AFTER_MS = 2500;
+// Lossless servers get this long; past it the song starts on YouTube and upgrades mid-song if one answers.
+export const EMBED_AFTER_MS = 900;
 async function bridgeMatches(t, signal) {
   if (matchDown > Date.now()) throw new Error('Match lookup paused');
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 3500);
@@ -726,10 +727,63 @@ async function itunesPreview(t) {
   return { url: matched[0].previewUrl, mime: 'audio/mp4', bitrate: 256000, kind: 'preview', engineLabel: 'iTunes AAC preview', instance: 'https://itunes.apple.com', preview: true, alternatives: [] };
 }
 
+// Uploads a label blocked from playing outside YouTube (errors 101/150). Remembered so each costs time once.
+const BLOCKED_KEY = 'spotplus.ytBlocked';
+let blockedEmbeds = null;
+const blockedSet = () => {
+  if (!blockedEmbeds) { try { blockedEmbeds = new Set(JSON.parse(globalThis.localStorage?.getItem(BLOCKED_KEY) || '[]')); } catch { blockedEmbeds = new Set(); } }
+  return blockedEmbeds;
+};
+export function markEmbedBlocked(id) {
+  if (!/^[\w-]{11}$/.test(String(id || ''))) return;
+  const set = blockedSet(); set.delete(id); set.add(id);
+  try { globalThis.localStorage?.setItem(BLOCKED_KEY, JSON.stringify([...set].slice(-600))); } catch { /* storage full */ }
+}
+/** The upload that actually played: try it first next time. */
+export function rememberEmbed(t, id) {
+  if (!t?.id || !/^[\w-]{11}$/.test(String(id || ''))) return;
+  const old = getVideoCache(t.id);
+  if (old?.manual && old.id !== id) return;
+  setVideoCache(t.id, { id, manual: !!old?.manual, matchVersion: 3, embedOk: true });
+}
+const NOT_THE_SONG = /\b(cover|karaoke|instrumental|8d|slowed|sped ?up|nightcore|reverb|bass ?boost|1 ?hour|loop|reaction|tutorial|lesson|piano version|guitar version)\b/i;
+const foldText = (v) => String(v || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\([^)]*\)|\[[^\]]*\]/g, ' ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+/** A wider net for YouTube's player: lyric videos, music videos, and live uploads of the same song. */
+export function looseEmbedMatches(items, t) {
+  const title = foldText(t.searchTitle || t.title), artistWords = foldText(t.artist).split(' ').filter((w) => w.length > 2);
+  const own = `${t.title} ${t.album || ''}`;
+  return (items || []).filter((x) => {
+    const name = foldText(x?.title), who = foldText(`${x?.title} ${x?.channel || x?.author || ''}`);
+    if (!/^[\w-]{11}$/.test(String(x?.id || '')) || !title || !name.includes(title)) return false;
+    if (artistWords.length && !artistWords.some((w) => who.includes(w))) return false;
+    if (NOT_THE_SONG.test(x.title) && !NOT_THE_SONG.test(own)) return false;
+    if (/\bremix\b/i.test(x.title) && !/\bremix\b/i.test(own)) return false;
+    const d = Number(x.duration || x.lengthSeconds) || 0, want = Number(t.duration) || 0;
+    return !(d && want && (d < want * 0.8 || d > want * 1.6));
+  });
+}
+/** More uploads to try after every candidate was blocked; empty when there are none left. */
+export async function moreEmbedCandidates(t, tried = [], signal) {
+  const skip = new Set([...tried, ...blockedSet()]);
+  const lookups = ['', '&type=video'].map(async (extra) => {
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 3500);
+    try {
+      const r = await fetch(MATCH_ENDPOINT + '?q=' + encodeURIComponent(query(t)) + extra, {signal: signal ? AbortSignal.any([signal, ctl.signal]) : ctl.signal, credentials: 'omit'});
+      return r.ok ? ((await r.json()).items || []) : [];
+    } catch { return []; } finally { clearTimeout(timer); }
+  });
+  const all = (await Promise.all(lookups)).flat();
+  return uniq(looseEmbedMatches(all, t).map((x) => x.id)).filter((id) => !skip.has(id)).slice(0, 8);
+}
+
 function youtubeEmbedStream(matches, t) {
-  const ids = uniq((matches || []).map((m) => m?.id).filter((id) => /^[\w-]{11}$/.test(id || '')));
+  const blocked = blockedSet(), known = getVideoCache(t.id);
+  let ids = uniq([...(known?.embedOk ? [known.id] : []), ...(matches || []).map((m) => m?.id)].filter((id) => /^[\w-]{11}$/.test(id || '')));
+  // Skip uploads that already refused to play here; keep them only if nothing else is left.
+  const open = ids.filter((id) => !blocked.has(id));
+  if (open.length) ids = open;
   if (!ids.length) return null;
-  setVideoCache(t.id, { id: ids[0], manual: !!getVideoCache(t.id)?.manual, matchVersion: 3 });
+  if (known?.id !== ids[0]) setVideoCache(t.id, { id: ids[0], manual: !!known?.manual, matchVersion: 3 });
   return {
     url: `https://www.youtube.com/embed/${ids[0]}`,
     videoId: ids[0],
@@ -1082,15 +1136,17 @@ export async function resolve(t,options={}) {
   const settings=getSettings(),allowEmbed=!!(options.allowEmbed&&['youtube','auto'].includes(settings.source)),key=streamKey(t,settings);
   let hit=!options.skip?.length&&cachedStream(key);
   // A saved 30-second clip must not block a new search for the full song.
-  if((hit?.preview||hit?.kind==='youtube-embed') && settings.source==='auto' && directDown<=Date.now()) hit=null;
+  if(hit?.preview && settings.source==='auto') hit=null;
   if(hit&&(!options.fullOnly||(!hit.preview&&hit.kind!=='youtube-embed'))&&(allowEmbed||hit.kind!=='youtube-embed')&&(!options.cors||(hit.kind!=='youtube-embed'&&await corsOK(hit.url)))){options.signal?.throwIfAborted();return {...hit,cacheLayer:'memory'};}
   if(options.skip?.length)forget(key);
   const warm=warmups.get(key);
-  if(warm&&!options.skip?.length){try {const stream=await abortable(warm,options.signal);options.signal?.throwIfAborted();if((!options.fullOnly||(!stream.preview&&stream.kind!=='youtube-embed'))&&(allowEmbed||stream.kind!=='youtube-embed')&&(!options.cors||(stream.kind!=='youtube-embed'&&await corsOK(stream.url)))){const check=validateSourceCandidate(stream,{canPlay:mime=>!!probe?.canPlayType(mime),requireCors:options.cors,corsKnown:knownCors});if(check.ok)return {...stream,cacheLayer:'prewarm'};}}catch {options.signal?.throwIfAborted();}}
+  if(warm&&!options.skip?.length){try {const stream=await abortable(warm,options.signal);options.signal?.throwIfAborted();if(!(stream.preview&&settings.source==='auto')&&(!options.fullOnly||(!stream.preview&&stream.kind!=='youtube-embed'))&&(allowEmbed||stream.kind!=='youtube-embed')&&(!options.cors||(stream.kind!=='youtube-embed'&&await corsOK(stream.url)))){const check=validateSourceCandidate(stream,{canPlay:mime=>!!probe?.canPlayType(mime),requireCors:options.cors,corsKnown:knownCors});if(check.ok)return {...stream,cacheLayer:'prewarm'};}}catch {options.signal?.throwIfAborted();}}
   // With effects on, prefer servers that allow them; if none do, play the song normally.
   let stream;
   const opts={...options,allowEmbed};
-  if(opts.cors){try{stream=await resolveUncached(t,opts);}catch(e){if(opts.signal?.aborted)throw e;stream=await resolveUncached(t,{...opts,cors:false});}}
+  if(opts.cors){try{stream=await resolveUncached(t,opts);}catch(e){if(opts.signal?.aborted)throw e;stream=await resolveUncached(t,{...opts,cors:false});}
+    // No effects-friendly full song: play the whole song without effects rather than a 30-second clip.
+    if(stream?.preview&&allowEmbed){try{const full=await resolveUncached(t,{...opts,cors:false});if(!full.preview)stream=full;}catch(e){if(opts.signal?.aborted)throw e;}}}
   else stream=await resolveUncached(t,opts);
   opts.signal?.throwIfAborted();
   remember(streamKey(t,settings,stream.videoId||getVideoCache(t.id)?.id||''),stream);
@@ -1111,15 +1167,18 @@ export async function resolveEquivalent(t, options = {}) {
   }
   return candidate;
 }
+let embedHook=null;
+/** The player boots YouTube's player early when a prewarm finds a song's video. */
+export function onEmbedFound(fn){embedHook=typeof fn==='function'?fn:null;}
 export function prewarm(t){
   if(!t||t.local||t.direct||navigator.connection?.saveData||/2g/.test(navigator.connection?.effectiveType||''))return;
-  const settings=getSettings(),allowEmbed=settings.source==='youtube',key=streamKey(t,settings);if(warmups.has(key))return warmups.get(key);
-  const hit=cachedStream(key);if(hit&&(allowEmbed||hit.kind!=='youtube-embed'))return Promise.resolve({...hit,cacheLayer:'memory'});
+  const settings=getSettings(),allowEmbed=['youtube','auto'].includes(settings.source),key=streamKey(t,settings);if(warmups.has(key))return warmups.get(key);
+  const hit=cachedStream(key);if(hit&&!(hit.preview&&settings.source==='auto')&&(allowEmbed||hit.kind!=='youtube-embed')){if(hit.kind==='youtube-embed')try{embedHook?.(hit.videoId);}catch{}return Promise.resolve({...hit,cacheLayer:'memory'});}
   warmConnections();
   // Keep up to three predictive resolves (restore + next + next+1).
   if(warmControllers.size>=3){const oldest=warmControllers.keys().next().value;warmControllers.get(oldest).abort();warmControllers.delete(oldest);warmups.delete(oldest);}
   const controller=new AbortController();warmControllers.set(key,controller);
-  const promise=resolveUncached(t,{signal:controller.signal,allowEmbed}).then(stream=>{controller.signal.throwIfAborted();remember(streamKey(t,settings,stream.videoId||getVideoCache(t.id)?.id||''),stream);if(stream.kind!=='youtube-embed')preconnect(stream.url);return stream;}).finally(()=>{if(warmControllers.get(key)===controller){warmups.delete(key);warmControllers.delete(key);}});
+  const promise=resolveUncached(t,{signal:controller.signal,allowEmbed}).then(stream=>{controller.signal.throwIfAborted();if(stream.kind==='youtube-embed')try{embedHook?.(stream.videoId);}catch{}remember(streamKey(t,settings,stream.videoId||getVideoCache(t.id)?.id||''),stream);if(stream.kind!=='youtube-embed')preconnect(stream.url);return stream;}).finally(()=>{if(warmControllers.get(key)===controller){warmups.delete(key);warmControllers.delete(key);}});
   warmups.set(key,promise);promise.catch(()=>{});
   return promise;
 }
