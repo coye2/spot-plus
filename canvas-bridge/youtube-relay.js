@@ -54,32 +54,68 @@ async function resolveLink(id, {fetcher, cache, waitUntil, fresh = false, fmt = 
   return entry;
 }
 
+// YouTube serves its audio in bounded slices: an open-ended request ("the rest of the file", which is what
+// Safari asks for) is refused. The relay fetches slices of this size and joins them into one response.
+export const SLICE = 1 << 20;
+
+function parseRange(header) {
+  const m = /^bytes=(\d*)-(\d*)$/.exec(header || 'bytes=0-');
+  if (!m || (m[1] === '' && m[2] === '')) return null;
+  if (m[1] === '') return {suffix: Number(m[2])};
+  return {start: Number(m[1]), end: m[2] === '' ? null : Number(m[2])};
+}
+const totalOf = (res) => Number((/\/(\d+)\s*$/.exec(res.headers.get('Content-Range') || '') || [])[1]) || 0;
+
 export async function youtubeRelay(request, {fetcher = fetch, cache, waitUntil = () => {}} = {}) {
   const url = new URL(request.url);
   const id = (url.searchParams.get('id') || '').trim();
   if (!/^[\w-]{11}$/.test(id)) return fail(400, 'Provide a YouTube video id');
   if (request.method !== 'GET' && request.method !== 'HEAD') return fail(405, 'GET only');
-  const range = request.headers.get('Range') || 'bytes=0-';
   const fmt = Object.hasOwn(FORMATS, url.searchParams.get('fmt') || '') ? url.searchParams.get('fmt') : 'aac';
-  if (!/^bytes=\d*-\d*$/.test(range)) return fail(416, 'Bad range');
+  const want = parseRange(request.headers.get('Range'));
+  if (!want || want.suffix !== undefined) return fail(416, 'Bad range');
 
-  let lastStatus = 0;
+  // Everything for one request happens here, back to back: YouTube's link only works from the Cloudflare
+  // address that asked for it, and a later request may leave from another address.
+  let link = null, first = null, lastStatus = 0;
+  const firstEnd = want.end === null ? want.start + SLICE - 1 : Math.min(want.end, want.start + SLICE - 1);
   for (const fresh of [false, true]) {
-    let link;
     try { link = await resolveLink(id, {fetcher, cache, waitUntil, fresh, fmt}); }
     catch (error) { return fail(502, String(error.message || 'No audio').slice(0, 120)); }
-    const upstream = await fetcher(link.url, {method: request.method, headers: {Range: range, 'User-Agent': 'Mozilla/5.0'}, redirect: 'follow'});
-    lastStatus = upstream.status;
-    // 403: the link expired or this request left Cloudflare from another address; get a new link once.
-    if ((upstream.status === 403 || upstream.status === 410) && !fresh) { memo.delete(`${fmt}:${id}`); await cache?.delete(linkKey(id, fmt)).catch(() => {}); continue; }
-    if (!upstream.ok) break;
-    const headers = new Headers();
-    headers.set('Content-Type', link.mime);
-    headers.set('Accept-Ranges', 'bytes');
-    for (const h of ['Content-Length', 'Content-Range']) { const v = upstream.headers.get(h); if (v) headers.set(h, v); }
-    headers.set('Cache-Control', 'private, max-age=3600');
-    headers.set('X-Spotplus-Source', 'youtube-relay');
-    return new Response(request.method === 'HEAD' ? null : upstream.body, {status: upstream.status, headers});
+    first = await fetcher(link.url, {headers: {Range: `bytes=${want.start}-${firstEnd}`, 'User-Agent': 'Mozilla/5.0'}, redirect: 'follow'});
+    lastStatus = first.status;
+    if ((first.status === 403 || first.status === 410) && !fresh) { memo.delete(`${fmt}:${id}`); await cache?.delete(linkKey(id, fmt)).catch(() => {}); continue; }
+    break;
   }
-  return fail(502, 'YouTube refused the audio (' + lastStatus + ')');
+  if (!first?.ok) return fail(502, 'YouTube refused the audio (' + lastStatus + ')');
+
+  const total = totalOf(first);
+  const last = total ? Math.min(want.end === null ? total - 1 : want.end, total - 1) : firstEnd;
+  const headers = new Headers({'Content-Type': link.mime, 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, max-age=3600', 'X-Spotplus-Source': 'youtube-relay'});
+  if (total) headers.set('Content-Range', `bytes ${want.start}-${last}/${total}`);
+  headers.set('Content-Length', String(last - want.start + 1));
+  if (request.method === 'HEAD') { first.body?.cancel?.(); return new Response(null, {status: 206, headers}); }
+  // One slice covers it (the app's 2-byte check, small seeks): pass it straight through.
+  if (last <= firstEnd) return new Response(first.body, {status: 206, headers});
+
+  // Bigger requests: stream the slices one after another with the same link, as one response.
+  // Cloudflare's FixedLengthStream keeps the exact Content-Length on a streamed body, which Safari needs.
+  const {readable, writable} = globalThis.FixedLengthStream ? new globalThis.FixedLengthStream(last - want.start + 1) : new TransformStream();
+  const pump = (async () => {
+    try {
+      await first.body.pipeTo(writable, {preventClose: true});
+      for (let from = firstEnd + 1; from <= last; from += SLICE) {
+        const to = Math.min(from + SLICE - 1, last);
+        const part = await fetcher(link.url, {headers: {Range: `bytes=${from}-${to}`, 'User-Agent': 'Mozilla/5.0'}, redirect: 'follow'});
+        if (!part.ok) throw new Error('slice ' + part.status);
+        await part.body.pipeTo(writable, {preventClose: true});
+      }
+      await writable.close();
+    } catch (error) {
+      // The player sees a short response and simply asks again for the rest.
+      await writable.abort(error).catch(() => {});
+    }
+  })();
+  waitUntil(pump);
+  return new Response(readable, {status: 206, headers});
 }

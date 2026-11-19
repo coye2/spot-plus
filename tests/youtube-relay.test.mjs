@@ -102,3 +102,30 @@ test('/match retries once when YouTube search hiccups', async () => {
   assert.equal(r.status, 200);
   assert.equal(calls, 2);
 });
+
+test('/yta answers Safari’s open-ended request with the whole song, fetched from YouTube in bounded slices', async () => {
+  const {SLICE} = await import('../canvas-bridge/youtube-relay.js');
+  const TOTAL = Math.floor(SLICE * 2.5);
+  const audio = new Uint8Array(TOTAL).map((_, i) => i % 251);
+  const asked = [];
+  const waits = [];
+  const fetcher = async (url, init = {}) => {
+    const u = String(url);
+    if (u.includes('visitor_id')) return new Response(JSON.stringify({responseContext: {visitorData: 'v'}}));
+    if (u.includes('/youtubei/v1/player')) return player(1);
+    const [, a, b] = /bytes=(\d+)-(\d*)/.exec(init.headers.Range);
+    if (b === '') return new Response('', {status: 403}); // YouTube refuses open-ended ranges
+    const from = Number(a), to = Math.min(Number(b), TOTAL - 1);
+    asked.push([from, to]);
+    return new Response(audio.slice(from, to + 1), {status: 206, headers: {'Content-Range': `bytes ${from}-${to}/${TOTAL}`}});
+  };
+  const r = await youtubeRelay(new Request('https://w.dev/yta?id=fffffffffff', {headers: {Range: 'bytes=0-'}}), {fetcher, waitUntil: (p) => waits.push(p)});
+  assert.equal(r.status, 206);
+  assert.equal(r.headers.get('Content-Range'), `bytes 0-${TOTAL - 1}/${TOTAL}`);
+  assert.equal(r.headers.get('Content-Length'), String(TOTAL));
+  const body = new Uint8Array(await r.arrayBuffer());
+  await Promise.all(waits);
+  assert.equal(body.length, TOTAL);
+  assert.deepEqual(body.slice(SLICE - 2, SLICE + 2), audio.slice(SLICE - 2, SLICE + 2));
+  assert.deepEqual(asked, [[0, SLICE - 1], [SLICE, 2 * SLICE - 1], [2 * SLICE, TOTAL - 1]]);
+});
