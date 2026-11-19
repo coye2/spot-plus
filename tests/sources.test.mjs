@@ -93,7 +93,7 @@ test('HiFi / Monochrome resolver decodes BTS manifest FLAC streams and obeys dat
   }
 });
 
-test('Deezer mode returns Deezer preview, and auto mode rescues with iTunes AAC when servers and Deezer are unavailable', async () => {
+test('Deezer mode returns Deezer preview, and auto mode never falls back to a clip', async () => {
   localStorage.clear();
   localStorage.setItem('spotplus.settings', JSON.stringify({ source: 'deezer' }));
   const prevFetch = globalThis.fetch;
@@ -133,10 +133,8 @@ test('Deezer mode returns Deezer preview, and auto mode rescues with iTunes AAC 
     };
     api.clearStreamCache();
     await settle();
-    const rescued = await api.resolve({ id: 'it-1', title: 'Instant Crush', artist: 'Daft Punk', duration: 337 });
-    assert.equal(rescued.kind, 'preview');
-    assert.equal(rescued.mime, 'audio/mp4');
-    assert.equal(rescued.url, 'https://audio-ssl.itunes.apple.com/itunes-assets/crush.m4a');
+    // Automatic never rescues with a 30-second clip.
+    await assert.rejects(api.resolve({ id: 'it-1', title: 'Instant Crush', artist: 'Daft Punk', duration: 337 }));
   } finally {
     globalThis.fetch = prevFetch;
   }

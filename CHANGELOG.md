@@ -2,6 +2,13 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.34 — No 30-second clips
+_2026-11-19_
+
+- Automatic never plays a 30-second preview anymore. Every song is the full song.
+- Spot+ tries harder to find the full song: more attempts through the Spot+ server, and a song that drops mid-play retries from the same spot.
+- In the rare case no full version can be found, Spot+ tells you and moves to the next song instead of playing a clip.
+
 ## 1.9.33 — No ads
 _2026-11-19_
 

@@ -29,15 +29,19 @@ test('a single failed playback attempt emits error at most once',async()=>{
 });
 
 test('preview fallback clears crossOrigin so CORS-strict previews still play',async()=>{
+  // Clips only exist in Deezer (preview) mode now; Automatic never plays one.
+  localStorage.setItem('spotplus.settings',JSON.stringify({...JSON.parse(localStorage.getItem('spotplus.settings')||'{}'),source:'deezer'}));
   const previewTrack={id:'p-cors',title:'Cors Test',artist:'Unit',duration:180,preview:'https://cdnt-preview.dzcdn.net/stream/p.mp3'};
   player.el.setAttribute('crossorigin','anonymous');
   globalThis.fetch=async()=>new Response('no',{status:404});
   player.playList([previewTrack]);
   await settle();
   assert.equal(player.el.crossOrigin,null);
+  localStorage.setItem('spotplus.settings',JSON.stringify({...JSON.parse(localStorage.getItem('spotplus.settings')||'{}'),source:'auto'}));
 });
 
 test('ended auto-advances queue (including preview paths), wraps repeat-all, restarts repeat-one, and continues radio',async()=>{
+  localStorage.setItem('spotplus.settings',JSON.stringify({...JSON.parse(localStorage.getItem('spotplus.settings')||'{}'),source:'deezer'}));
   player.state.repeat='off';
   const radioTracks=[];
   player.setQueueHooks({continueQueue:async()=>{const nextTrack={id:'radio-1',title:'Radio 1',artist:'Unit',duration:180,local:true};radioTracks.push(nextTrack);return [nextTrack];}});

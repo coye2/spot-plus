@@ -111,17 +111,11 @@ test('auto mode never uses YouTube’s player (no ads); youtube mode uses youtub
     return new Response('down', { status: 503 });
   };
   try {
-    const autoRes = await api.resolve(
+    // Automatic: no YouTube player (ads) and no 30-second clip; the song is reported unavailable instead.
+    await assert.rejects(api.resolve(
       { id: 'yt-fb-1', title: 'Blinding Lights', artist: 'The Weeknd', duration: 200 },
       { allowEmbed: true }
-    );
-    assert.notEqual(autoRes.kind, 'youtube-embed');
-    // Without the interactive player (downloads, effects), Auto still falls back to the preview.
-    const noEmbed = await api.resolve(
-      { id: 'yt-fb-1b', title: 'Blinding Lights', artist: 'The Weeknd', duration: 200 },
-      { allowEmbed: false }
-    );
-    assert.equal(noEmbed.kind, 'preview');
+    ));
 
     // Explicit youtube source uses youtube-embed, while download / cors never receives embed
     localStorage.setItem('spotplus.settings', JSON.stringify({ source: 'youtube' }));
@@ -143,7 +137,7 @@ test('auto mode never uses YouTube’s player (no ads); youtube mode uses youtub
   }
 });
 
-test('auto mode falls back to Deezer preview if /match also fails', async () => {
+test('auto mode never plays a clip, even if /match also fails', async () => {
   localStorage.clear();
   localStorage.setItem('spotplus.settings', JSON.stringify({ source: 'auto' }));
   const prevFetch = globalThis.fetch;
@@ -161,13 +155,10 @@ test('auto mode falls back to Deezer preview if /match also fails', async () => 
   });
   globalThis.fetch = async () => new Response('down', { status: 503 });
   try {
-    const res = await api.resolve(
+    await assert.rejects(api.resolve(
       { id: '9001', title: 'Preview Song', artist: 'Preview Artist', duration: 190 },
       { allowEmbed: true }
-    );
-    assert.equal(res.kind, 'preview');
-    assert.equal(res.preview, true);
-    assert.equal(res.url, 'https://cdnt-preview.dzcdn.net/api/1/1/preview.mp3');
+    ));
   } finally {
     dom.setJsonpResponder(null);
     globalThis.fetch = prevFetch;

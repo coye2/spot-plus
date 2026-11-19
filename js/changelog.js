@@ -1,6 +1,11 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.34', date: '2026-11-19', title: 'No 30-second clips', items: [
+    'Automatic never plays a 30-second preview anymore. Every song is the full song.',
+    'Spot+ tries harder to find the full song: more attempts through the Spot+ server, and a song that drops mid-play retries from the same spot.',
+    'In the rare case no full version can be found, Spot+ tells you and moves to the next song instead of playing a clip.',
+  ]},
   {version: '1.9.33', date: '2026-11-19', title: 'No ads', items: [
     'Automatic never uses YouTube’s player anymore, so no ads ever play. Every song plays in Spot+’s own player.',
     'If the Spot+ server is briefly refused by YouTube, Spot+ tries again with more uploads before moving on.',

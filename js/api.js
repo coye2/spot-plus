@@ -374,7 +374,7 @@ function checkSoundcloud() {
       scKnown = h?.sc ? 'on' : 'off'; if (!h?.sc) scOff = Date.now() + 30 * 60e3;
       relayKnown = h?.relay ? 'on' : 'off'; if (!h?.relay) relayOff = Date.now() + 30 * 60e3;
     })
-    .catch(() => { scKnown = 'off'; scOff = Date.now() + 5 * 60e3; });
+    .catch(() => { scKnown = 'off'; scOff = Date.now() + 5 * 60e3; relayKnown = 'off'; relayOff = Date.now() + 5 * 60e3; });
   return scCheck;
 }
 let matchDown = 0;
@@ -1053,9 +1053,15 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
       const embed = youtubeEmbedStream(matches, t);
       if (embed) return embed;
     }
-    if (isAuto && !fullOnly) {
-      const rescued = await previewRescue(t);
-      if (rescued) return rescued;
+    // No 30-second clips in Automatic: give the relay one last, patient try (YouTube's bot check on the server
+    // comes and goes), then report the song as unavailable so the player can move on.
+    if (isAuto && !fullOnly && kinds(set.source).includes('ytrelay') && relayOff <= Date.now() && !skip.includes(RELAY_BASE)) {
+      const matches = sharedMatches?.length ? sharedMatches : await (shared ? shared.catch(() => []) : []);
+      for (const wait of [1200, 2500]) {
+        await new Promise((ok) => setTimeout(ok, wait));
+        if (signal?.aborted) break;
+        try { return await relayStream(t, signal, matches); } catch { /* try once more */ }
+      }
     }
     throw new Error('No audio server answered. Try Deezer, JioSaavn, HiFi, Audius, your own server in Settings, or a local audio file.');
   } finally { clearTimeout(raceCap); clearTimeout(deadline); control.abort(); }

@@ -37,7 +37,7 @@ audio.playsInline = true;
 audio.setAttribute?.('playsinline', '');
 export let el = audio;
 
-const listeners = { state: new Set(), time: new Set(), error: new Set(), 'effects-skipped': new Set() };
+const listeners = { state: new Set(), time: new Set(), error: new Set(), notice: new Set(), 'effects-skipped': new Set() };
 export const on = (ev, fn) => listeners[ev].add(fn);
 /** Every media element the player uses (current + preloaded next). */
 export const mediaElements = () => [audio, nextBuffer.spare];
@@ -348,16 +348,19 @@ function recoverMedia(mediaErr = null) {
   }
   if (!state.offline && !cur.local && failed && !failed.preview && errRetries < 2) {
     errRetries++;
-    if (failed.instance) skipList.push(failed.instance);
+    // The relay hands out a fresh YouTube link on every retry, so give it one more go before skipping it.
+    const retryRelay = failed.kind === 'ytrelay' && errRetries === 1;
+    if (retryRelay) memoryEngine.forgetStream(api.streamKey(cur));
+    else if (failed.instance) skipList.push(failed.instance);
     telemetry.endRecovery(recStart, true);
     load({ keepSkip: true, startAt: audio.currentTime || 0 });
     return;
   }
 
-  // A fresh catalog sample, only after the full-song servers are exhausted.
-  if (!state.offline && !failed?.preview && !cur.local && store.getSettings().source === 'auto') {
+  // No 30-second clips in Automatic: when no full song can be found, say so and move on to the next song.
+  if (!state.offline && !cur.local && store.getSettings().source === 'auto') {
     telemetry.endRecovery(recStart, true);
-    fallbackToPreview('', { allowPreview: true });
+    skipUnavailable(cur);
     return;
   }
 
@@ -498,7 +501,24 @@ const yt = new YouTubeEmbedPlayer({
 });
 let embedExtended = false;
 
-export async function fallbackToPreview(reason = '', { allowPreview = store.getSettings().source === 'auto' } = {}) {
+let unavailableRun = 0;
+/** The full song could not be found anywhere: tell the listener and play the next song instead of a clip. */
+function skipUnavailable(t) {
+  const gen = token;
+  yt.stop();
+  ytToken = 0;
+  telemetry.markFailed(gen);
+  emit('notice', `Couldn’t find the full version of “${t.title}”. Skipping.`);
+  // Stop after a few in a row (likely offline or every server down) instead of racing through the queue.
+  if (++unavailableRun <= 3 && state.index < state.queue.length - 1) { next(false); return; }
+  unavailableRun = 0;
+  setPhase(STATES.FAILED);
+  state.needsTap = false;
+  state.error = `Couldn’t find the full version of “${t.title}”. Try again in a moment.`;
+  emit('error', state.error);
+  emit('state');
+}
+export async function fallbackToPreview(reason = '', { allowPreview = false } = {}) {
   const t = current();
   const gen = token;
   if (!t) return;
@@ -856,6 +876,8 @@ async function load(opts = {}) {
     prefetch();
   } catch (e) {
     if (my !== token) return;
+    // Automatic never settles for a clip: a song with no full version anywhere is skipped, with a note.
+    if (!state.offline && !t.local && !t.direct && store.getSettings().source === 'auto' && !opts.sourceOverride) { skipUnavailable(t); save(); return; }
     telemetry.markFailed(my);
     setPhase(STATES.FAILED);
     state.error = `Couldn’t play “${t.title}”. ${e.message}`;
@@ -1015,6 +1037,7 @@ function bindAudio(media) {
     }
   });
   listen('playing', () => {
+    unavailableRun = 0;
     suppressError = false;
     clearStall();
     startupSwaps = 0;
