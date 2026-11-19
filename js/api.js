@@ -325,7 +325,8 @@ const appleMobile = () => /iP(hone|ad|od)/.test(globalThis.navigator?.userAgent 
  * (lossless takes over mid-song). On iPhone the YouTube player needs its own tap, while a lossless link
  * plays straight from the tap on the song, so lossless gets longer there.
  */
-let embedUnlocked = false;
+// Inside the Spot+ iPhone app, the web view lets YouTube's player start without its own tap.
+let embedUnlocked = /SpotPlusApp\//.test(globalThis.navigator?.userAgent || '');
 /** The player reports when YouTube's player has played with sound this session (iPhone then autoplays it too). */
 export function setEmbedUnlocked(on = true) { embedUnlocked = !!on; }
 export function embedWait(t, now = Date.now()) {

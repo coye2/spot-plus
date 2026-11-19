@@ -1,0 +1,23 @@
+name: SpotPlus
+options:
+  bundleIdPrefix: io.github.coye2
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  SpotPlus:
+    type: application
+    platform: iOS
+    sources: [SpotPlus]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.coye2.spotplus
+        PRODUCT_NAME: Spot+
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        INFOPLIST_FILE: SpotPlus/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.0"
+        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGN_IDENTITY: ""

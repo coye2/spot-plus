@@ -1,0 +1,46 @@
+name: Build the iPhone app
+
+on:
+  push:
+    branches: [main]
+    paths: ['ios-app/**', '.github/workflows/ios.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Create the Xcode project
+        working-directory: ios-app
+        run: xcodegen generate
+      - name: Build (unsigned; Sideloadly or AltStore signs it on install)
+        working-directory: ios-app
+        run: |
+          xcodebuild -project SpotPlus.xcodeproj -scheme SpotPlus -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+      - name: Package SpotPlus.ipa
+        working-directory: ios-app
+        run: |
+          APP=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' | head -1)
+          test -n "$APP"
+          mkdir -p Payload && cp -R "$APP" Payload/
+          zip -qry SpotPlus.ipa Payload
+          ls -lh SpotPlus.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SpotPlus-ipa
+          path: ios-app/SpotPlus.ipa
+      - name: Publish the iOS app release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete ios-latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create ios-latest ios-app/SpotPlus.ipa --title "Spot+ for iPhone (latest)" \
+            --notes "Install with Sideloadly or AltStore. Plays songs instantly with no extra tap and keeps playing in the background. Built from ${GITHUB_SHA::7}." --latest=false
