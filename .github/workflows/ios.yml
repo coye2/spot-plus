@@ -19,6 +19,15 @@ jobs:
       - name: Create the Xcode project
         working-directory: ios-app
         run: xcodegen generate
+      - name: Prove InstantPlay in the iPhone Simulator (no taps)
+        working-directory: ios-app
+        run: |
+          SIM=$(xcrun simctl list devices available -j | python3 -c "import json,sys;d=json.load(sys.stdin)['devices'];print(next(x['udid'] for k,v in sorted(d.items(),reverse=True) if 'iOS' in k for x in v if x['name'].startswith('iPhone')))")
+          echo "Simulator: $SIM"
+          set -o pipefail
+          xcodebuild test -project SpotPlus.xcodeproj -scheme SpotPlus -destination "id=$SIM" \
+            -derivedDataPath build-sim CODE_SIGNING_ALLOWED=NO 2>&1 | tee test.log | grep -E "APP CONFIG|SAFARI RULES|SONG |Test Case|error:|failed|passed" || true
+          grep -q "TEST SUCCEEDED" test.log
       - name: Build (unsigned; Sideloadly or AltStore signs it on install)
         working-directory: ios-app
         run: |

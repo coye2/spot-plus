@@ -781,10 +781,11 @@ export function looseEmbedMatches(items, t) {
 /** More uploads to try after every candidate was blocked; empty when there are none left. */
 export async function moreEmbedCandidates(t, tried = [], signal) {
   const skip = new Set([...tried, ...blockedSet()]);
-  const lookups = ['', '&type=video'].map(async (extra) => {
+  // Lyric videos are uploaded by fan channels and are almost never blocked outside YouTube.
+  const lookups = [[query(t), ''], [query(t), '&type=video'], [query(t) + ' lyrics', '']].map(async ([q, extra]) => {
     const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 3500);
     try {
-      const r = await fetch(MATCH_ENDPOINT + '?q=' + encodeURIComponent(query(t)) + extra, {signal: signal ? AbortSignal.any([signal, ctl.signal]) : ctl.signal, credentials: 'omit'});
+      const r = await fetch(MATCH_ENDPOINT + '?q=' + encodeURIComponent(q) + extra, {signal: signal ? AbortSignal.any([signal, ctl.signal]) : ctl.signal, credentials: 'omit'});
       return r.ok ? ((await r.json()).items || []) : [];
     } catch { return []; } finally { clearTimeout(timer); }
   });

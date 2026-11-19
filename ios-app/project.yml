@@ -12,6 +12,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.coye2.spotplus
         PRODUCT_NAME: Spot+
+        PRODUCT_MODULE_NAME: SpotPlus
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
         INFOPLIST_FILE: SpotPlus/Info.plist
@@ -21,3 +22,22 @@ targets:
         CODE_SIGNING_ALLOWED: "NO"
         CODE_SIGNING_REQUIRED: "NO"
         CODE_SIGN_IDENTITY: ""
+  SpotPlusTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [SpotPlusTests]
+    dependencies:
+      - target: SpotPlus
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: "YES"
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.coye2.spotplus.tests
+        CODE_SIGNING_ALLOWED: "NO"
+schemes:
+  SpotPlus:
+    build:
+      targets:
+        SpotPlus: all
+        SpotPlusTests: [test]
+    test:
+      targets: [SpotPlusTests]

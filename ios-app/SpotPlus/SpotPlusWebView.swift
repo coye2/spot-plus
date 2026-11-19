@@ -8,14 +8,19 @@ struct SpotPlusWebView: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(home: url) }
 
-    func makeUIView(context: Context) -> WKWebView {
+    /// The web view settings the app ships with (the tests check these exact settings).
+    static func makeConfiguration() -> WKWebViewConfiguration {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []   // the key setting: InstantPlay with no extra tap
         config.allowsPictureInPictureMediaPlayback = true
         config.applicationNameForUserAgent = "SpotPlusApp/1.0"  // lets the web app know it can autoplay
         config.websiteDataStore = .default()
+        return config
+    }
 
+    func makeUIView(context: Context) -> WKWebView {
+        let config = Self.makeConfiguration()
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
