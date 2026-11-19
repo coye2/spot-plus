@@ -52,8 +52,8 @@ export function stallBudget(currentTime = 0) {
 }
 
 /** Near the end, hand off a ready next element without waiting for 'ended' (iOS has no volume crossfade). */
-export function seamlessHandoffWindow(media) {
-  if (!media || media.paused || !Number.isFinite(media.duration) || media.duration <= 0) return false;
-  const left = media.duration - media.currentTime;
+export function seamlessHandoffWindow(media, length = media?.duration) {
+  if (!media || media.paused || !Number.isFinite(length) || length <= 0) return false;
+  const left = length - media.currentTime;
   return left > 0.04 && left <= 0.35;
 }

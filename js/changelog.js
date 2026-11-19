@@ -1,6 +1,12 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.40', date: '2026-11-19', title: 'Correct song times, and no more stuck playback', items: [
+    'Song times are right again on iPhone. Songs showed 6–9 minutes because Safari guessed the length from the file size; Spot+ now uses the real length from YouTube.',
+    'Fixed songs refusing to play until the app was restarted: one failed check of the Spot+ server (often right after the phone wakes up) switched the YouTube audio off for 5 minutes. It now just checks again.',
+    'Skipping a non-music outro now moves straight to the next song.',
+    'Fixed an error at the start of each song that could leave the play button and song title out of date.',
+  ]},
   {version: '1.9.39', date: '2026-11-19', title: 'Faster starts when YouTube is picky', items: [
     'When YouTube is slow to hand over one upload of a song, Spot+ starts trying the next one after 1.5 seconds instead of waiting up to 7, and plays whichever answers first.',
   ]},

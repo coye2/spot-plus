@@ -2,6 +2,14 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.40 — Correct song times, and no more stuck playback
+_2026-11-19_
+
+- Song times are right again on iPhone. Songs showed 6–9 minutes because Safari guessed the length from the file size; Spot+ now uses the real length from YouTube.
+- Fixed songs refusing to play until the app was restarted: one failed check of the Spot+ server (often right after the phone wakes up) switched the YouTube audio off for 5 minutes. It now just checks again.
+- Skipping a non-music outro now moves straight to the next song.
+- Fixed an error at the start of each song that could leave the play button and song title out of date.
+
 ## 1.9.39 — Faster starts when YouTube is picky
 _2026-11-19_
 

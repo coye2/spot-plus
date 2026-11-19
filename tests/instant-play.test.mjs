@@ -74,3 +74,10 @@ test('fast path forces AAC on Apple mobile and still offers AAC fallback for Opu
   assert.match(desktop.alternatives[0].url, /itag=140/);
   await settle();
 });
+
+test('gapless handoff uses the real song length when Safari misjudges a streamed file', () => {
+  // Safari reports 480 s for a 180 s YouTube audio file; the relay knows the song is 180 s.
+  const media = {paused: false, duration: 480, currentTime: 179.8};
+  assert.equal(seamlessHandoffWindow(media), false);
+  assert.equal(seamlessHandoffWindow(media, 180), true);
+});

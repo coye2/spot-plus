@@ -1158,7 +1158,9 @@ function syncPlayer() {
   }
   if (!s.loading && bar.dataset.colorId !== t.id) {
     bar.dataset.colorId = t.id;
-    (globalThis.requestIdleCallback || setTimeout)(() => { if (player.current()?.id === t.id) playerColors.setTrack(t); }, 0);
+    // requestIdleCallback takes an options object, not a delay: a number throws and stopped the rest of this update.
+    const tint = () => { if (player.current()?.id === t.id) playerColors.setTrack(t); };
+    if (globalThis.requestIdleCallback) globalThis.requestIdleCallback(tint, {timeout: 500}); else setTimeout(tint, 0);
   }
   const playing = player.isPlaying();
   $$('[data-role=play]').forEach((b) => setIcon(b, playing ? 'pause' : 'play'));

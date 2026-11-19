@@ -410,12 +410,15 @@ let relayKnown = '';
 let scCheck = null;
 function checkSoundcloud() {
   if (scCheck) return scCheck;
-  scCheck = fetch(SC_ENDPOINT.replace(/\/sc$/, '/health'), {credentials: 'omit'}).then((r) => r.json())
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 5000);
+  scCheck = fetch(SC_ENDPOINT.replace(/\/sc$/, '/health'), {credentials: 'omit', signal: ctl.signal}).then((r) => r.json()).finally(() => clearTimeout(timer))
     .then((h) => {
       scKnown = h?.sc ? 'on' : 'off'; if (!h?.sc) scOff = Date.now() + 30 * 60e3;
       relayKnown = h?.relay ? 'on' : 'off'; if (!h?.relay) relayOff = Date.now() + 30 * 60e3;
     })
-    .catch(() => { scKnown = 'off'; scOff = Date.now() + 5 * 60e3; relayKnown = 'off'; relayOff = Date.now() + 5 * 60e3; });
+    // Couldn't reach the worker (the phone just woke up, a network switch): ask again on the next song.
+    // This used to switch the relay off for 5 minutes, so every song failed until the app was restarted.
+    .catch(() => { scKnown = ''; relayKnown = ''; scCheck = null; });
   return scCheck;
 }
 let matchDown = 0;

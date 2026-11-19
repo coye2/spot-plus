@@ -79,7 +79,12 @@ function setPhase(phase) {
 export const current = () => state.queue[state.index] || null;
 export const isEmbed = () => state.source?.kind === 'youtube-embed' && yt.active;
 export const isPlaying = () => (yt.active ? !yt.paused : (!audio.paused && isRealSrc())) && !!current();
-export const duration = () => (yt.active ? (isFinite(yt.duration) && yt.duration > 0 ? yt.duration : current()?.duration || 0) : (isRealSrc() && isFinite(audio.duration) && audio.duration > 0 ? audio.duration : current()?.duration || 0));
+// YouTube's audio files are built for streaming (fragmented MP4/WebM), and Safari guesses their length from the
+// file size: 6-9 minutes for a 3-minute song. For relay songs YouTube already told us the real length, so the
+// progress bar, the lock screen, SponsorBlock and crossfade use that. The song still ends when its audio does.
+const knownLength = () => (state.source?.kind === 'ytrelay' && Number(state.source.duration) > 0 ? Number(state.source.duration) : 0);
+const mediaLength = () => knownLength() || (isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0);
+export const duration = () => (yt.active ? (isFinite(yt.duration) && yt.duration > 0 ? yt.duration : current()?.duration || 0) : (isRealSrc() && mediaLength() ? mediaLength() : current()?.duration || 0));
 export const position = () => (yt.active ? yt.currentTime : (audio.currentTime || 0));
 export const isPaused = () => (yt.active ? yt.paused : audio.paused);
 export const canSeek = () => !state.loading && !state.error && (yt.active ? yt.ready : isRealSrc());
@@ -381,8 +386,8 @@ function recoverMedia(mediaErr = null) {
 }
 
 function maybeMix() {
-  if (!mixSeconds || mixing || effectsOn() || state.repeat === 'one' || audio.paused || !isFinite(audio.duration)) return;
-  const left = audio.duration - audio.currentTime;
+  if (!mixSeconds || mixing || effectsOn() || state.repeat === 'one' || audio.paused || !mediaLength()) return;
+  const left = mediaLength() - audio.currentTime;
   if (left > mixSeconds || left < 1 || state.index >= state.queue.length - 1) return;
   const nextTrack = state.queue[state.index + 1];
   if (!nextBuffer.entry || nextBuffer.entry.key !== api.streamKey(nextTrack) || nextBuffer.entry.media.readyState < 3) return;
@@ -398,7 +403,7 @@ function maybeSeamless() {
   if (mixSeconds || mixing || effectsOn() || state.repeat === 'one' || state.index >= state.queue.length - 1) return;
   const nextTrack = state.queue[state.index + 1];
   const key = nextTrack && api.streamKey(nextTrack);
-  if (!key || !nextBuffer.isReady(key, 2) || !seamlessHandoffWindow(audio)) return;
+  if (!key || !nextBuffer.isReady(key, 2) || !seamlessHandoffWindow(audio, mediaLength())) return;
   mixing = true;
   onFinish(current());
   state.index++;
@@ -924,7 +929,7 @@ async function upgradeFromEmbed(t, my, signal) {
   }
   const wasPlaying = !yt.paused;
   // Seek a hair ahead to cover the time the element needs to start.
-  try { audio.currentTime = Math.max(0, Math.min((yt.currentTime || 0) + (wasPlaying ? 0.12 : 0), (audio.duration || len) - 1)); } catch { /* keep 0 */ }
+  try { audio.currentTime = Math.max(0, Math.min((yt.currentTime || 0) + (wasPlaying ? 0.12 : 0), (mediaLength() || len) - 1)); } catch { /* keep 0 */ }
   mediaTicket = ++liveAttempt;
   suppressError = false;
   const level = () => volumeLevel * (ducks.size ? .18 : 1);
@@ -1026,10 +1031,40 @@ function skipNonMusic() {
     if (vid) sponsor.segmentsFor(vid).then((list) => { if (sbVideo === vid) sbSegments = list; }).catch(() => {});
   }
   if (!sbSegments.length || audio.paused || state.loading) return;
-  const to = sponsor.skipTarget(sbSegments, audio.currentTime || 0, audio.duration || 0);
+  const to = sponsor.skipTarget(sbSegments, audio.currentTime || 0, mediaLength());
   if (to === null) return;
   // An outro that runs to the end finishes the song, which moves the queue on as usual.
+  // Safari may think the file runs longer than it does, so an outro to the end is skipped by moving on.
+  if (!Number.isFinite(to) && knownLength()) { songFinished(); return; }
   try { audio.currentTime = Number.isFinite(to) ? to : Math.max(0, (audio.duration || 0) - 0.05); } catch { /* not seekable yet */ }
+}
+
+// A song reached its end (or a SponsorBlock outro that runs to the end was skipped).
+function songFinished() {
+  clearStall();
+  telemetry.noteListeningStop();
+  if (userPaused) {
+    setPhase(STATES.IDLE);
+    emit('state');
+    return;
+  }
+  setPhase(STATES.ENDED);
+  if (state.repeat === 'one') {
+    state.playbackId = (state.playbackId || 0) + 1;
+    pendingPlay = true;
+    userPaused = false;
+    if (linkExpired()) {
+      load({ startAt: 0, trigger: 'repeat-one' });
+      return;
+    }
+    audio.currentTime = 0;
+    setPhase(STATES.PLAYING);
+    emit('state');
+    audio.play().catch(() => load({ startAt: 0, trigger: 'repeat-one' }));
+  } else {
+    onFinish(current());
+    if (!mixing) next(false);
+  }
 }
 
 function bindAudio(media) {
@@ -1116,32 +1151,7 @@ function bindAudio(media) {
     maybeMix();
     maybeSeamless();
   });
-  listen('ended', () => {
-    clearStall();
-    telemetry.noteListeningStop();
-    if (userPaused) {
-      setPhase(STATES.IDLE);
-      emit('state');
-      return;
-    }
-    setPhase(STATES.ENDED);
-    if (state.repeat === 'one') {
-      state.playbackId = (state.playbackId || 0) + 1;
-      pendingPlay = true;
-      userPaused = false;
-      if (linkExpired()) {
-        load({ startAt: 0, trigger: 'repeat-one' });
-        return;
-      }
-      audio.currentTime = 0;
-      setPhase(STATES.PLAYING);
-      emit('state');
-      audio.play().catch(() => load({ startAt: 0, trigger: 'repeat-one' }));
-    } else {
-      onFinish(current());
-      if (!mixing) next(false);
-    }
-  });
+  listen('ended', songFinished);
   listen('error', () => {
     if (isRealSrc() && !suppressError) failAttempt(mediaTicket, audio.error);
   });
