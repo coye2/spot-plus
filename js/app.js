@@ -149,6 +149,29 @@ function openSheet({ head = '', items = [], body = '' }) {
   $('#sheetPanel button')?.focus();
   requestAnimationFrame(() => sheet.classList.add('open'));
 }
+// Playback details: the technical side of the source label (engine, server, format, recording), kept out of
+// the normal player. Opened by tapping the source line under the song.
+function showPlaybackDetails() {
+  const src = player.state.source;
+  if (!src) return;
+  const row = (k, v) => v ? `<div class="pd-row"><span>${esc(k)}</span><b>${esc(v)}</b></div>` : '';
+  const health = player.getMetrics?.().router || {};
+  const relayHealth = (Array.isArray(health) ? health.find((h) => h?.base === src.instance || h?.instance === src.instance) : health[src.instance]) || null;
+  const body = `<div class="pd">${[
+    row('Source', src.kind === 'ytrelay' ? 'Spot+ YouTube Relay' : src.engineLabel || src.kind),
+    row('Engine', src.engine || src.kind),
+    row('Server', src.instance ? api.host(src.instance) : ''),
+    row('Format', [String(src.mime || '').split(';')[0], src.bitrate ? Math.round(src.bitrate / 1000) + ' kbps' : ''].filter(Boolean).join(' · ')),
+    row('Recording', src.videoId ? `YouTube ${src.videoId}` : src.catalogId || ''),
+    row('Upload', [src.title, src.channel].filter(Boolean).join(' — ')),
+    row('Why this upload', src.why || ''),
+    row('Length', src.duration ? fmt(src.duration) : ''),
+    row('Server health', relayHealth && src.kind === 'ytrelay' ? JSON.stringify(relayHealth).slice(0, 120) : ''),
+    row('Last error', player.state.error || ''),
+  ].join('')}</div>`;
+  openSheet({head: '<h3 class="sheet-title">Playback details</h3>', body});
+}
+document.getElementById('npSrc')?.addEventListener('click', showPlaybackDetails);
 function closeSheet() { if(sheet.hidden)return;sheet.classList.remove('open');sheet.hidden=true;$('.app').inert=npOpen&&matchMedia(MOBILE_QUERY).matches;np.inert=false;sheetFocus?.isConnected&&sheetFocus.focus(); }
 const sheetHead = (t) => `<div class="sheet-head">${t.cover ? `<img src="${esc(t.cover)}" alt="">` : `<div class="ph-cover" style="width:52px;height:52px;border-radius:8px">${I.note}</div>`}<div><b>${esc(t.title)}</b><span>${esc(t.artist)}${t.album ? ' · ' + esc(t.album) : ''}</span></div></div>`;
 
@@ -228,6 +251,7 @@ player.setAutoMix(store.getSettings().automix||0);
 /* ---------------- Your devices & shared playlists ---------------- */
 const appBase=()=>new URL('./',location.href).href;
 let libDirty=false,libTimer=0,applyingRemote=false;
+store.migrateSavedSource();
 store.onChange(key=>{if(applyingRemote)return;if(['likes','playlists','albums','artists','folders'].includes(key)){libDirty=true;clearTimeout(libTimer);libTimer=setTimeout(()=>runLibrarySync(),4000);}
   if(key==='playlists'){clearTimeout(collabTimer);collabTimer=setTimeout(()=>runCollabSync(),2500);}});
 async function runLibrarySync(){
@@ -591,7 +615,7 @@ async function viewSettings() {
   ${toggle('notifyReleases','New releases','When an artist you follow drops a song or album.')}${toggle('notifyStats','Weekly recap','Sunday evening: your minutes and most-played artist.')}${toggle('notifyUpdates','App updates','When a new version of Spot+ is ready.')}</section>
   <section class="box"><h2>Appearance</h2>${themeModeSwitch(s)}<p class="settings-note">Light, dark, automatic, or clear. Clear keeps your wallpaper in view while panels stay readable.</p><div class="row-btns"><a class="btn" href="#/themes">Themes</a><a class="btn" href="#/backgrounds">Background</a></div><label class="field"><span>Library and track spacing</span>${sel('density',[['comfortable','Comfortable'],['compact','Compact']])}</label><label class="field"><span>Text size</span>${sel('textSize',[['normal','Default'],['large','Larger']])}</label><label class="field"><span>Motion</span>${sel('motion',[['system','Follow system'],['reduced','Reduced']])}</label></section>
   <section class="box"><h2>Playback</h2>
-    <label class="field"><span>Audio source<small>Automatic plays full songs in Spot+’s own player first (YouTube audio through the Spot+ server, Monochrome lossless, JioSaavn, and SoundCloud when set up), never YouTube’s player, so there are no ads. Pick “YouTube player” to use it anyway (it may show ads).</small></span>${((cur) => `<select data-setting="source">${[['auto', 'Automatic (best available)'], ['soundcloud', 'SoundCloud (full songs, no ads)'], ['ytrelay', 'YouTube audio (full songs, no ads)'], ['deezer', 'Deezer'], ['jiosaavn', 'JioSaavn (320 kbps AAC)'], ['hifi', 'HiFi / Monochrome (Lossless)'], ['audius', 'Audius public releases'], ['piped', 'Piped'], ['invidious', 'Invidious'], ['youtube', 'YouTube player']].map(([v, l]) => `<option value="${v}"${cur === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`)(s.source === 'preview' ? 'deezer' : s.source)}</label>
+    <label class="field"><span>Audio source<small>Spot+ YouTube Relay plays full songs from YouTube in Spot+’s own player, with no ads. Automatic tries it first and switches to another full-song source when a song isn’t available there.</small></span>${((cur) => `<select data-setting="source">${[['ytrelay', 'Spot+ YouTube Relay'], ['auto', 'Automatic'], ...(api.soundcloudAvailable() || cur === 'soundcloud' ? [['soundcloud', 'SoundCloud']] : []), ['hifi', 'HiFi / Monochrome'], ['jiosaavn', 'JioSaavn'], ['audius', 'Audius']].map(([v, l]) => `<option value="${v}"${cur === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`)(s.source)}</label>
     <label class="field"><span>Streaming quality</span>${sel('quality', [['high', 'High'], ['low', 'Data saver']])}</label>
     ${toggle('smartRadio','Smart Radio','When your queue ends, keep playing similar songs. It learns from what you skip.')}
     <label class="field"><span>AutoMix<small>${player.crossfadeSupported?'Blend each song into the next, like a DJ. Off while effects are on.':'Blending songs isn’t possible on iPhone and iPad (Safari doesn’t let apps fade audio).'}</small></span>${sel('automix',[['0','Off'],['3','3 seconds'],['6','6 seconds'],['9','9 seconds']])}</label>
@@ -1271,7 +1295,8 @@ function syncNP() {
     np.dataset.statsId = t.id;
     getTrackStats(t).then(data=>{if(player.current()?.id!==t.id)return;const count=matchPlayCount(t,data);$('#npPlays').textContent=count?count.plays.toLocaleString()+' plays on Spotify':'';});
   }
-  $('#npSrc').textContent = s.offline ? (t.local?'Local audio · On this device':'Downloaded audio · On this device') : s.source?.preview ? `30-second preview · ${s.source.engineLabel || 'Deezer'}` : s.source?.kind === 'youtube-embed' ? (s.needsTap ? 'Tap ▶ in the YouTube box below once to unlock full songs' : 'Full track · YouTube player') : s.source?.engineLabel ? `${s.source.engineLabel} · ${api.host(s.source.instance)}` : s.source ? `Audio · ${api.host(s.source.instance)}` : s.loading ? 'Finding audio… Tap play to cancel.' : s.error?'Audio unavailable. Retry or change audio source.':'Ready to play';
+  $('#npSrc').title = s.source ? 'Playback details' : '';
+  $('#npSrc').textContent = s.offline ? (t.local?'Local audio · On this device':'Downloaded audio · On this device') : s.source?.preview ? `30-second preview · ${s.source.engineLabel || 'Deezer'}` : s.source?.kind === 'youtube-embed' ? (s.needsTap ? 'Tap ▶ in the YouTube box below once to unlock full songs' : 'Full track · YouTube player') : s.source?.kind === 'ytrelay' ? 'Spot+ YouTube Relay' : s.source?.engineLabel ? s.source.engineLabel : s.source ? `Audio · ${api.host(s.source.instance)}` : s.loading ? 'Finding audio… Tap play to cancel.' : s.error?'Audio unavailable. Retry or change audio source.':'Ready to play';
   syncCanvas();
   if (npMode === 'queue') renderQueue();
   if (!s.loading) loadLyrics();

@@ -1,6 +1,6 @@
 # Spot+ handoff (for Gemini, Cursor, Codex)
 
-Last updated 2026-11-19, version 1.9.42. Read this before changing playback.
+Last updated 2026-11-19, version 1.9.49. Research on Metrolist/NewPipe/ViMusic/OuterTune: docs/relay-research.md. Read this before changing playback.
 
 ## What Spot+ is
 A music PWA (GitHub Pages: https://coye2.github.io/spot-plus/) plus a Cloudflare Worker
@@ -31,8 +31,11 @@ iPhone home-screen app.
 4. SponsorBlock `music_offtopic` segments are skipped (`js/sponsorblock.js`, player `skipNonMusic`).
 
 Key facts learned the hard way:
-- YouTube client: **VISIONOS (id 101, v1.02)** is primary. ANDROID_VR 1.65.10 has been refused since
-  2026-08-17; IOS needs a PO token. Check yt-dlp's `yt_dlp/extractor/youtube/_base.py` when it breaks again.
+- YouTube client: **VISIONOS (id 101, v1.02)** is primary, **ANDROID_VR 1.43.32** the fallback (1.65.x gets
+  SABR-only / refused since 2026-08-17); IOS needs a PO token and is not asked.
+- The worker must not pass the incoming request's abort signal into upstream audio fetches: live in 1.9.48 that
+  cut every stream after ~100 bytes. Lookups per song are capped (RESOLVE_BUDGET) under Cloudflare's 50 subrequests.
+- Only one audio element may make sound: pause()/toggle() call silenceOthers() (1.9.49 fix for "paused but still playing"). Check yt-dlp's `yt_dlp/extractor/youtube/_base.py` when it breaks again.
 - googlevideo links are tied to the requesting IP and refuse open-ended ranges → the worker must fetch
   in the same invocation, in bounded slices.
 - Links can be cut off after the first chunk; the worker checks the last 2 bytes before using a link,

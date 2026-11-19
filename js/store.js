@@ -113,6 +113,16 @@ export function removeDownloadMeta(id) { write('downloads', getDownloads().filte
 
 /* ---------- Settings ---------- */
 const DEFAULTS = { smartRadio:true, automix:'0', notifyUpdates:true, notifyReleases:true, notifyStats:true, themePreset:'pine', amoled:true, preloadNext:true, source: 'auto', quality: 'high', customPiped: '', customInvidious: '', customHifi: '', density: 'comfortable', accent: 'green', motion: 'system', textSize: 'normal', sidebarWidth: 288, librarySort: 'recent', libraryFilter: 'all', showExplicit: true, displayName: 'Your library', libraryCollapsed:false, djVoice:true, djCommentary:true, djHost:'afterhours' };
+// Audio sources that are no longer offered move to the closest one that is: the YouTube-based ones
+// (Piped, Invidious, YouTube's own player) to Spot+ YouTube Relay; Deezer's 30-second previews to Automatic.
+export const SOURCES = ['ytrelay', 'auto', 'soundcloud', 'hifi', 'jiosaavn', 'audius'];
+const LEGACY_SOURCES = {piped: 'ytrelay', invidious: 'ytrelay', youtube: 'ytrelay', deezer: 'auto', preview: 'auto'};
+export const migrateSource = (source) => SOURCES.includes(source) ? source : LEGACY_SOURCES[source] || 'auto';
+/** Once at startup and after importing a profile: move a saved source that is no longer offered. */
+export function migrateSavedSource() {
+  const saved = read('settings', {});
+  if (saved.source !== undefined && migrateSource(saved.source) !== saved.source) write('settings', {...saved, source: migrateSource(saved.source)});
+}
 export const getSettings = () => {
   const saved={...DEFAULTS,...read('settings',{})};
   for(const key of ['displayName','customPiped','customInvidious','customHifi'])saved[key]=typeof saved[key]==='string'?saved[key]:DEFAULTS[key];
@@ -269,6 +279,7 @@ export function importData(d) {
   if (Array.isArray(d.pins)) write('pins',[...new Set([...getPins(), ...d.pins.filter(p=>typeof p==='string')])]);
   for(const key of ['spotifyLinks','themes'])if(Array.isArray(d[key])){const merged=new Map([...read(key,[]),...d[key].filter(x=>x&&typeof x.id==='string')].map(x=>[x.id,x]));write(key,[...merged.values()]);}
   if(Array.isArray(d.folders))write('folders',mergeFolders(getFolders(),d.folders));
+  migrateSavedSource();
   return {spotifyAccount:accountResult};
 }
 

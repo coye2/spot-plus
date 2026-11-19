@@ -140,10 +140,43 @@ test('Deezer mode returns Deezer preview, and auto mode never falls back to a cl
   }
 });
 
-test('Settings UI exposes Automatic, Deezer, JioSaavn, HiFi, Audius, Piped, Invidious, YouTube, and customHifi', async () => {
+test('the source dropdown offers Spot+ YouTube Relay first and no retired sources', async () => {
   const app = await readFile(new URL('../js/app.js', import.meta.url), 'utf8');
-  for (const val of ['auto', 'deezer', 'jiosaavn', 'hifi', 'audius', 'piped', 'invidious', 'youtube']) {
-    assert.ok(app.includes(`'${val}'`), `Missing source option ${val}`);
-  }
+  const select = app.slice(app.indexOf('<select data-setting="source">'), app.indexOf('</select>', app.indexOf('<select data-setting="source">')));
+  const values = [...select.matchAll(/\['(\w+)', '/g)].map((m) => m[1]);
+  assert.deepEqual(values, ['ytrelay', 'auto', 'soundcloud', 'hifi', 'jiosaavn', 'audius']);
+  assert.ok(select.includes("['ytrelay', 'Spot+ YouTube Relay']"));
+  for (const gone of ['piped', 'invidious', 'youtube', 'deezer']) assert.ok(!values.includes(gone), gone);
+  assert.ok(select.includes('api.soundcloudAvailable()'), 'SoundCloud only when set up');
   assert.ok(app.includes('data-setting="customHifi"'));
+});
+
+test('retired source settings move to the closest one that is still offered', async () => {
+  const {migrateSource} = await import('../js/store.js');
+  assert.equal(migrateSource('piped'), 'ytrelay');
+  assert.equal(migrateSource('invidious'), 'ytrelay');
+  assert.equal(migrateSource('youtube'), 'ytrelay');
+  assert.equal(migrateSource('deezer'), 'auto');
+  assert.equal(migrateSource('preview'), 'auto');
+  assert.equal(migrateSource('jiosaavn'), 'jiosaavn');
+  assert.equal(migrateSource(undefined), 'auto');
+});
+
+test('Now Playing never shows the server hostname for the relay', async () => {
+  const app = await readFile(new URL('../js/app.js', import.meta.url), 'utf8');
+  const line = app.slice(app.indexOf("$('#npSrc').textContent ="), app.indexOf('\n', app.indexOf("$('#npSrc').textContent =")));
+  assert.ok(line.includes("s.source?.kind === 'ytrelay' ? 'Spot+ YouTube Relay'"));
+  assert.ok(!/engineLabel\} · \$\{api\.host/.test(line), 'no "label · host" for labelled sources');
+});
+
+test('the matcher passes over demos, radio edits and extended mixes, and says why', async () => {
+  const {rankAudioMatches} = await import('../js/audio-selection.js');
+  const track = {title: 'Numb', artist: 'Linkin Park', duration: 187};
+  const ranked = rankAudioMatches([
+    {id: 'a', title: 'Numb (Demo)', channel: 'Linkin Park', duration: 190},
+    {id: 'b', title: 'Numb (Extended Mix)', channel: 'Linkin Park', duration: 300},
+    {id: 'c', title: 'Numb (Official Audio)', channel: 'Linkin Park - Topic', duration: 187},
+  ], track);
+  assert.deepEqual(ranked.map((r) => r.id), ['c']);
+  assert.match(ranked[0].why, /Topic/);
 });

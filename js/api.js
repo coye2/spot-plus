@@ -385,7 +385,7 @@ export async function relayStream(track, signal, matches) {
     }
     return {url, mime: (r.headers.get('content-type') || 'audio/mp4').split(';')[0], bitrate: RELAY_BITRATE[fmt] || 128000,
       kind: 'ytrelay', engineLabel: 'Spot+ YouTube Relay', instance: RELAY_BASE, videoId: id, catalogId: id,
-      title: pick.title, channel: pick.channel || pick.author, duration: accurateDuration || pick.duration || track.duration,
+      title: pick.title, channel: pick.channel || pick.author, why: pick.why || '', duration: accurateDuration || pick.duration || track.duration,
       alternatives: []};
   };
   // Two rounds: YouTube's bot check on the server comes and goes, and each new request gets a fresh session.
@@ -425,6 +425,8 @@ export async function relayStream(track, signal, matches) {
 }
 // Ask the worker once (on the first song) whether SoundCloud is set up, so nothing waits on it when it is not.
 let scKnown = '';
+/** SoundCloud is offered only once the Spot+ server says it is set up. */
+export const soundcloudAvailable = () => scKnown === 'on';
 let relayKnown = '';
 let scCheck = null;
 function checkSoundcloud() {

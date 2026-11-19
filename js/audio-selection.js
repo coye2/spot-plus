@@ -1,7 +1,8 @@
 const clean = value => String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/&/g,' and ').replace(/[^\p{L}\p{N}]+/gu,' ').trim();
 const artist = value => clean(String(value || '').replace(/vevo$/i,'')).replace(/\b(official|topic)\b/g,'').replace(/\s+/g,' ').trim().replace(/^machine gun kelly$/,'mgk');
 const baseTitle = value => clean(String(value || '').replace(/\([^)]*\b(?:feat\.?|ft\.?|with)\b[^)]*\)/gi,'').replace(/\b(?:feat\.?|ft\.?)\s+.*$/i,''));
-const editions = ['live','remix','acoustic','instrumental','sped up','slowed','nightcore','reverb','karaoke','cover','8d'];
+// A different version of the song unless the requested title says so too. ("Remastered" is the same recording.)
+const editions = ['live','remix','acoustic','instrumental','sped up','slowed','nightcore','reverb','karaoke','cover','8d','demo','radio edit','extended','clean version','a cappella','acapella'];
 export function rankAudioMatches(items,track) {
   const title=baseTitle(track.title),who=artist(track.artist),expected=Number(track.duration)||0;
   if(!title||!who)return [];
@@ -25,7 +26,10 @@ export function rankAudioMatches(items,track) {
     for(const prefix of [clean(track.artist),who])if(core.startsWith(prefix+' '))core=core.slice(prefix.length+1);
     const ambiguous=title.split(' ').length===1&&core!==title;
     const valid=titleInName&&(exactArtist||artistInTitle)&&!conflicting&&!wrongLength&&!unwanted&&!ambiguous;
-    return {...item,score:valid?100+(exactArtist?30:0)+(/\btopic\b/i.test(item.channel||'')?15:0)+(/official audio/i.test(item.title||'')?12:0)+(item.verified?5:0)-delta:0};
+    // Why this upload was picked or passed over: shown in Playback details.
+    const why=valid?[exactArtist?'artist’s own channel':'artist in title',/\btopic\b/i.test(item.channel||'')?'official Topic channel':'',/official audio/i.test(item.title||'')?'official audio':'',delta?`${Math.round(delta)} s length difference`:'same length'].filter(Boolean).join(', ')
+      :[!titleInName?'title differs':'',!(exactArtist||artistInTitle)?'different artist':'',conflicting?'different version':'',wrongLength?'wrong length':'',unwanted?'not the song (mashup, reaction…)':'',ambiguous?'ambiguous title':''].filter(Boolean).join(', ');
+    return {...item,why,score:valid?100+(exactArtist?30:0)+(/\btopic\b/i.test(item.channel||'')?15:0)+(/official audio/i.test(item.title||'')?12:0)+(item.verified?5:0)-delta:0};
   }).filter(item=>item.score>0).sort((a,b)=>b.score-a.score);
 }
 export function chooseAudioFormat(formats,{quality='high',canPlay=()=>true}={}) {

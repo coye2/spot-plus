@@ -2,6 +2,26 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.49 — Pause works again, and whole songs from the relay
+_2026-11-19_
+
+- Fixed pause: the screen could say paused while music kept playing and the button couldn’t stop it. Pausing now stops every player, and a tap while that happens stops the music.
+- Fixed songs from Spot+ YouTube Relay stopping after a fraction of a second: the server cut its own audio stream right after it started.
+- Songs YouTube refuses now fail in about 2 seconds instead of 10–15, so Spot+ moves to another upload much sooner.
+- Fixed the relay giving up on many songs with a “too many requests” error from Cloudflare.
+- The relay asks YouTube as a second app when the first is refused (the version Metrolist uses), so more songs play.
+- Now Playing shows “Spot+ YouTube Relay” instead of the server address. Tap it for playback details: server, format, which upload played and why.
+- Audio source list cleaned up: Spot+ YouTube Relay, Automatic, HiFi / Monochrome, JioSaavn and Audius (SoundCloud once it’s set up). Piped, Invidious, YouTube player and Deezer previews are gone; if you used one, Spot+ switches you to the closest option.
+- Song matching now also tells apart demos, radio edits and extended mixes.
+
+## 1.9.48 — Spot+ YouTube Relay: full-song integrity and iPhone playback
+_2026-11-19_
+
+- Spot+ YouTube Relay validates complete upstream audio byte ranges, detects truncation, and avoids accidentally treating a cut-off recording as a completed song.
+- Improved iPhone seeking and mid-track continuation, including Safari suffix ranges and safe signed-link refreshes.
+- Shows the recording timeline from actual YouTube duration metadata instead of guessing from fragmented audio size, and rejects seriously mismatched recordings.
+- Quicker skip cancellation and relay-only source selection, with playback-health reporting and more regression tests.
+
 ## 1.9.46 — Lock screen skip, background auto-next, and polished wallpaper cards
 _2026-11-19_
 

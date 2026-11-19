@@ -19,8 +19,9 @@ const reply = (data, status = 200, maxAge = 0) => new Response(JSON.stringify(da
 // PO token, so it goes first; the others stay as fallbacks, and callers can check a link before using it.
 const VISIONOS_VERSION = '1.02';
 const VISIONOS_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15';
-const ANDROID_VR_VERSION = '1.65.10';
-const ANDROID_VR_UA = `com.google.android.apps.youtube.vr.oculus/${ANDROID_VR_VERSION} (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip`;
+// 1.43.32, not 1.65.x: newer ANDROID_VR versions get SABR-only streams (as Metrolist's InnerTubeX notes).
+const ANDROID_VR_VERSION = '1.43.32';
+const ANDROID_VR_UA = `com.google.android.apps.youtube.vr.oculus/${ANDROID_VR_VERSION} (Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1; Cronet/107.0.5284.2)`;
 const IOS_VERSION = '21.26.4';
 const IOS_UA = `com.google.ios.youtube/${IOS_VERSION} (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)`;
 const API_UA = 'SpotPlus/2.0 (https://coye2.github.io/spot-plus/)';
@@ -29,10 +30,13 @@ const VISITOR = 'https://youtubei.googleapis.com/youtubei/v1/visitor_id';
 
 const PROFILES = {
   visionos: {number: '101', ua: VISIONOS_UA, client: {clientName: 'VISIONOS', clientVersion: VISIONOS_VERSION, deviceMake: 'Apple', deviceModel: 'RealityDevice17,1', osName: 'visionOS', osVersion: '26.5.23O471', userAgent: VISIONOS_UA}},
-  android_vr: {number: '28', ua: ANDROID_VR_UA, client: {clientName: 'ANDROID_VR', clientVersion: ANDROID_VR_VERSION, deviceMake: 'Oculus', deviceModel: 'Quest 3', androidSdkVersion: 32, osName: 'Android', osVersion: '12L', userAgent: ANDROID_VR_UA}},
+  android_vr: {number: '28', ua: ANDROID_VR_UA, client: {clientName: 'ANDROID_VR', clientVersion: ANDROID_VR_VERSION, deviceMake: 'Oculus', deviceModel: 'Quest 3', androidSdkVersion: 32, osName: 'Android', osVersion: '12', userAgent: ANDROID_VR_UA}},
   ios: {number: '5', ua: IOS_UA, client: {clientName: 'IOS', clientVersion: IOS_VERSION, deviceMake: 'Apple', deviceModel: 'iPhone16,2', osName: 'iPhone', osVersion: '18.3.2.22D82', userAgent: IOS_UA}},
 };
-export const PROFILE_ORDER = ['visionos', 'android_vr', 'ios'];
+// VISIONOS first; ANDROID_VR 1.43.32 as the fallback (1.65.10 was refused from 2026-08-17). IOS links need a
+// PO token to stream past the first chunk, so it is no longer asked: it only made refused songs slow to fail.
+// Every link is still checked at the end of the file before use (see youtube-relay.js).
+export const PROFILE_ORDER = ['visionos', 'android_vr'];
 
 // Prefer AAC for InstantPlay on iPhone; Opus is fine elsewhere when the client asks.
 export const AUDIO_ITAGS = {aac: 140, opus: 251, opus70: 250, opus50: 249, aacLow: 139};

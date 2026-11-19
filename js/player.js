@@ -98,6 +98,7 @@ export function pause() {
     setPhase(STATES.IDLE);
   }
   if (yt.active) yt.pause(); else audio.pause();
+  silenceOthers();
 }
 export function hideEmbed(hidden = true) { state.ytHidden = !!hidden; emit('state'); }
 export const getMetrics = () => ({
@@ -1040,6 +1041,19 @@ api.onEmbedFound?.((id) => {
 /* ---------- Audio element events ---------- */
 let lastSave = 0, lastPos = 0;
 const boundAudio = new WeakSet();
+// Every element the player has used. Only the current one may make sound: an earlier one that kept playing
+// after a swap (background handoff, effects, preloading) can't be reached by the play button any more,
+// so pausing and starting a song stop all the others. Returns how many were stopped.
+const allMedia = new Set();
+function silenceOthers() {
+  let stopped = 0;
+  for (const ref of allMedia) {
+    const media = ref.deref?.() ?? ref;
+    if (!media) { allMedia.delete(ref); continue; }
+    if (media !== audio && !media.paused && media.src && !String(media.src).startsWith('data:')) { media.pause(); stopped++; }
+  }
+  return stopped;
+}
 // SponsorBlock, as in Spotube: skip parts of a YouTube upload marked as not music (spoken intros, skits, outros).
 let sbVideo = '', sbSegments = [];
 function skipNonMusic() {
@@ -1088,6 +1102,7 @@ function songFinished() {
 function bindAudio(media) {
   if (boundAudio.has(media)) return;
   boundAudio.add(media);
+  allMedia.add(globalThis.WeakRef ? new WeakRef(media) : media);
   const listen = (event, fn) => media.addEventListener(event, () => { if (media === audio) fn(); });
   // Only the current track may make sound: a spare/preloaded element that starts on its own is stopped at once.
   media.addEventListener('play', () => {
@@ -1106,6 +1121,7 @@ function bindAudio(media) {
     }
   });
   listen('playing', () => {
+    if (!mixing) silenceOthers(); // one song at a time (AutoMix overlaps on purpose)
     unavailableRun = 0;
     suppressError = false;
     clearStall();
@@ -1215,6 +1231,8 @@ export function playIndex(i) {
 const linkExpired = () => { const exp = Number(String(state.source?.url || '').match(/[?&]expire=(\d{9,11})/)?.[1] || 0) * 1000; return !!exp && exp - 60e3 < Date.now(); };
 export function toggle() {
   if (!current()) return;
+  // The screen said paused but music was still playing from an older element: this tap stops it.
+  if (audio.paused && silenceOthers()) { userPaused = true; pendingPlay = false; emit('state'); return; }
   if (state.loading) {
     cancelLoad?.abort();
     ++token;
@@ -1252,6 +1270,7 @@ export function toggle() {
     userPaused = true;
     pendingPlay = false;
     audio.pause();
+    silenceOthers();
   }
 }
 export function next(fromUser = true) {
@@ -1495,3 +1514,4 @@ export async function importLocalFile(file) {
   store.addLocalFile(track);
   return track;
 }
+export const __test = {bindAudio: (media) => bindAudio(media), silenceOthers: () => silenceOthers()};

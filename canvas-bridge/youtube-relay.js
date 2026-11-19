@@ -15,7 +15,10 @@ export const FORMATS = {
   'low-opus': [AUDIO_ITAGS.opus50, AUDIO_ITAGS.opus70, AUDIO_ITAGS.aacLow, AUDIO_ITAGS.aac],
 };
 
-export const RETRY_WAITS = [0, 1200, 2800];
+export const RETRY_WAITS = [0, 1500];
+// Cloudflare's free plan allows 50 subrequests per request. Finding a link may use at most this many, so
+// the audio slices that follow always fit (a long track needs about one per 4 MB).
+export const RESOLVE_BUDGET = 24;
 const memo = new Map(); // video id -> {url, mime, expires} for this worker instance
 const MAX_MEMO = 400;
 
@@ -56,7 +59,12 @@ async function resolveLink(id, {fetcher, cache, waitUntil, fresh = false, fmt = 
   // AAC (m4a) first: every iPhone plays it in a plain <audio> element. YouTube sometimes answers
   // "confirm you're not a bot" for a session; a fresh session usually gets through, so try up to 3 times.
   // The check comes in bursts of a few seconds, so the retries are spread out to outlast one.
-  let result = null;
+  let result = null, used = 0;
+  const upstream = fetcher;
+  fetcher = (url, init) => {
+    if (++used > RESOLVE_BUDGET) return Promise.reject(new Error('Too many YouTube lookups for one song'));
+    return upstream(url, init);
+  };
   for (const [attempt, wait] of RETRY_WAITS.entries()) {
     if (signal?.aborted) throw new Error('Playback request cancelled');
     if (attempt) {
@@ -134,7 +142,7 @@ export async function youtubeRelay(request, {fetcher = fetch, cache, waitUntil =
       let totalHint = Number(link.length) || 0;
       if (want.suffix !== undefined && !totalHint) {
         // Suffix ranges are uncommon but valid; discover the length using one byte.
-        const sizeProbe = await mediaRequest(link.url, 0, 0, request.signal, fetcher);
+        const sizeProbe = await mediaRequest(link.url, 0, 0, undefined, fetcher);
         const sizeSpan = validateUpstreamRange(sizeProbe, 0, 0);
         totalHint = sizeSpan?.total || 0;
         await discard(sizeProbe);
@@ -144,7 +152,7 @@ export async function youtubeRelay(request, {fetcher = fetch, cache, waitUntil =
         : (totalHint ? resolveRequestRange(want, totalHint) : {start: want.start, end: want.end});
       if (!selected) return unsatisfiable(totalHint);
       const firstEnd = Math.min(selected.end ?? (selected.start + SLICE - 1), selected.start + SLICE - 1);
-      first = await mediaRequest(link.url, selected.start, firstEnd, request.signal, fetcher);
+      first = await mediaRequest(link.url, selected.start, firstEnd, undefined, fetcher);
       lastStatus = first.status;
       firstSpan = validateUpstreamRange(first, selected.start, firstEnd, totalHint);
       if (firstSpan && first.body) break;
@@ -189,9 +197,8 @@ export async function youtubeRelay(request, {fetcher = fetch, cache, waitUntil =
       active = null;
       let renewed = false;
       for (let from = firstSpan.end + 1; from <= last;) {
-        if (request.signal?.aborted) throw new Error('Listener disconnected');
         const to = Math.min(from + NEXT_SLICE - 1, last);
-        let part = await mediaRequest(link.url, from, to, request.signal, fetcher);
+        let part = await mediaRequest(link.url, from, to, undefined, fetcher);
         active = part;
         let span = validateUpstreamRange(part, from, to, total);
         if (!span && !renewed) {
@@ -199,13 +206,13 @@ export async function youtubeRelay(request, {fetcher = fetch, cache, waitUntil =
           await discard(part);
           memo.delete(fmt + ':' + id);
           await cache?.delete(linkKey(id, fmt)).catch(() => {});
-          const newer = await resolveLink(id, {fetcher, cache, waitUntil, fresh: true, fmt, signal: request.signal});
+          const newer = await resolveLink(id, {fetcher, cache, waitUntil, fresh: true, fmt});
           // A new itag or file length would splice two different encodings and corrupt the song.
           if (newer.mime !== link.mime ||
               (link.itag && newer.itag && link.itag !== newer.itag) ||
               (newer.length && newer.length !== total)) throw new Error('Upstream audio format changed');
           link = newer;
-          part = await mediaRequest(link.url, from, to, request.signal, fetcher);
+          part = await mediaRequest(link.url, from, to, undefined, fetcher);
           active = part;
           span = validateUpstreamRange(part, from, to, total);
         }

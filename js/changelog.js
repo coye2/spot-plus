@@ -1,6 +1,16 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.49', date: '2026-11-19', title: 'Pause works again, and whole songs from the relay', items: [
+    'Fixed pause: the screen could say paused while music kept playing and the button couldn’t stop it. Pausing now stops every player, and a tap while that happens stops the music.',
+    'Fixed songs from Spot+ YouTube Relay stopping after a fraction of a second: the server cut its own audio stream right after it started.',
+    'Songs YouTube refuses now fail in about 2 seconds instead of 10–15, so Spot+ moves to another upload much sooner.',
+    'Fixed the relay giving up on many songs with a “too many requests” error from Cloudflare.',
+    'The relay asks YouTube as a second app when the first is refused (the version Metrolist uses), so more songs play.',
+    'Now Playing shows “Spot+ YouTube Relay” instead of the server address. Tap it for playback details: server, format, which upload played and why.',
+    'Audio source list cleaned up: Spot+ YouTube Relay, Automatic, HiFi / Monochrome, JioSaavn and Audius (SoundCloud once it’s set up). Piped, Invidious, YouTube player and Deezer previews are gone; if you used one, Spot+ switches you to the closest option.',
+    'Song matching now also tells apart demos, radio edits and extended mixes.',
+  ]},
   {version: '1.9.48', date: '2026-11-19', title: 'Spot+ YouTube Relay: full-song integrity and iPhone playback', items: [
     'Spot+ YouTube Relay validates complete upstream audio byte ranges, detects truncation, and avoids accidentally treating a cut-off recording as a completed song.',
     'Improved iPhone seeking and mid-track continuation, including Safari suffix ranges and safe signed-link refreshes.',
