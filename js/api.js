@@ -344,7 +344,8 @@ async function relayStream(track, signal, matches) {
   const ids = uniq((matches || []).map((m) => m?.id).filter((id) => /^[\w-]{11}$/.test(id || ''))).slice(0, 3);
   if (!ids.length) throw new Error('No YouTube match');
   let last = 'No audio';
-  for (const id of ids) {
+  // Two rounds: YouTube's bot check on the server comes and goes, and each new request gets a fresh session.
+  for (const id of [...ids, ...ids.slice(0, 2)]) {
     const url = `${RELAY_ENDPOINT}?id=${id}`;
     const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 7000);
     try {
@@ -1225,7 +1226,7 @@ export function warmConnections(){
 export async function resolve(t,options={}) {
   // Podcasts and audiobooks come with their own direct audio link.
   if(t?.direct){options.signal?.throwIfAborted();return {url:t.direct,mime:t.mime||'audio/mpeg',bitrate:128000,kind:'direct',instance:host(t.direct),cacheLayer:'direct'};}
-  const settings=getSettings(),allowEmbed=!!(options.allowEmbed&&['youtube','auto'].includes(settings.source)),key=streamKey(t,settings);
+  const settings=getSettings(),allowEmbed=!!(options.allowEmbed&&settings.source==='youtube'),key=streamKey(t,settings);
   let hit=!options.skip?.length&&cachedStream(key);
   // A saved 30-second clip must not block a new search for the full song.
   if(hit?.preview && settings.source==='auto') hit=null;
@@ -1264,7 +1265,7 @@ let embedHook=null;
 export function onEmbedFound(fn){embedHook=typeof fn==='function'?fn:null;}
 export function prewarm(t){
   if(!t||t.local||t.direct||navigator.connection?.saveData||/2g/.test(navigator.connection?.effectiveType||''))return;
-  const settings=getSettings(),allowEmbed=['youtube','auto'].includes(settings.source),key=streamKey(t,settings);if(warmups.has(key))return warmups.get(key);
+  const settings=getSettings(),allowEmbed=settings.source==='youtube',key=streamKey(t,settings);if(warmups.has(key))return warmups.get(key);
   const hit=cachedStream(key);if(hit&&!(hit.preview&&settings.source==='auto')&&(allowEmbed||hit.kind!=='youtube-embed')){if(hit.kind==='youtube-embed')try{embedHook?.(hit.videoId);}catch{}return Promise.resolve({...hit,cacheLayer:'memory'});}
   warmConnections();
   // Keep up to three predictive resolves (restore + next + next+1).

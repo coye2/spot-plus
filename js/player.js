@@ -732,7 +732,8 @@ async function load(opts = {}) {
       if (objUrl) { URL.revokeObjectURL(objUrl); objUrl = null; }
       telemetry.markStage(my, 'resolveStart');
       // Auto may fall back to YouTube's official player (full songs) before a 30-second preview.
-      const allowEmbed = ['youtube', 'auto'].includes(store.getSettings().source);
+      // No ads: YouTube's player (which plays the uploader's ads) is used only when chosen in Settings.
+      const allowEmbed = store.getSettings().source === 'youtube';
       const r = opts.sourceOverride || await api.resolve(t, { skip: skipList, signal: controller.signal, cors: effectsOn(), allowEmbed });
       if (my !== token) return;
       if (r.kind === 'youtube-embed' && !allowEmbed) {
@@ -975,12 +976,13 @@ function prefetch() {
 api.onEmbedFound?.((id) => {
   const cur = current();
   if (cur && store.getVideoCache(cur.id)?.id === id && (state.loading || isEmbed())) return; // that's the song already starting
+  if (store.getSettings().source !== 'youtube') return;
   if (!yt.active && !yt.live) yt.warm(id); else if (yt.live) yt.preload(id);
 });
 // Boot YouTube's player shortly after the app opens, so the first song swaps in instead of loading a player.
 (() => {
   const boot = () => {
-    if (yt.active || yt.live || navigator.connection?.saveData || !['youtube', 'auto'].includes(store.getSettings().source)) return;
+    if (yt.active || yt.live || navigator.connection?.saveData || store.getSettings().source !== 'youtube') return;
     const id = (current() && store.getVideoCache?.(current().id)?.id) || store.lastPlayableVideo?.() || 'dQw4w9WgXcQ';
     yt.warm(id);
   };

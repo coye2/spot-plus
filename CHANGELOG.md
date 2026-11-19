@@ -2,6 +2,13 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.33 — No ads
+_2026-11-19_
+
+- Automatic never uses YouTube’s player anymore, so no ads ever play. Every song plays in Spot+’s own player.
+- If the Spot+ server is briefly refused by YouTube, Spot+ tries again with more uploads before moving on.
+- YouTube’s player is still there if you pick “YouTube player” in Settings → Playback.
+
 ## 1.9.32 — Music keeps playing when you leave the app
 _2026-11-19_
 

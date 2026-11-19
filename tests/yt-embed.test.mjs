@@ -77,7 +77,7 @@ const api = await import('../js/api.js');
 const player = await import('../js/player.js');
 const { YouTubeEmbedPlayer } = await import('../js/yt-embed.js');
 
-test('auto mode uses the full YouTube player before a preview when servers fail; youtube mode uses youtube-embed', async () => {
+test('auto mode never uses YouTube’s player (no ads); youtube mode uses youtube-embed', async () => {
   localStorage.clear();
   localStorage.setItem('spotplus.settings', JSON.stringify({ source: 'auto' }));
   const prevFetch = globalThis.fetch;
@@ -115,7 +115,7 @@ test('auto mode uses the full YouTube player before a preview when servers fail;
       { id: 'yt-fb-1', title: 'Blinding Lights', artist: 'The Weeknd', duration: 200 },
       { allowEmbed: true }
     );
-    assert.equal(autoRes.kind, 'youtube-embed');
+    assert.notEqual(autoRes.kind, 'youtube-embed');
     // Without the interactive player (downloads, effects), Auto still falls back to the preview.
     const noEmbed = await api.resolve(
       { id: 'yt-fb-1b', title: 'Blinding Lights', artist: 'The Weeknd', duration: 200 },

@@ -1,6 +1,11 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.33', date: '2026-11-19', title: 'No ads', items: [
+    'Automatic never uses YouTube’s player anymore, so no ads ever play. Every song plays in Spot+’s own player.',
+    'If the Spot+ server is briefly refused by YouTube, Spot+ tries again with more uploads before moving on.',
+    'YouTube’s player is still there if you pick “YouTube player” in Settings → Playback.',
+  ]},
   {version: '1.9.32', date: '2026-11-19', title: 'Music keeps playing when you leave the app', items: [
     'Fixed music stopping when you switch away from Spot+ or lock the phone.',
     'With effects on, the song keeps playing in the background without reverb and bass, at the same spot. Effects come back when you open Spot+ again; speed and pitch keep working.',
