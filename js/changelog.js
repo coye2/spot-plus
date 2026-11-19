@@ -1,6 +1,9 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.54', date: '2026-11-19', title: 'The backup source actually works now', items: [
+    'Fixed HiFi / Monochrome never playing: its search couldn’t be read from a browser at all, so when YouTube refused a song there was no backup. The Spot+ server now relays it, and those songs play in lossless quality instead of being skipped.',
+  ]},
   {version: '1.9.53', date: '2026-11-19', title: 'A real backup when YouTube says no', items: [
     'When YouTube refuses a song, Automatic now plays it in lossless quality from HiFi / Monochrome, which iPhone can now play. Before, these songs were skipped.',
     'Automatic moves to the backup after two refused YouTube uploads instead of three, so you wait less.',

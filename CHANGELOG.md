@@ -2,6 +2,11 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.54 — The backup source actually works now
+_2026-11-19_
+
+- Fixed HiFi / Monochrome never playing: its search couldn’t be read from a browser at all, so when YouTube refused a song there was no backup. The Spot+ server now relays it, and those songs play in lossless quality instead of being skipped.
+
 ## 1.9.53 — A real backup when YouTube says no
 _2026-11-19_
 

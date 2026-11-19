@@ -19,3 +19,9 @@ test('/mono rejects bad ids and reports upstream refusals', async () => {
   const r = await monochromeAudio(new Request('https://w.dev/mono?id=123456789'), {fetcher: async () => new Response('', {status: 404})});
   assert.equal(r.status, 502);
 });
+
+test('/mono?q= relays Monochrome search (which browsers cannot read directly)', async () => {
+  const fetcher = async (url) => { assert.match(url, /search\/tracks\?q=The%20Weeknd%20Heartless$/); return new Response(JSON.stringify({tracks: [{id: '1', title: 'Heartless', artistNames: ['The Weeknd'], duration: 198000, extra: 'x'}]})); };
+  const r = await monochromeAudio(new Request('https://w.dev/mono?q=The%20Weeknd%20Heartless'), {fetcher});
+  assert.deepEqual(await r.json(), {tracks: [{id: '1', title: 'Heartless', artistNames: ['The Weeknd'], duration: 198000, playable: true}]});
+});

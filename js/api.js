@@ -712,7 +712,9 @@ function decodeHifiManifest(data) {
   return null;
 }
 async function monochromeStream(base, track, signal, ms = 2200) {
-  const data = await fetchJSON(`${base}/search/tracks?q=${encodeURIComponent(query(track))}`, ms, signal);
+  // Monochrome's own search can't be read by browsers (no CORS header); the Spot+ server relays it.
+  const searchURL = monoProxy ? `${RELAY_BASE.replace(/\/yta$/, '')}/mono?q=${encodeURIComponent(query(track))}` : `${base}/search/tracks?q=${encodeURIComponent(query(track))}`;
+  const data = await fetchJSON(searchURL, Math.max(ms, 4500), signal);
   const rows = Array.isArray(data?.tracks) ? data.tracks : [];
   const wantInstrumental = /\binstrumental\b/i.test(`${track.title} ${track.artist}`);
   const items = rows.filter((row) => row && row.playable !== false && row.id && (wantInstrumental || !/\binstrumental\b/i.test(row.title || ''))).map((row) => ({
@@ -1011,7 +1013,8 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
   const reqMs = isAuto && !hasCustom ? 2000 : 3200;
   const raceControl = new AbortController();
   const raceSignal = AbortSignal.any([combined, raceControl.signal]);
-  const raceCap = isAuto && !hasCustom ? setTimeout(() => raceControl.abort(), 3500) : null;
+  // With YouTube already ruled out for this song, the backups get longer to answer.
+  const raceCap = isAuto && !hasCustom ? setTimeout(() => raceControl.abort(), skip.includes(RELAY_BASE) ? 8000 : 3500) : null;
   try {
     const activeKinds = kinds(set.source);
     const ytKinds = activeKinds.filter((k) => ['piped', 'invidious'].includes(k));
