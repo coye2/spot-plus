@@ -148,8 +148,18 @@ body[data-chrome=clear][data-scene=on] .view-toolbar,
 body[data-chrome=clear][data-scene=on] .topbar{background:transparent!important;background-color:transparent!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
 body[data-chrome=clear][data-scene=on] main,
 body[data-chrome=clear][data-scene=on] .sidebar{text-shadow:0 1px 3px #000a}
-body[data-chrome=clear][data-scene=on] :is(.box,.quick-item,.searchbox,.home-dj form,.top-search form,.library-empty,.studio-controls,.studio-preview){background:rgba(6,12,14,.34);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
-body[data-chrome=clear][data-scene=on] :is(.box,.studio-controls,.studio-preview){border-color:rgba(255,255,255,.12)}
+body[data-chrome=clear][data-scene=on] :is(.box,.quick-item,.searchbox,.home-dj form,.top-search form,.library-empty,.studio-controls,.studio-preview){background:rgba(8,12,16,.44);backdrop-filter:blur(14px) saturate(1.15);-webkit-backdrop-filter:blur(14px) saturate(1.15)}
+body[data-chrome=clear][data-scene=on] :is(.box,.studio-controls,.studio-preview){border:1px solid rgba(255,255,255,.12)}
+body[data-chrome=clear][data-scene=on] .box{border-radius:18px;padding:22px 24px;margin:0 0 14px;overflow:hidden}
+body[data-chrome=clear][data-scene=on] .box>h2:first-child{margin-top:0}
+body[data-chrome=clear][data-scene=on] .box>:last-child{margin-bottom:0}
+body[data-chrome=clear][data-scene=on] details.settings-more{padding:8px 0 16px}
+body[data-chrome=clear][data-scene=on] details.settings-more>summary{padding:12px 4px;min-height:44px;display:flex;align-items:center}
+body[data-chrome=clear][data-scene=on] details.settings-more>.box{padding:20px 22px;margin:10px 0 14px;border:1px solid rgba(255,255,255,.12)}
+@media(max-width:767px){
+  body[data-chrome=clear][data-scene=on] .box{border-radius:18px;padding:18px 16px;margin:0 0 14px}
+  body[data-chrome=clear][data-scene=on] details.settings-more>.box{padding:18px 16px;margin:10px 0 14px}
+}
 body[data-chrome=clear][data-scene=on] .nav{background:rgba(5,10,12,.96)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;border-color:transparent}
 body[data-chrome=clear][data-scene=on] .bar,
 body[data-chrome=clear][data-scene=on] .bar:not(.bar-empty){background:var(--song-surface,var(--bg2))!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}

@@ -667,61 +667,72 @@ async function load(opts = {}) {
   clearTimeout(prefetchTimer);
   api.cancelPrewarm(t);
 
-  const streamKeyForTrack = !opts.keepSkip && !effectsOn() ? api.streamKey(t) : '';
+  const inBackground = !!globalThis.document?.hidden;
+  const streamKeyForTrack = !opts.keepSkip && (!effectsOn() || inBackground) ? api.streamKey(t) : '';
   const warmed = streamKeyForTrack ? nextBuffer.take(streamKeyForTrack) : null;
+  const bgSource = inBackground && !isCaptured(audio)
+    ? (warmed?.source || (streamKeyForTrack && !t.local ? memoryEngine.getStream(streamKeyForTrack) : null))
+    : null;
+  const reuseActiveInBackground = inBackground && !isCaptured(audio);
   telemetry.beginGeneration(my, {
     trackId: t.id,
     trigger: opts.keepSkip ? 'recover' : (opts.trigger || 'play'),
-    prepared: !!warmed,
-    cold: !warmed && !t.local,
+    prepared: !!(warmed || bgSource),
+    cold: !warmed && !bgSource && !t.local,
   });
 
-  if (!(opts.mixSeconds && warmed)) audio.pause();
-  if (warmed) {
-    const previous = audio, target = volumeLevel * (ducks.size ? .18 : 1);
-    audio = warmed.media;
-    el = audio;
-    bindAudio(audio);
-    if (opts.mixSeconds) {
-      // AutoMix: the old song fades out while the new one fades in; a fresh spare preloads the song after.
-      audio.volume = 0;
-      fade(audio, 0, target, opts.mixSeconds);
-      fade(previous, previous.volume, 0, opts.mixSeconds).then(() => {
-        previous.pause();
-        previous.removeAttribute('src');
-        previous.load();
-      });
-      const spare = new Audio();
-      spare.preload = 'none';
-      spare.playsInline = true;
-      spare.setAttribute?.('playsinline', '');
-      bindAudio(spare);
-      unlockElement(spare);
-      nextBuffer.recycle(spare);
-    } else {
-      audio.volume = target;
-      // Never recycle a Web Audio-captured element into nextBuffer.spare when effects might be toggled off.
-      if (isCaptured(previous)) {
-        previous.pause();
-        previous.removeAttribute('src');
-        previous.load();
-        const freshSpare = new Audio();
-        freshSpare.preload = 'none';
-        freshSpare.playsInline = true;
-        freshSpare.setAttribute?.('playsinline', '');
-        bindAudio(freshSpare);
-        unlockElement(freshSpare);
-        nextBuffer.recycle(freshSpare);
-      } else {
-        nextBuffer.recycle(previous);
-      }
-    }
-    mediaTicket = ++liveAttempt;
-    suppressError = false;
-  } else {
+  if (reuseActiveInBackground) {
+    // On iOS/Safari lock screen or background, keep the active <audio> element alive so the OS
+    // background audio session is never torn down by swapping to a spare element or blanking src.
     nextBuffer.clear();
-    audio.removeAttribute('src');
-    audio.load();
+  } else {
+    if (!(opts.mixSeconds && warmed)) audio.pause();
+    if (warmed) {
+      const previous = audio, target = volumeLevel * (ducks.size ? .18 : 1);
+      audio = warmed.media;
+      el = audio;
+      bindAudio(audio);
+      if (opts.mixSeconds) {
+        // AutoMix: the old song fades out while the new one fades in; a fresh spare preloads the song after.
+        audio.volume = 0;
+        fade(audio, 0, target, opts.mixSeconds);
+        fade(previous, previous.volume, 0, opts.mixSeconds).then(() => {
+          previous.pause();
+          previous.removeAttribute('src');
+          previous.load();
+        });
+        const spare = new Audio();
+        spare.preload = 'none';
+        spare.playsInline = true;
+        spare.setAttribute?.('playsinline', '');
+        bindAudio(spare);
+        unlockElement(spare);
+        nextBuffer.recycle(spare);
+      } else {
+        audio.volume = target;
+        // Never recycle a Web Audio-captured element into nextBuffer.spare when effects might be toggled off.
+        if (isCaptured(previous)) {
+          previous.pause();
+          previous.removeAttribute('src');
+          previous.load();
+          const freshSpare = new Audio();
+          freshSpare.preload = 'none';
+          freshSpare.playsInline = true;
+          freshSpare.setAttribute?.('playsinline', '');
+          bindAudio(freshSpare);
+          unlockElement(freshSpare);
+          nextBuffer.recycle(freshSpare);
+        } else {
+          nextBuffer.recycle(previous);
+        }
+      }
+      mediaTicket = ++liveAttempt;
+      suppressError = false;
+    } else {
+      nextBuffer.clear();
+      audio.removeAttribute('src');
+      audio.load();
+    }
   }
 
   state.error = null;
@@ -733,18 +744,23 @@ async function load(opts = {}) {
   if (!opts.keepSkip) skipList = [];
   state.source = null;
   state.offline = false;
-  setPhase(warmed ? STATES.PREPARING : STATES.RESOLVING);
+  setPhase((warmed || bgSource) ? STATES.PREPARING : STATES.RESOLVING);
   emit('state');
   emit('time');
   updateSession(t);
 
   try {
     let src;
-    const shouldCheckOffline = !warmed && (t.local || store.getDownloads().some((d) => d.id === t.id));
+    const shouldCheckOffline = !warmed && !bgSource && (t.local || store.getDownloads().some((d) => d.id === t.id));
     const blob = shouldCheckOffline ? await offlineBlob(t.id) : null;
     if (my !== token) return;
 
-    if (warmed) {
+    if (bgSource) {
+      if (objUrl) { URL.revokeObjectURL(objUrl); objUrl = null; }
+      state.source = bgSource;
+      src = bgSource.url;
+      telemetry.markStage(my, 'resolveEnd', { cacheLayer: warmed ? 'warmed-buffer' : 'memory-cache', sourceKind: bgSource.kind, instance: bgSource.instance, cold: false, prepared: true });
+    } else if (warmed) {
       if (objUrl) { URL.revokeObjectURL(objUrl); objUrl = null; }
       state.source = warmed.source;
       src = warmed.source.url;
@@ -796,7 +812,7 @@ async function load(opts = {}) {
     }
 
     setPhase(STATES.PREPARING);
-    if (!warmed) {
+    if (!warmed || reuseActiveInBackground) {
       if (isCaptured(audio) && (globalThis.document?.hidden || !(await prepareElement(audio, src)))) {
         // This song's server doesn't allow effects: switch to the plain element so it still plays.
         if (my !== token) return;
@@ -810,9 +826,9 @@ async function load(opts = {}) {
         audio.preload = 'auto';
         audio.volume = volumeLevel * (ducks.size ? .18 : 1);
         emit('effects-skipped');
-      } else if (!isCaptured(audio) && effectsOn()) {
+      } else if (!isCaptured(audio) && effectsOn() && !inBackground) {
         await prepareElement(audio, src);
-      } else if (!isCaptured(audio) && corsKnown(src) === true) {
+      } else if (!isCaptured(audio) && corsKnown(src) === true && !inBackground) {
         audio.crossOrigin = 'anonymous';
       } else if (!isCaptured(audio)) {
         audio.removeAttribute('crossorigin');
@@ -1283,6 +1299,7 @@ export function seek(sec) {
   telemetry.beginSeek(info.targetSec);
   audio.currentTime = info.targetSec;
   if (info.inBuffer) telemetry.endSeek();
+  positionState();
 }
 export function setVolume(v) {
   volumeLevel = Math.max(0, Math.min(1, v));
@@ -1406,11 +1423,12 @@ if ('mediaSession' in navigator) {
   const h = (a, fn) => { try { navigator.mediaSession.setActionHandler(a, fn); } catch {} };
   h('play', () => { updateSession(current()); if (isPaused()) toggle(); });
   h('pause', () => { pause(); updateSession(current()); });
-  h('previoustrack', prev);
-  h('nexttrack', () => next(true));
-  h('seekto', (d) => seek(d.seekTime));
-  h('seekbackward', (d) => seek(position() - (d.seekOffset || 10)));
-  h('seekforward', (d) => seek(position() + (d.seekOffset || 10)));
+  h('previoustrack', () => { prev(); updateSession(current()); positionState(); });
+  h('nexttrack', () => { next(true); updateSession(current()); positionState(); });
+  h('seekto', (d) => { if (d && typeof d.seekTime === 'number') { seek(d.seekTime); positionState(); } });
+  // Clear 10-second jump handlers so iOS Lock Screen and Notification Center show Previous/Next track buttons.
+  h('seekbackward', null);
+  h('seekforward', null);
 }
 
 /* ---------- Offline downloads ---------- */

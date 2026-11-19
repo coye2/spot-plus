@@ -1,6 +1,11 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.46', date: '2026-11-19', title: 'Lock screen skip, background auto-next, and polished wallpaper cards', items: [
+    'Fixed the iPhone Lock Screen and Notification Center player showing 10-second jump controls instead of full-song Previous and Next buttons.',
+    'Fixed songs stopping at the end when the screen is locked or Spot+ is in the background: the next song now continues automatically on the active audio session.',
+    'Polished Settings and section cards over Clear wallpapers with rounded corners, balanced inner padding, and clean spacing between cards.',
+  ]},
   {version: '1.9.45', date: '2026-11-19', title: 'Full songs again, the way 1.9.41 played', items: [
     'Automatic is the 1.9.41 and 1.9.42 player again. A song that the full servers cannot start is skipped, instead of playing a 30-second preview.',
   ]},
