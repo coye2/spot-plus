@@ -1067,10 +1067,12 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
     // comes and goes), then report the song as unavailable so the player can move on.
     if (isAuto && !fullOnly && kinds(set.source).includes('ytrelay') && relayOff <= Date.now() && !skip.includes(RELAY_BASE)) {
       const matches = sharedMatches?.length ? sharedMatches : await (shared ? shared.catch(() => []) : []);
-      for (const wait of [1200, 2500]) {
-        await new Promise((ok) => setTimeout(ok, wait));
-        if (signal?.aborted) break;
-        try { return await relayStream(t, signal, matches); } catch { /* try once more */ }
+      // Wider net, as when uploads are unavailable here: lyric videos and other uploads of the same song.
+      const wider = await moreEmbedCandidates(t, matches.map((m) => m?.id), signal).catch(() => []);
+      for (const [wait, list] of [[0, wider.map((id) => ({id}))], [1500, matches]]) {
+        if (wait) await new Promise((ok) => setTimeout(ok, wait));
+        if (signal?.aborted || !list.length) continue;
+        try { return await relayStream(t, signal, list); } catch { /* next round */ }
       }
     }
     throw new Error('No audio server answered. Try Deezer, JioSaavn, HiFi, Audius, your own server in Settings, or a local audio file.');

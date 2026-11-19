@@ -14,6 +14,7 @@ export const FORMATS = {
   'low-opus': [AUDIO_ITAGS.opus50, AUDIO_ITAGS.opus70, AUDIO_ITAGS.aacLow, AUDIO_ITAGS.aac],
 };
 
+export const RETRY_WAITS = [0, 1200, 2800];
 const memo = new Map(); // video id -> {url, mime, expires} for this worker instance
 const MAX_MEMO = 400;
 
@@ -36,9 +37,10 @@ async function resolveLink(id, {fetcher, cache, waitUntil, fresh = false, fmt = 
   }
   // AAC (m4a) first: every iPhone plays it in a plain <audio> element. YouTube sometimes answers
   // "confirm you're not a bot" for a session; a fresh session usually gets through, so try up to 3 times.
+  // The check comes in bursts of a few seconds, so the retries are spread out to outlast one.
   let result = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt) await ensureVisitor(fetcher, {force: true}).catch(() => {});
+  for (const [attempt, wait] of RETRY_WAITS.entries()) {
+    if (attempt) { await new Promise((ok) => setTimeout(ok, wait)); await ensureVisitor(fetcher, {force: true}).catch(() => {}); }
     result = await innertubeStream(id, {fetcher, preferAac: fmt !== 'opus', order: FORMATS[fmt]});
     if (result?.stream?.url) break;
   }

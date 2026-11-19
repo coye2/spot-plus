@@ -1,6 +1,10 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.37', date: '2026-11-19', title: 'More songs play in full', items: [
+    'When YouTube briefly refuses the Spot+ server, it waits out the moment and tries again instead of giving up.',
+    'If the usual uploads of a song aren’t available, Spot+ also tries lyric videos and other uploads of the same song.',
+  ]},
   {version: '1.9.36', date: '2026-11-19', title: 'Spotube-style audio', items: [
     'Higher quality: Opus 160 kbps on Android and computers, AAC on iPhone. Data saver in Settings → Playback switches to a light 48 kbps stream.',
     'Skips the non-music parts of YouTube uploads (spoken intros, skits, long outros) using SponsorBlock, like Spotube.',

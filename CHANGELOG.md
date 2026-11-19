@@ -2,6 +2,12 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.37 — More songs play in full
+_2026-11-19_
+
+- When YouTube briefly refuses the Spot+ server, it waits out the moment and tries again instead of giving up.
+- If the usual uploads of a song aren’t available, Spot+ also tries lyric videos and other uploads of the same song.
+
 ## 1.9.36 — Spotube-style audio
 _2026-11-19_
 
