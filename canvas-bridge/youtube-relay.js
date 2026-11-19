@@ -25,7 +25,18 @@ function expiresOf(link) {
   return e ? e * 1000 : Date.now() + 3 * 3600e3;
 }
 
-const linkKey = (id, fmt) => `https://relay.internal/link/${fmt}/${id}`;
+// v2: links cached before the switch to the VISIONOS client stop after the first chunk, so they are not reused.
+const linkKey = (id, fmt) => `https://relay.internal/link/v2/${fmt}/${id}`;
+const UA = 'Mozilla/5.0';
+
+// YouTube sometimes hands out a link that plays the first chunk and refuses the rest (it wants a PO token
+// for that client). Asking for the last two bytes catches that before the app gets a song that cuts out.
+async function servesWholeFile(stream, fetcher) {
+  if (!stream.length) return true;
+  const probe = await fetcher(stream.url, {headers: {Range: `bytes=${stream.length - 2}-${stream.length - 1}`, 'User-Agent': UA}, redirect: 'follow'});
+  probe.body?.cancel?.();
+  return probe.ok;
+}
 
 async function resolveLink(id, {fetcher, cache, waitUntil, fresh = false, fmt = 'aac'}) {
   const hit = memo.get(`${fmt}:${id}`);
@@ -41,7 +52,7 @@ async function resolveLink(id, {fetcher, cache, waitUntil, fresh = false, fmt = 
   let result = null;
   for (const [attempt, wait] of RETRY_WAITS.entries()) {
     if (attempt) { await new Promise((ok) => setTimeout(ok, wait)); await ensureVisitor(fetcher, {force: true}).catch(() => {}); }
-    result = await innertubeStream(id, {fetcher, preferAac: fmt !== 'opus', order: FORMATS[fmt]});
+    result = await innertubeStream(id, {fetcher, preferAac: fmt !== 'opus', order: FORMATS[fmt], validate: (stream) => servesWholeFile(stream, fetcher)});
     if (result?.stream?.url) break;
   }
   const stream = result?.stream;
@@ -55,8 +66,11 @@ async function resolveLink(id, {fetcher, cache, waitUntil, fresh = false, fmt = 
 }
 
 // YouTube serves its audio in bounded slices: an open-ended request ("the rest of the file", which is what
-// Safari asks for) is refused. The relay fetches slices of this size and joins them into one response.
+// Safari asks for) is refused. The relay answers the start with a 1 MB slice (fast first sound), then
+// fetches the rest in bigger slices and joins them into one response. Bigger later slices keep a long
+// track well under Cloudflare's per-request subrequest limit (yt-dlp itself asks for 10 MB at a time).
 export const SLICE = 1 << 20;
+export const NEXT_SLICE = 4 << 20;
 
 function parseRange(header) {
   const m = /^bytes=(\d*)-(\d*)$/.exec(header || 'bytes=0-');
@@ -82,7 +96,7 @@ export async function youtubeRelay(request, {fetcher = fetch, cache, waitUntil =
   for (const fresh of [false, true]) {
     try { link = await resolveLink(id, {fetcher, cache, waitUntil, fresh, fmt}); }
     catch (error) { return fail(502, String(error.message || 'No audio').slice(0, 120)); }
-    first = await fetcher(link.url, {headers: {Range: `bytes=${want.start}-${firstEnd}`, 'User-Agent': 'Mozilla/5.0'}, redirect: 'follow'});
+    first = await fetcher(link.url, {headers: {Range: `bytes=${want.start}-${firstEnd}`, 'User-Agent': UA}, redirect: 'follow'});
     lastStatus = first.status;
     if ((first.status === 403 || first.status === 410) && !fresh) { memo.delete(`${fmt}:${id}`); await cache?.delete(linkKey(id, fmt)).catch(() => {}); continue; }
     break;
@@ -98,17 +112,30 @@ export async function youtubeRelay(request, {fetcher = fetch, cache, waitUntil =
   // One slice covers it (the app's 2-byte check, small seeks): pass it straight through.
   if (last <= firstEnd) return new Response(first.body, {status: 206, headers});
 
-  // Bigger requests: stream the slices one after another with the same link, as one response.
+  // Bigger requests: stream the slices one after another, as one response. If YouTube refuses a slice
+  // (the link aged out or was cut off), get a fresh link once and carry on from the same byte.
   // Cloudflare's FixedLengthStream keeps the exact Content-Length on a streamed body, which Safari needs.
   const {readable, writable} = globalThis.FixedLengthStream ? new globalThis.FixedLengthStream(last - want.start + 1) : new TransformStream();
+  const slice = (from, to) => fetcher(link.url, {headers: {Range: `bytes=${from}-${to}`, 'User-Agent': UA}, redirect: 'follow'});
   const pump = (async () => {
     try {
       await first.body.pipeTo(writable, {preventClose: true});
-      for (let from = firstEnd + 1; from <= last; from += SLICE) {
-        const to = Math.min(from + SLICE - 1, last);
-        const part = await fetcher(link.url, {headers: {Range: `bytes=${from}-${to}`, 'User-Agent': 'Mozilla/5.0'}, redirect: 'follow'});
+      let renewed = false;
+      for (let from = firstEnd + 1; from <= last;) {
+        const to = Math.min(from + NEXT_SLICE - 1, last);
+        let part = await slice(from, to);
+        if ((part.status === 403 || part.status === 410) && !renewed) {
+          renewed = true;
+          part.body?.cancel?.();
+          memo.delete(`${fmt}:${id}`);
+          link = await resolveLink(id, {fetcher, cache, waitUntil, fresh: true, fmt});
+          part = await slice(from, to);
+          // A different file (another format) would corrupt the join, so only carry on with the same size.
+          if (part.ok && totalOf(part) && totalOf(part) !== total) throw new Error('format changed');
+        }
         if (!part.ok) throw new Error('slice ' + part.status);
         await part.body.pipeTo(writable, {preventClose: true});
+        from = to + 1;
       }
       await writable.close();
     } catch (error) {

@@ -104,8 +104,8 @@ test('/match retries once when YouTube search hiccups', async () => {
 });
 
 test('/yta answers Safari’s open-ended request with the whole song, fetched from YouTube in bounded slices', async () => {
-  const {SLICE} = await import('../canvas-bridge/youtube-relay.js');
-  const TOTAL = Math.floor(SLICE * 2.5);
+  const {SLICE, NEXT_SLICE} = await import('../canvas-bridge/youtube-relay.js');
+  const TOTAL = SLICE + NEXT_SLICE + Math.floor(SLICE / 2);
   const audio = new Uint8Array(TOTAL).map((_, i) => i % 251);
   const asked = [];
   const waits = [];
@@ -127,5 +127,65 @@ test('/yta answers Safari’s open-ended request with the whole song, fetched fr
   await Promise.all(waits);
   assert.equal(body.length, TOTAL);
   assert.deepEqual(body.slice(SLICE - 2, SLICE + 2), audio.slice(SLICE - 2, SLICE + 2));
-  assert.deepEqual(asked, [[0, SLICE - 1], [SLICE, 2 * SLICE - 1], [2 * SLICE, TOTAL - 1]]);
+  assert.deepEqual(asked, [[0, SLICE - 1], [SLICE, SLICE + NEXT_SLICE - 1], [SLICE + NEXT_SLICE, TOTAL - 1]]);
+});
+
+// A YouTube stand-in that knows which app identity asked, and can refuse links past the first chunk
+// (what YouTube now does to ANDROID_VR / IOS links without a PO token).
+function clientAwareYouTube({total, cutOff = new Set(), refuseOnce = null}) {
+  const audio = new Uint8Array(total).map((_, i) => (i * 7) % 253);
+  const seen = {clients: [], ranges: []};
+  let issued = 0;
+  const fetcher = async (url, init = {}) => {
+    const u = String(url);
+    if (u.includes('visitor_id')) return new Response(JSON.stringify({responseContext: {visitorData: 'v'}}));
+    if (u.includes('/youtubei/v1/player')) {
+      const client = JSON.parse(init.body).context.client.clientName;
+      seen.clients.push(client);
+      issued++;
+      return new Response(JSON.stringify({playabilityStatus: {status: 'OK'}, streamingData: {adaptiveFormats: [
+        {itag: 140, mimeType: 'audio/mp4; codecs="mp4a.40.2"', bitrate: 130000, contentLength: String(total),
+          url: `https://rr1.googlevideo.com/videoplayback?c=${client}&k=${issued}&expire=${Math.floor(Date.now() / 1000) + 20000}`},
+      ]}}));
+    }
+    const link = new URL(u);
+    const [, a, b] = /bytes=(\d+)-(\d*)/.exec(init.headers.Range);
+    const from = Number(a), to = Math.min(Number(b), total - 1);
+    seen.ranges.push([link.searchParams.get('c'), link.searchParams.get('k'), from, to]);
+    if (b === '' || (from > 0 && cutOff.has(link.searchParams.get('c')))) return new Response('', {status: 403});
+    if (refuseOnce && from === refuseOnce.from && link.searchParams.get('k') === refuseOnce.k) return new Response('', {status: 403});
+    return new Response(audio.slice(from, to + 1), {status: 206, headers: {'Content-Range': `bytes ${from}-${to}/${total}`}});
+  };
+  return {fetcher, seen, audio};
+}
+
+test('/yta asks YouTube as VISIONOS first: the client that still gets whole songs without a PO token', async () => {
+  const {fetcher, seen} = clientAwareYouTube({total: 5000});
+  const r = await youtubeRelay(new Request('https://w.dev/yta?id=ggggggggggg', {headers: {Range: 'bytes=0-1'}}), {fetcher});
+  assert.equal(r.status, 206);
+  assert.equal(seen.clients[0], 'VISIONOS');
+  assert.deepEqual(seen.ranges[0].slice(0, 1), ['VISIONOS']);
+});
+
+test('/yta never hands over a link that stops after the first chunk: it checks the end of the file first', async () => {
+  // VISIONOS links get cut off here, so the relay must move on to the next client before answering.
+  const {fetcher, seen} = clientAwareYouTube({total: 5000, cutOff: new Set(['VISIONOS'])});
+  const r = await youtubeRelay(new Request('https://w.dev/yta?id=hhhhhhhhhhh', {headers: {Range: 'bytes=0-1'}}), {fetcher});
+  assert.equal(r.status, 206);
+  assert.deepEqual(seen.clients, ['VISIONOS', 'ANDROID_VR']);
+  assert.deepEqual(seen.ranges[0], ['VISIONOS', '1', 4998, 4999]); // the end-of-file check that failed
+  assert.equal(seen.ranges.at(-1)[0], 'ANDROID_VR');
+});
+
+test('/yta keeps a song whole when YouTube refuses one slice mid-song: fresh link, same byte, no gap', async () => {
+  const {SLICE, NEXT_SLICE} = await import('../canvas-bridge/youtube-relay.js');
+  const total = SLICE + NEXT_SLICE + 1000;
+  const {fetcher, seen, audio} = clientAwareYouTube({total, refuseOnce: {from: SLICE + NEXT_SLICE, k: '1'}});
+  const waits = [];
+  const r = await youtubeRelay(new Request('https://w.dev/yta?id=iiiiiiiiiii', {headers: {Range: 'bytes=0-'}}), {fetcher, waitUntil: (p) => waits.push(p)});
+  const body = new Uint8Array(await r.arrayBuffer());
+  await Promise.all(waits);
+  assert.equal(body.length, total);
+  assert.deepEqual(body, audio);
+  assert.equal(seen.clients.length, 2); // the original link, then one fresh one for the refused slice
 });

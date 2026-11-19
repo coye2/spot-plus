@@ -1,6 +1,11 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.38', date: '2026-11-19', title: 'Songs no longer cut off', items: [
+    'Fixed songs on iPhone stopping at 0:00 or after the first minute. YouTube changed what it allows in August, and the Spot+ server now asks for audio the way that still gets the whole song.',
+    'Before a song starts, the server checks that YouTube will deliver all of it, so a song never plays partway and stops.',
+    'If YouTube drops the connection in the middle of a song, the server picks up from the same spot without a gap.',
+  ]},
   {version: '1.9.37', date: '2026-11-19', title: 'More songs play in full', items: [
     'When YouTube briefly refuses the Spot+ server, it waits out the moment and tries again instead of giving up.',
     'If the usual uploads of a song aren’t available, Spot+ also tries lyric videos and other uploads of the same song.',
