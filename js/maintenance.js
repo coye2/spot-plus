@@ -1,7 +1,7 @@
 // Mandatory development gate.
 // Keep MAINTENANCE_MODE = true (and MAINTENANCE = true in js/boot.js) while
 // developing on main. Only turn off when the maintainer explicitly marks the build stable.
-export const MAINTENANCE_MODE = false;
+export const MAINTENANCE_MODE = true;
 export const OWNER_SALT = 'spotplus-gate-v2:';
 export const ALLOWED_ID_HASHES = Object.freeze([
   '79c4cfae747eb72c8024860365cad93fb4cc243b91ab0b4c787ed1d2687c8a38',

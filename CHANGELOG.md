@@ -2,6 +2,11 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.35 — Maintenance
+_2026-11-19_
+
+- Spot+ is down for maintenance while playback is upgraded. It will be back soon.
+
 ## 1.9.34 — No 30-second clips
 _2026-11-19_
 
