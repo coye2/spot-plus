@@ -111,11 +111,13 @@ test('auto mode never uses YouTube’s player (no ads); youtube mode uses youtub
     return new Response('down', { status: 503 });
   };
   try {
-    // Automatic: no YouTube player (ads) and no 30-second clip; the song is reported unavailable instead.
-    await assert.rejects(api.resolve(
+    // Automatic: never YouTube's player (ads) and never a 30-second clip. The relay is chosen without a separate
+    // check request (one YouTube lookup per song); if YouTube refuses it, the player moves on (player tests).
+    const auto = await api.resolve(
       { id: 'yt-fb-1', title: 'Blinding Lights', artist: 'The Weeknd', duration: 200 },
       { allowEmbed: true }
-    ));
+    ).catch(() => null);
+    assert.ok(!auto || (auto.kind !== 'youtube-embed' && !auto.preview), JSON.stringify(auto));
 
     // Explicit youtube source uses youtube-embed, while download / cors never receives embed
     localStorage.setItem('spotplus.settings', JSON.stringify({ source: 'youtube' }));

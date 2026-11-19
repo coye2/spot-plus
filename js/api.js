@@ -348,80 +348,27 @@ export function relayFormat(quality = getSettings().quality, ua = globalThis.nav
   return opus ? 'opus' : 'aac';
 }
 const RELAY_BITRATE = {opus: 160000, aac: 128000, low: 48000, 'low-opus': 50000};
-// The relay usually answers in well under a second. When YouTube refuses an upload, the worker spends a few
-// seconds retrying before it gives up, so the next upload starts in parallel after a short wait (hedging)
-// instead of queueing behind it. The first upload that really streams wins; the others are cancelled.
-// Uploads whose stream just dropped are tried last for a few minutes, so a retry lands on another upload.
+// Uploads YouTube just refused are tried last for a few minutes, so a retry lands on another upload.
 const relayAvoid = new Map();
 export function avoidRelayVideo(id) { if (id) relayAvoid.set(id, Date.now() + 5 * 60e3); }
 const avoided = (id) => (relayAvoid.get(id) || 0) > Date.now();
-export const RELAY_HEDGE_MS = 1500;
-const RELAY_PROBE_MS = 9000;
-const RELAY_PARALLEL = 2;
 export async function relayStream(track, signal, matches) {
   if (relayOff > Date.now()) throw new Error('Relay is off');
+  if (signal?.aborted) throw signal.reason || new Error('Aborted');
   const all = uniq((matches || []).map((m) => m?.id).filter((id) => /^[\w-]{11}$/.test(id || '')));
-  const ids = [...all.filter((id) => !avoided(id)), ...all.filter(avoided)].slice(0, 3);
-  if (!ids.length) throw new Error('No YouTube match');
+  const id = [...all.filter((v) => !avoided(v)), ...all.filter(avoided)][0];
+  if (!id) throw new Error('No YouTube match');
+  // No separate check request: every request to the relay is a fresh YouTube lookup, and YouTube's bot check
+  // refuses many lookups from Cloudflare, so a check that passed said little about the playback request after
+  // it (live: songs stuck at 0:00). The audio element's own request is the only lookup; if YouTube refuses it,
+  // the player marks this upload (avoidRelayVideo) and tries the next one, and Automatic moves on to other
+  // full-song sources after three.
   const fmt = relayFormat();
-  // Ask for two bytes: proves the relay really streams this song before the player commits to it.
-  const probe = async (id, probeSignal) => {
-    const url = `${RELAY_ENDPOINT}?id=${id}&fmt=${fmt}`;
-    const r = await fetch(url, {headers: {Range: 'bytes=0-1'}, signal: probeSignal, credentials: 'omit'});
-    if (r.status === 404 && !(r.headers.get('content-type') || '').includes('json')) { relayOff = Date.now() + 30 * 60e3; throw new Error('Relay is not deployed'); }
-    if (r.status !== 206) { r.body?.cancel?.().catch(() => {}); throw new Error('Relay answered ' + r.status); }
-    const range = /^bytes 0-1\/(\d+)$/.exec(r.headers.get('content-range') || '');
-    if (!range || Number(range[1]) < 2) { r.body?.cancel?.().catch(() => {}); throw new Error('Relay sent an invalid audio range'); }
-    // Confirm the server actually supplied both bytes. A 206 with a truncated body
-    // must not win the source race and strand the player on a dead song.
-    const bytes = await r.arrayBuffer();
-    if (bytes.byteLength !== 2) throw new Error('Relay returned a truncated audio probe');
-    const pick = (matches || []).find((m) => m?.id === id) || {};
-    const accurateDuration = Number(r.headers.get('X-Spotplus-Duration')) || 0;
-    const expectedDuration = Number(track.duration) || 0;
-    if (accurateDuration > 0 && expectedDuration > 0 &&
-        Math.abs(accurateDuration - expectedDuration) > Math.max(10, expectedDuration * 0.06)) {
-      throw new Error('YouTube recording duration does not match the requested song');
-    }
-    return {url, mime: (r.headers.get('content-type') || 'audio/mp4').split(';')[0], bitrate: RELAY_BITRATE[fmt] || 128000,
-      kind: 'ytrelay', engineLabel: 'Spot+ YouTube Relay', instance: RELAY_BASE, videoId: id, catalogId: id,
-      title: pick.title, channel: pick.channel || pick.author, why: pick.why || '', duration: accurateDuration || pick.duration || track.duration,
-      alternatives: []};
-  };
-  // Two rounds: YouTube's bot check on the server comes and goes, and each new request gets a fresh session.
-  const queue = [...ids, ...ids.slice(0, 2)];
-  return new Promise((resolve, reject) => {
-    const live = new Map(); // id -> AbortController of its probe in flight
-    let last = 'No audio', done = false, hedge = null;
-    const finish = (settle, value) => {
-      if (done) return;
-      done = true; clearTimeout(hedge);
-      for (const ctl of live.values()) ctl.abort();
-      signal?.removeEventListener?.('abort', onAbort);
-      settle(value);
-    };
-    const onAbort = () => finish(reject, signal.reason || new Error('Aborted'));
-    const launch = () => {
-      clearTimeout(hedge);
-      if (done) return;
-      if (!live.size && !queue.length) return finish(reject, new Error(last));
-      // The same upload is never asked twice at once; its second round waits for the first to finish.
-      const next = queue.findIndex((id) => !live.has(id));
-      if (next < 0 || live.size >= RELAY_PARALLEL) return;
-      const [id] = queue.splice(next, 1);
-      const ctl = new AbortController();
-      live.set(id, ctl);
-      const timer = setTimeout(() => ctl.abort(), RELAY_PROBE_MS);
-      probe(id, ctl.signal).then((stream) => finish(resolve, stream), (error) => {
-        if (relayOff > Date.now()) return finish(reject, error);
-        last = error?.message || last;
-      }).finally(() => { clearTimeout(timer); live.delete(id); launch(); });
-      if (queue.length) hedge = setTimeout(launch, RELAY_HEDGE_MS);
-    };
-    if (signal?.aborted) return onAbort();
-    signal?.addEventListener?.('abort', onAbort, {once: true});
-    launch();
-  });
+  const pick = matches.find((m) => m?.id === id) || {};
+  return {url: `${RELAY_ENDPOINT}?id=${id}&fmt=${fmt}`, mime: fmt.includes('opus') ? 'audio/webm' : 'audio/mp4',
+    bitrate: RELAY_BITRATE[fmt] || 128000, kind: 'ytrelay', engineLabel: 'Spot+ YouTube Relay', instance: RELAY_BASE,
+    videoId: id, catalogId: id, title: pick.title, channel: pick.channel || pick.author, why: pick.why || '',
+    duration: pick.duration || track.duration, alternatives: []};
 }
 // Ask the worker once (on the first song) whether SoundCloud is set up, so nothing waits on it when it is not.
 let scKnown = '';

@@ -1,6 +1,10 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.50', date: '2026-11-19', title: 'Fewer songs stuck at 0:00', items: [
+    'Spot+ YouTube Relay now asks YouTube once per song instead of twice. The extra check could pass while the song itself was refused, leaving it stuck at 0:00.',
+    'When YouTube refuses every upload of a song in Automatic, Spot+ now switches to another full-song source instead of skipping the song.',
+  ]},
   {version: '1.9.49', date: '2026-11-19', title: 'Pause works again, and whole songs from the relay', items: [
     'Fixed pause: the screen could say paused while music kept playing and the button couldn’t stop it. Pausing now stops every player, and a tap while that happens stops the music.',
     'Fixed songs from Spot+ YouTube Relay stopping after a fraction of a second: the server cut its own audio stream right after it started.',

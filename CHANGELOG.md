@@ -2,6 +2,12 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.50 — Fewer songs stuck at 0:00
+_2026-11-19_
+
+- Spot+ YouTube Relay now asks YouTube once per song instead of twice. The extra check could pass while the song itself was refused, leaving it stuck at 0:00.
+- When YouTube refuses every upload of a song in Automatic, Spot+ now switches to another full-song source instead of skipping the song.
+
 ## 1.9.49 — Pause works again, and whole songs from the relay
 _2026-11-19_
 

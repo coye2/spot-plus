@@ -105,10 +105,10 @@ try {
     {id: 'e2e-numb', title: 'Numb', artist: 'Linkin Park', duration: 185},
   ];
   const t0 = Date.now();
-  await play(relaySongs, 'ytrelay');
+  await play(relaySongs, process.env.SOURCE || 'ytrelay');
   const first = await checkSong(0, 'Relay song 1');
   log(`    time from tap to sound: ${((Date.now() - t0) / 1000).toFixed(1)}s`);
-  assert.equal(first.kind, 'ytrelay');
+  if (!process.env.SOURCE) assert.equal(first.kind, 'ytrelay');
 
   // SponsorBlock: a non-music intro is skipped at the start; a non-music outro ends the song early.
   const segs = await segmentsOf(first.videoId);

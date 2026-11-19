@@ -121,8 +121,8 @@ test('background ended auto-advance and lock-screen nexttrack reuse the active a
 test('1.9.45 audio engine freeze guard: api.js keeps frozen Automatic source stack and relay settings', () => {
   const apiCode = readFileSync(new URL('../js/api.js', import.meta.url), 'utf8');
   assert.match(apiCode, /return \['soundcloud', 'ytrelay', 'monochrome', 'jiosaavn'\];/, '1.9.45 Automatic source list must remain frozen');
-  assert.match(apiCode, /export const RELAY_HEDGE_MS = 1500;/, '1.9.45 relay hedge timing must remain frozen');
-  assert.match(apiCode, /const RELAY_PROBE_MS = 9000;/, '1.9.45 relay probe timeout must remain frozen');
+  // 1.9.49: no separate relay check request; the audio element's request is the only YouTube lookup.
+  assert.doesNotMatch(apiCode, /RELAY_HEDGE_MS|RELAY_PROBE_MS/, 'relay songs make one YouTube lookup, not two');
 });
 
 test('Clear-wallpaper Settings cards have rounded corners, generous inner padding, and vertical spacing', () => {

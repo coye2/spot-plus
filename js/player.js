@@ -366,6 +366,14 @@ function recoverMedia(mediaErr = null) {
     return;
   }
 
+  // Automatic: YouTube refused every upload tried, so let the other full-song sources have a go.
+  if (relayFailed && !state.offline && !cur.local && failed.instance && !skipList.includes(failed.instance) && store.getSettings().source === 'auto') {
+    skipList.push(failed.instance);
+    telemetry.endRecovery(recStart, true);
+    load({ keepSkip: true, startAt: audio.currentTime || 0 });
+    return;
+  }
+
   // No 30-second clips in Automatic: when no full song can be found, say so and move on to the next song.
   if (!state.offline && !cur.local && store.getSettings().source === 'auto') {
     telemetry.endRecovery(recStart, true);

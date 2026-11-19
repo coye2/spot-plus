@@ -1,6 +1,6 @@
 // Spot+ service worker: offline app shell, cached cover art, and HTTP Range support for cached audio.
 // v40 includes version 2 account snapshots and incomplete-collection preservation.
-const SHELL_CACHE = 'spotplus-shell-v121';
+const SHELL_CACHE = 'spotplus-shell-v122';
 const IMG_CACHE = 'spotplus-img-v1';
 const AUDIO_CACHE = 'spotplus-audio-v1';
 const KEEP = [SHELL_CACHE, IMG_CACHE, AUDIO_CACHE, 'spotplus-live-voice-v1'];
