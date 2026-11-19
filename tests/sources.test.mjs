@@ -93,7 +93,7 @@ test('HiFi / Monochrome resolver decodes BTS manifest FLAC streams and obeys dat
   }
 });
 
-test('Deezer mode returns a Deezer preview, and auto mode uses a clip only after full servers fail', async () => {
+test('Deezer mode returns Deezer preview, and auto mode never falls back to a clip', async () => {
   localStorage.clear();
   localStorage.setItem('spotplus.settings', JSON.stringify({ source: 'deezer' }));
   const prevFetch = globalThis.fetch;
@@ -133,10 +133,8 @@ test('Deezer mode returns a Deezer preview, and auto mode uses a clip only after
     };
     api.clearStreamCache();
     await settle();
-    // Full servers are down, so Automatic starts the iTunes preview instead of staying silent.
-    const clip = await api.resolve({ id: 'it-1', title: 'Instant Crush', artist: 'Daft Punk', duration: 337 });
-    assert.equal(clip.kind, 'preview');
-    assert.equal(clip.url, 'https://audio-ssl.itunes.apple.com/itunes-assets/crush.m4a');
+    // Automatic never rescues with a 30-second clip.
+    await assert.rejects(api.resolve({ id: 'it-1', title: 'Instant Crush', artist: 'Daft Punk', duration: 337 }));
   } finally {
     globalThis.fetch = prevFetch;
   }

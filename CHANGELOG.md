@@ -2,6 +2,11 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.45 — Full songs again, the way 1.9.41 played
+_2026-11-19_
+
+- Automatic is the 1.9.41 and 1.9.42 player again. A song that the full servers cannot start is skipped, instead of playing a 30-second preview.
+
 ## 1.9.44 — Songs start when the relay is blocked
 _2026-11-19_
 
