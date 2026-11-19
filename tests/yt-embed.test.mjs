@@ -111,11 +111,13 @@ test('auto mode never uses YouTube’s player (no ads); youtube mode uses youtub
     return new Response('down', { status: 503 });
   };
   try {
-    // Automatic: no YouTube player (ads) and no 30-second clip; the song is reported unavailable instead.
-    await assert.rejects(api.resolve(
+    // Automatic does not open YouTube's player. With no full recording, the catalog preview starts.
+    const clip = await api.resolve(
       { id: 'yt-fb-1', title: 'Blinding Lights', artist: 'The Weeknd', duration: 200 },
       { allowEmbed: true }
-    ));
+    );
+    assert.equal(clip.kind, 'preview');
+    assert.notEqual(clip.kind, 'youtube-embed');
 
     // Explicit youtube source uses youtube-embed, while download / cors never receives embed
     localStorage.setItem('spotplus.settings', JSON.stringify({ source: 'youtube' }));
@@ -137,7 +139,7 @@ test('auto mode never uses YouTube’s player (no ads); youtube mode uses youtub
   }
 });
 
-test('auto mode never plays a clip, even if /match also fails', async () => {
+test('auto mode plays the catalog clip when /match and the full servers fail', async () => {
   localStorage.clear();
   localStorage.setItem('spotplus.settings', JSON.stringify({ source: 'auto' }));
   const prevFetch = globalThis.fetch;
@@ -155,10 +157,12 @@ test('auto mode never plays a clip, even if /match also fails', async () => {
   });
   globalThis.fetch = async () => new Response('down', { status: 503 });
   try {
-    await assert.rejects(api.resolve(
+    const clip = await api.resolve(
       { id: '9001', title: 'Preview Song', artist: 'Preview Artist', duration: 190 },
       { allowEmbed: true }
-    ));
+    );
+    assert.equal(clip.kind, 'preview');
+    assert.equal(clip.url, 'https://cdnt-preview.dzcdn.net/api/1/1/preview.mp3');
   } finally {
     dom.setJsonpResponder(null);
     globalThis.fetch = prevFetch;

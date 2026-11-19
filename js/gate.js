@@ -139,6 +139,9 @@ async function boot() {
     delete document.documentElement.dataset.maintenance;
     document.getElementById('maintenanceScreen')?.remove();
     cleanAccessUrl();
+    // Same order as a session that got past the gate: library first, then the player.
+    await store.ready();
+    await loadLinks().catch(() => null);
     await import('./app.js');
     return;
   }

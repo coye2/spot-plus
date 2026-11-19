@@ -1,6 +1,9 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.44', date: '2026-11-19', title: 'Songs start when the relay is blocked', items: [
+    'Automatic still uses Claude’s 1.9.42 player. If YouTube refuses the full-song relay, the song starts from a preview instead of sitting silent.',
+  ]},
   {version: '1.9.43', date: '2026-11-19', title: 'Spot+ is open again', items: [
     'The maintenance screen is off. Opening Spot+ loads the app.',
   ]},

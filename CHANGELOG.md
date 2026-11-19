@@ -2,6 +2,11 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.44 — Songs start when the relay is blocked
+_2026-11-19_
+
+- Automatic still uses Claude’s 1.9.42 player. If YouTube refuses the full-song relay, the song starts from a preview instead of sitting silent.
+
 ## 1.9.43 — Spot+ is open again
 _2026-11-19_
 

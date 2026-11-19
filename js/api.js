@@ -369,6 +369,12 @@ export async function relayStream(track, signal, matches) {
     const url = `${RELAY_ENDPOINT}?id=${id}&fmt=${fmt}`;
     const r = await fetch(url, {headers: {Range: 'bytes=0-1'}, signal: probeSignal, credentials: 'omit'});
     if (r.status === 404 && !(r.headers.get('content-type') || '').includes('json')) { relayOff = Date.now() + 30 * 60e3; throw new Error('Relay is not deployed'); }
+    if (r.status === 502 || r.status === 503) {
+      // YouTube's bot check is a burst. Stop this song waiting on it; try the relay again shortly.
+      relayOff = Date.now() + 20e3;
+      r.body?.cancel?.().catch(() => {});
+      throw new Error('Relay is checking for bots');
+    }
     if (r.status !== 206 && r.status !== 200) { r.body?.cancel?.().catch(() => {}); throw new Error('Relay answered ' + r.status); }
     r.body?.cancel?.().catch(() => {});
     const pick = matches.find((m) => m?.id === id) || {};
@@ -1102,17 +1108,11 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
       const embed = youtubeEmbedStream(matches, t);
       if (embed) return embed;
     }
-    // No 30-second clips in Automatic: give the relay one last, patient try (YouTube's bot check on the server
-    // comes and goes), then report the song as unavailable so the player can move on.
-    if (isAuto && !fullOnly && kinds(set.source).includes('ytrelay') && relayOff <= Date.now() && !skip.includes(RELAY_BASE)) {
-      const matches = sharedMatches?.length ? sharedMatches : await (shared ? shared.catch(() => []) : []);
-      // Wider net, as when uploads are unavailable here: lyric videos and other uploads of the same song.
-      const wider = await moreEmbedCandidates(t, matches.map((m) => m?.id), signal).catch(() => []);
-      for (const [wait, list] of [[0, wider.map((id) => ({id}))], [1500, matches]]) {
-        if (wait) await new Promise((ok) => setTimeout(ok, wait));
-        if (signal?.aborted || !list.length) continue;
-        try { return await relayStream(t, signal, list); } catch { /* next round */ }
-      }
+    // The relay already had its turn in the race above. When YouTube is refusing it, start a preview
+    // so the song is heard. A later upgrade still replaces that preview if a full recording appears.
+    if (isAuto && !fullOnly) {
+      const preview = await previewRescue(t);
+      if (preview?.url) return preview;
     }
     throw new Error('No audio server answered. Try Deezer, JioSaavn, HiFi, Audius, your own server in Settings, or a local audio file.');
   } finally { clearTimeout(raceCap); clearTimeout(deadline); control.abort(); }
