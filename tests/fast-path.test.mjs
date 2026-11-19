@@ -1,6 +1,8 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {browserMocks} from './helpers.mjs';browserMocks();
 test('known recording + a server that worked = play right away, no extra server request',async()=>{
   localStorage.setItem('spotplus.goodInstance',JSON.stringify({invidious:'https://inv.example'}));
+  // Auto skips unchecked mirror links; this shortcut is for people who pick Invidious themselves.
+  localStorage.setItem('spotplus.settings',JSON.stringify({source:'invidious'}));
   const calls=[];
   globalThis.fetch=async url=>{calls.push(String(url));
     if(String(url).includes('/match'))return new Response(JSON.stringify({items:[{id:'fHI8X4OXluQ',title:'The Weeknd - Blinding Lights (Official Audio)',channel:'The Weeknd',duration:204}]}));

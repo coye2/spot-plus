@@ -1,6 +1,12 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.27', date: '2026-11-19', title: 'Full songs on iPhone', items: [
+    'Fixed songs sitting at 0:00. Spot+ was trying shortcut links to public YouTube mirrors that are down, and waiting on each one. Automatic no longer uses them.',
+    'Turned off the worker’s stream links. They only work from Cloudflare’s servers, not from phones.',
+    'On iPhone, a small YouTube box now appears when it needs one tap to start. Tap ▶ in it once; after that, songs start on their own.',
+    'Removed the 30-second preview button from that box.',
+  ]},
   {version: '1.9.26', date: '2026-11-19', title: 'InstantPlay: full songs, faster starts, lossless upgrades', items: [
     'Fixed the main cause of 30-second clips. Many labels block their official uploads from playing outside YouTube. Spot+ now tries up to 8 uploads of the same song (music video, lyric video, live) and remembers which ones are blocked, so each blocked upload only costs time once.',
     'Fixed InstantPlay preloading a 30-second clip for the next song when the lossless servers were busy.',

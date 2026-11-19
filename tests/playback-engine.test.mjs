@@ -188,7 +188,7 @@ test('Player state machine exposes lifecycle phases and telemetry metrics', asyn
   assert.ok(metrics.buffer.condition);
 });
 
-test('bridgeStream 404 cooldown prevents repeated /stream overhead on subsequent tracks', async () => {
+test('bridgeStream 404 cooldown prevents repeated /stream overhead on subsequent tracks', {skip: 'The worker /stream bridge is off: its YouTube links are tied to Cloudflare and do not play on phones.'}, async () => {
   localStorage.setItem('spotplus.goodInstance', JSON.stringify({ invidious: 'https://inv-cool.example' }));
   let streamCalls = 0;
   globalThis.fetch = async (url) => {
@@ -209,7 +209,7 @@ test('bridgeStream 404 cooldown prevents repeated /stream overhead on subsequent
   assert.equal(streamCalls, callsAfterFirst);
 });
 
-test('player tries full-length alternatives before ever falling back to a 30s preview', async () => {
+test('player tries full-length alternatives before ever falling back to a 30s preview', {skip: 'The worker /stream bridge is off: its YouTube links are tied to Cloudflare and do not play on phones.'}, async () => {
   localStorage.clear();
   const api = await import('../js/api.js');
   api.clearStreamCache();

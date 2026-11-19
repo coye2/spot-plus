@@ -48,6 +48,7 @@ test('NextAudioBuffer reports readiness without consuming the warm entry', () =>
 browserMocks();
 test('fast path forces AAC on Apple mobile and still offers AAC fallback for Opus', async () => {
   localStorage.setItem('spotplus.goodInstance', JSON.stringify({invidious: 'https://inv.example'}));
+  localStorage.setItem('spotplus.settings', JSON.stringify({source: 'invidious'}));
   Object.defineProperty(globalThis, 'navigator', {
     value: {userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)', platform: 'iPhone', maxTouchPoints: 5},
     configurable: true,

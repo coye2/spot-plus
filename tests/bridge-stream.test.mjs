@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {browserMocks} from './helpers.mjs';
 browserMocks();
-test('InstantPlay uses the Spot+ bridge stream before public mirrors', async () => {
+test('InstantPlay uses the Spot+ bridge stream before public mirrors', {skip: 'The worker /stream bridge is off: its YouTube links are tied to Cloudflare and do not play on phones.'}, async () => {
   localStorage.setItem('spotplus.goodInstance', JSON.stringify({invidious: 'https://dead.example'}));
   const calls = [];
   globalThis.fetch = async (url) => {
@@ -32,7 +32,7 @@ test('InstantPlay uses the Spot+ bridge stream before public mirrors', async () 
   assert.ok(calls.some(u => u.includes('/stream?id=MxEjnYdfLXU')));
   assert.ok(!calls.some(u => u.includes('dead.example')), 'dead mirror never contacted');
 });
-test('a hanging bridge does not delay the direct audio link', async () => {
+test('a hanging bridge does not delay the direct audio link', {skip: 'The worker /stream bridge is off: its YouTube links are tied to Cloudflare and do not play on phones.'}, async () => {
   localStorage.setItem('spotplus.goodInstance', JSON.stringify({invidious: 'https://inv.example'}));
   globalThis.fetch = async (url) => {
     url = String(url);

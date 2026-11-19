@@ -68,6 +68,17 @@ export class YouTubeEmbedPlayer {
     return `https://www.youtube.com/embed/${encodeURIComponent(id)}?enablejsapi=1&autoplay=${autoplay ? 1 : 0}&playsinline=1&rel=0&modestbranding=1${start}${origin}`;
   }
 
+  /** iPhone blocks sound until someone taps YouTube's own button once; ask for that tap if nothing starts. */
+  armTap(gen, ms) {
+    clearTimeout(this.tapTimer);
+    this.tapTimer = setTimeout(() => {
+      if (gen !== this.gen || !this.active || !this.paused || !this.autoplay) return;
+      this.needsTap = true;
+      this.hooks.onNeedsTap?.(true);
+    }, ms);
+    this.tapTimer.unref?.();
+  }
+
   clearTimers() {
     clearTimeout(this.tapTimer); this.tapTimer = null;
     clearTimeout(this.loadTimer); this.loadTimer = null;
@@ -111,6 +122,7 @@ export class YouTubeEmbedPlayer {
       // Swap the song inside the running player: about a third of a second instead of a full reload.
       this.post({event: 'command', func: this.autoplay ? 'loadVideoById' : 'cueVideoById', args: [{videoId: this.videoId, startSeconds: Math.max(0, Math.floor(this.startAt))}]});
       this.post({event: 'command', func: 'setVolume', args: [Math.round(this.volume * 100)]});
+      if (this.autoplay) this.armTap(gen, 2200);
       this.loadTimer = setTimeout(() => {
         // The hot swap did not answer: fall back to a fresh player for this song.
         if (gen !== this.gen || !this.active || this.ready) return;
@@ -159,7 +171,7 @@ export class YouTubeEmbedPlayer {
       if (!wasReady) {
         this.setVolume(this.volume);
         if (this.startAt > 1) this.seek(this.startAt);
-        if (this.autoplay) this.play();
+        if (this.autoplay) { this.play(); this.armTap(gen, 1600); }
         this.hooks.onReady?.();
       }
     }
@@ -170,7 +182,7 @@ export class YouTubeEmbedPlayer {
         clearTimeout(this.loadTimer);
         clearInterval(this.pollTimer);
         this.setVolume(this.volume);
-        if (this.autoplay) this.play();
+        if (this.autoplay) { this.play(); this.armTap(gen, 1600); }
         this.hooks.onReady?.();
       }
       if (typeof info.duration === 'number' && info.duration > 0) this.duration = info.duration;

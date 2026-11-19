@@ -2,6 +2,14 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.27 — Full songs on iPhone
+_2026-11-19_
+
+- Fixed songs sitting at 0:00. Spot+ was trying shortcut links to public YouTube mirrors that are down, and waiting on each one. Automatic no longer uses them.
+- Turned off the worker’s stream links. They only work from Cloudflare’s servers, not from phones.
+- On iPhone, a small YouTube box now appears when it needs one tap to start. Tap ▶ in it once; after that, songs start on their own.
+- Removed the 30-second preview button from that box.
+
 ## 1.9.26 — InstantPlay: full songs, faster starts, lossless upgrades
 _2026-11-19_
 

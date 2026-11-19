@@ -1148,7 +1148,7 @@ function syncPlayer() {
   $$('[data-role=like],[data-role=shuffle],[data-role=repeat],[data-act=prev],[data-act=next],[data-act=np-open],[data-act=np-lyrics]').forEach(b=>b.disabled=!t);
   $$('[data-role=seek]').forEach(b=>b.disabled=!t||!player.canSeek());
   const ytDock=$('#ytDock');
-  if(ytDock){const embed=player.isEmbed()&&store.getSettings().source==='youtube';ytDock.hidden=!embed;ytDock.classList.toggle('visible',embed&&s.needsTap&&!s.ytHidden);}
+  if(ytDock){const embed=player.isEmbed()&&['youtube','auto'].includes(store.getSettings().source);ytDock.hidden=!embed;ytDock.classList.toggle('visible',embed&&s.needsTap&&!s.ytHidden);}
   if (!t) {$('#barArt').src='icons/icon-192.png';$('#barTitle').textContent='Choose something to play';$('#barArtist').textContent='Spot+';$$('[data-role=like]').forEach(b=>setIcon(b,'plus'));$$('[data-role=repeat]').forEach(b=>setIcon(b,'repeat'));return;}
   if (bar.dataset.id !== t.id) {
     bar.dataset.id = t.id;
@@ -1269,7 +1269,7 @@ function syncNP() {
     np.dataset.statsId = t.id;
     getTrackStats(t).then(data=>{if(player.current()?.id!==t.id)return;const count=matchPlayCount(t,data);$('#npPlays').textContent=count?count.plays.toLocaleString()+' plays on Spotify':'';});
   }
-  $('#npSrc').textContent = s.offline ? (t.local?'Local audio · On this device':'Downloaded audio · On this device') : s.source?.preview ? `30-second preview · ${s.source.engineLabel || 'Deezer'}` : s.source?.kind === 'youtube-embed' ? (s.needsTap ? 'YouTube player · Tap play above to start' : 'Full track · YouTube player') : s.source?.engineLabel ? `${s.source.engineLabel} · ${api.host(s.source.instance)}` : s.source ? `Audio · ${api.host(s.source.instance)}` : s.loading ? 'Finding audio… Tap play to cancel.' : s.error?'Audio unavailable. Retry or change audio source.':'Ready to play';
+  $('#npSrc').textContent = s.offline ? (t.local?'Local audio · On this device':'Downloaded audio · On this device') : s.source?.preview ? `30-second preview · ${s.source.engineLabel || 'Deezer'}` : s.source?.kind === 'youtube-embed' ? (s.needsTap ? 'Tap ▶ in the YouTube box below once to unlock full songs' : 'Full track · YouTube player') : s.source?.engineLabel ? `${s.source.engineLabel} · ${api.host(s.source.instance)}` : s.source ? `Audio · ${api.host(s.source.instance)}` : s.loading ? 'Finding audio… Tap play to cancel.' : s.error?'Audio unavailable. Retry or change audio source.':'Ready to play';
   syncCanvas();
   if (npMode === 'queue') renderQueue();
   if (!s.loading) loadLyrics();

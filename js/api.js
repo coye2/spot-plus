@@ -333,8 +333,10 @@ async function bridgeMatches(t, signal) {
     return matches;
   } finally { clearTimeout(timer); }
 }
+// The worker's /stream hands out YouTube links tied to Cloudflare's address, which phones cannot play. Off.
+const BRIDGE_STREAM_ON = false;
 export async function bridgeStream(videoId, { signal, preferAac = false, timeoutMs = 900 } = {}) {
-  if (!videoId || streamDown > Date.now() || !router.isAvailable(STREAM_ENDPOINT)) return null;
+  if (!BRIDGE_STREAM_ON || !videoId || streamDown > Date.now() || !router.isAvailable(STREAM_ENDPOINT)) return null;
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), timeoutMs);
   const combined = signal ? AbortSignal.any([signal, ctl.signal]) : ctl.signal;
   let onAbort = null;
@@ -1046,7 +1048,9 @@ export function instantMirrors(videoId, bases, { opus = false } = {}) {
   }));
 }
 async function fastStream(t,{cached,shared,set,cors,skip,signal}){
-  if(['piped','audius','preview','deezer','youtube','jiosaavn','hifi'].includes(set.source))return null;
+  // Unchecked mirror links: public Invidious servers are mostly down, and a dead link costs seconds of
+  // silence before the stall check gives up. Auto uses checked servers and YouTube's player instead.
+  if(['auto','piped','audius','preview','deezer','youtube','jiosaavn','hifi'].includes(set.source))return null;
   const customMirrors = (set.customInvidious || '').split(/[\s,]+/).map(clean).filter(isAllowedCustomOrigin);
   const hasMirrorCandidate = !!(customMirrors.length || lastGood().invidious);
   const bridgeReady = !cors && streamDown <= Date.now() && router.isAvailable(STREAM_ENDPOINT);
