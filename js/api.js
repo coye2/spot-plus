@@ -983,7 +983,8 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
     throw new Error('Could not find a playable YouTube recording for this track.');
   }
 
-  const inst = await instances();
+  // A user-selected YouTube Relay requires no public mirror registry.
+  const inst = ['ytrelay', 'soundcloud'].includes(set.source) ? {} : await instances();
   // Fast path: Invidious servers have a fixed audio address for every recording. With the recording
   // known (saved, or from the shared lookup) and a server that worked for you recently, start playing
   // right away instead of asking a server for the audio links first. Failures fall back to the full search.
@@ -1210,7 +1211,7 @@ export function instantMirrors(videoId, bases, { opus = false } = {}) {
 async function fastStream(t,{cached,shared,set,cors,skip,signal}){
   // Unchecked mirror links: public Invidious servers are mostly down, and a dead link costs seconds of
   // silence before the stall check gives up. Auto uses checked servers and YouTube's player instead.
-  if(['auto','piped','audius','preview','deezer','youtube','jiosaavn','hifi'].includes(set.source))return null;
+  if(['auto','piped','audius','preview','deezer','youtube','jiosaavn','hifi','ytrelay','soundcloud'].includes(set.source))return null;
   const customMirrors = (set.customInvidious || '').split(/[\s,]+/).map(clean).filter(isAllowedCustomOrigin);
   const hasMirrorCandidate = !!(customMirrors.length || lastGood().invidious);
   const bridgeReady = !cors && streamDown <= Date.now() && router.isAvailable(STREAM_ENDPOINT);
