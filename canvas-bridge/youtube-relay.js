@@ -73,84 +73,148 @@ async function resolveLink(id, {fetcher, cache, waitUntil, fresh = false, fmt = 
   return entry;
 }
 
-// YouTube serves its audio in bounded slices: an open-ended request ("the rest of the file", which is what
-// Safari asks for) is refused. The relay answers the start with a 1 MB slice (fast first sound), then
-// fetches the rest in bigger slices and joins them into one response. Bigger later slices keep a long
-// track well under Cloudflare's per-request subrequest limit (yt-dlp itself asks for 10 MB at a time).
+// YouTube's upstream refuses unbounded ranges. Return an honest 206 with an exact
+// Content-Range and stitch verified bounded chunks under backpressure.
 export const SLICE = 1 << 20;
 export const NEXT_SLICE = 4 << 20;
 
-function parseRange(header) {
-  const m = /^bytes=(\d*)-(\d*)$/.exec(header || 'bytes=0-');
-  if (!m || (m[1] === '' && m[2] === '')) return null;
-  if (m[1] === '') return {suffix: Number(m[2])};
-  return {start: Number(m[1]), end: m[2] === '' ? null : Number(m[2])};
+const mediaRequest = (url, from, to, signal, fetcher) => fetcher(url, {
+  headers: {Range: 'bytes=' + from + '-' + to, 'User-Agent': UA},
+  redirect: 'follow', signal,
+});
+
+async function discard(response) {
+  try { await response?.body?.cancel?.(); } catch { /* best effort */ }
 }
-const totalOf = (res) => Number((/\/(\d+)\s*$/.exec(res.headers.get('Content-Range') || '') || [])[1]) || 0;
+
+// Do not let an upstream return 5 bytes while claiming 5 MB. An early EOF is
+// a failed stream, not a successful full-length song.
+async function pipeExact(response, expectedBytes, writer) {
+  if (!response.body) throw new Error('Missing upstream audio body');
+  const reader = response.body.getReader();
+  let actual = 0;
+  try {
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      actual += value.byteLength;
+      if (actual > expectedBytes) throw new Error('Audio range exceeded its declared length');
+      await writer.write(value);
+    }
+  } finally { reader.releaseLock(); }
+  if (actual !== expectedBytes) throw new Error('Audio stream truncated: ' + actual + '/' + expectedBytes);
+}
+
+function unsatisfiable(total = 0) {
+  return new Response(null, {
+    status: 416,
+    headers: {'Content-Range': 'bytes */' + (total || '*'), 'Cache-Control': 'no-store'},
+  });
+}
 
 export async function youtubeRelay(request, {fetcher = fetch, cache, waitUntil = () => {}} = {}) {
   const url = new URL(request.url);
   const id = (url.searchParams.get('id') || '').trim();
   if (!/^[\w-]{11}$/.test(id)) return fail(400, 'Provide a YouTube video id');
-  if (request.method !== 'GET' && request.method !== 'HEAD') return fail(405, 'GET only');
+  if (request.method !== 'GET' && request.method !== 'HEAD') return fail(405, 'GET or HEAD only');
   const fmt = Object.hasOwn(FORMATS, url.searchParams.get('fmt') || '') ? url.searchParams.get('fmt') : 'aac';
-  const want = parseRange(request.headers.get('Range'));
-  if (!want || want.suffix !== undefined) return fail(416, 'Bad range');
+  const want = parseRequestRange(request.headers.get('Range'));
+  if (!want) return unsatisfiable();
 
-  // Everything for one request happens here, back to back: YouTube's link only works from the Cloudflare
-  // address that asked for it, and a later request may leave from another address.
-  let link = null, first = null, lastStatus = 0;
-  const firstEnd = want.end === null ? want.start + SLICE - 1 : Math.min(want.end, want.start + SLICE - 1);
+  let link, first, firstSpan, selected, lastStatus = 0, reason = 'Upstream audio unavailable';
   for (const fresh of [false, true]) {
-    try { link = await resolveLink(id, {fetcher, cache, waitUntil, fresh, fmt}); }
-    catch (error) { return fail(502, String(error.message || 'No audio').slice(0, 120)); }
-    first = await fetcher(link.url, {headers: {Range: `bytes=${want.start}-${firstEnd}`, 'User-Agent': UA}, redirect: 'follow'});
-    lastStatus = first.status;
-    if ((first.status === 403 || first.status === 410) && !fresh) { memo.delete(`${fmt}:${id}`); await cache?.delete(linkKey(id, fmt)).catch(() => {}); continue; }
-    break;
-  }
-  if (!first?.ok) return fail(502, 'YouTube refused the audio (' + lastStatus + ')');
-
-  const total = totalOf(first);
-  const last = total ? Math.min(want.end === null ? total - 1 : want.end, total - 1) : firstEnd;
-  const headers = new Headers({'Content-Type': link.mime, 'Accept-Ranges': 'bytes', 'Cache-Control': 'private, max-age=3600', 'X-Spotplus-Source': 'youtube-relay'});
-  if (total) headers.set('Content-Range', `bytes ${want.start}-${last}/${total}`);
-  headers.set('Content-Length', String(last - want.start + 1));
-  if (request.method === 'HEAD') { first.body?.cancel?.(); return new Response(null, {status: 206, headers}); }
-  // One slice covers it (the app's 2-byte check, small seeks): pass it straight through.
-  if (last <= firstEnd) return new Response(first.body, {status: 206, headers});
-
-  // Bigger requests: stream the slices one after another, as one response. If YouTube refuses a slice
-  // (the link aged out or was cut off), get a fresh link once and carry on from the same byte.
-  // Cloudflare's FixedLengthStream keeps the exact Content-Length on a streamed body, which Safari needs.
-  const {readable, writable} = globalThis.FixedLengthStream ? new globalThis.FixedLengthStream(last - want.start + 1) : new TransformStream();
-  const slice = (from, to) => fetcher(link.url, {headers: {Range: `bytes=${from}-${to}`, 'User-Agent': UA}, redirect: 'follow'});
-  const pump = (async () => {
+    if (request.signal?.aborted) return fail(499, 'Playback request cancelled');
     try {
-      await first.body.pipeTo(writable, {preventClose: true});
-      let renewed = false;
-      for (let from = firstEnd + 1; from <= last;) {
-        const to = Math.min(from + NEXT_SLICE - 1, last);
-        let part = await slice(from, to);
-        if ((part.status === 403 || part.status === 410) && !renewed) {
-          renewed = true;
-          part.body?.cancel?.();
-          memo.delete(`${fmt}:${id}`);
-          link = await resolveLink(id, {fetcher, cache, waitUntil, fresh: true, fmt});
-          part = await slice(from, to);
-          // A different file (another format) would corrupt the join, so only carry on with the same size.
-          if (part.ok && totalOf(part) && totalOf(part) !== total) throw new Error('format changed');
-        }
-        if (!part.ok) throw new Error('slice ' + part.status);
-        await part.body.pipeTo(writable, {preventClose: true});
-        from = to + 1;
+      link = await resolveLink(id, {fetcher, cache, waitUntil, fresh, fmt});
+      let totalHint = Number(link.length) || 0;
+      if (want.suffix !== undefined && !totalHint) {
+        // Suffix ranges are uncommon but valid; discover the length using one byte.
+        const sizeProbe = await mediaRequest(link.url, 0, 0, request.signal, fetcher);
+        const sizeSpan = validateUpstreamRange(sizeProbe, 0, 0);
+        totalHint = sizeSpan?.total || 0;
+        await discard(sizeProbe);
       }
-      await writable.close();
+      selected = want.suffix !== undefined
+        ? resolveRequestRange(want, totalHint)
+        : (totalHint ? resolveRequestRange(want, totalHint) : {start: want.start, end: want.end});
+      if (!selected) return unsatisfiable(totalHint);
+      const firstEnd = Math.min(selected.end ?? (selected.start + SLICE - 1), selected.start + SLICE - 1);
+      first = await mediaRequest(link.url, selected.start, firstEnd, request.signal, fetcher);
+      lastStatus = first.status;
+      firstSpan = validateUpstreamRange(first, selected.start, firstEnd, totalHint);
+      if (firstSpan && first.body) break;
+      reason = 'Unverified upstream range (' + first.status + ')';
+      await discard(first);
+      first = null;
+      memo.delete(fmt + ':' + id);
+      await cache?.delete(linkKey(id, fmt)).catch(() => {});
     } catch (error) {
-      // The player sees a short response and simply asks again for the rest.
-      await writable.abort(error).catch(() => {});
+      reason = String(error?.message || error).slice(0, 120);
+      first = null;
     }
+  }
+  if (!first || !firstSpan) return fail(502, 'YouTube relay failed: ' + reason + (lastStatus ? ' (' + lastStatus + ')' : ''));
+
+  const total = firstSpan.total;
+  selected = resolveRequestRange(want, total);
+  if (!selected) { await discard(first); return unsatisfiable(total); }
+  const last = selected.end;
+  const expected = last - selected.start + 1;
+  const headers = new Headers({
+    'Content-Type': link.mime,
+    'Accept-Ranges': 'bytes',
+    'Content-Range': 'bytes ' + selected.start + '-' + last + '/' + total,
+    'Cache-Control': 'no-store',
+    'X-Spotplus-Source': 'youtube-relay',
+    'X-Spotplus-Itag': String(link.itag || 0),
+  });
+  if (link.duration > 0) headers.set('X-Spotplus-Duration', String(link.duration));
+  headers.set('Content-Length', String(expected));
+  if (request.method === 'HEAD') { await discard(first); return new Response(null, {status: 206, headers}); }
+
+  // FixedLengthStream is required by Cloudflare to preserve Content-Length.
+  // The TransformStream branch is for node:test's standard WHATWG stream mocks.
+  const {readable, writable} = globalThis.FixedLengthStream
+    ? new globalThis.FixedLengthStream(expected) : new TransformStream();
+  const task = (async () => {
+    const writer = writable.getWriter();
+    let active = first;
+    try {
+      await pipeExact(first, firstSpan.length, writer);
+      active = null;
+      let renewed = false;
+      for (let from = firstSpan.end + 1; from <= last;) {
+        if (request.signal?.aborted) throw new Error('Listener disconnected');
+        const to = Math.min(from + NEXT_SLICE - 1, last);
+        let part = await mediaRequest(link.url, from, to, request.signal, fetcher);
+        active = part;
+        let span = validateUpstreamRange(part, from, to, total);
+        if (!span && !renewed) {
+          renewed = true;
+          await discard(part);
+          memo.delete(fmt + ':' + id);
+          await cache?.delete(linkKey(id, fmt)).catch(() => {});
+          const newer = await resolveLink(id, {fetcher, cache, waitUntil, fresh: true, fmt});
+          // A new itag or file length would splice two different encodings and corrupt the song.
+          if (newer.mime !== link.mime ||
+              (link.itag && newer.itag && link.itag !== newer.itag) ||
+              (newer.length && newer.length !== total)) throw new Error('Upstream audio format changed');
+          link = newer;
+          part = await mediaRequest(link.url, from, to, request.signal, fetcher);
+          active = part;
+          span = validateUpstreamRange(part, from, to, total);
+        }
+        if (!span) throw new Error('Upstream returned an invalid or incomplete range');
+        await pipeExact(part, span.length, writer);
+        active = null;
+        from = span.end + 1;
+      }
+      await writer.close();
+    } catch (error) {
+      await discard(active);
+      try { await writer.abort(error); } catch { /* listener already gone */ }
+    } finally { writer.releaseLock(); }
   })();
-  waitUntil(pump);
+  waitUntil(task);
   return new Response(readable, {status: 206, headers});
 }
