@@ -1,6 +1,12 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.31', date: '2026-11-19', title: 'Full YouTube songs in Spot+’s own player', items: [
+    'New: YouTube audio through the Spot+ server. Full songs play in Spot+’s own player instead of YouTube’s, so there are no ads and no extra tap, on iPhone too.',
+    'Background playback, lock-screen controls and the queue work like any other Spot+ song.',
+    'Spot+ checks that the audio really streams before it plays a song from this source.',
+    'YouTube’s player (with ads) is now only a backup when this doesn’t work.',
+  ]},
   {version: '1.9.30', date: '2026-11-19', title: 'SoundCloud: full songs, no ads, no extra tap', items: [
     'New audio source: SoundCloud through its official API. Songs play in Spot+’s own player straight from your tap, with no YouTube box, no ads, and sound in about a third of a second, on iPhone too.',
     'Automatic tries SoundCloud first and waits for it a moment before YouTube’s player, so most songs play ad-free.',

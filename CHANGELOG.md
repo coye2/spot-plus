@@ -2,6 +2,14 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.31 — Full YouTube songs in Spot+’s own player
+_2026-11-19_
+
+- New: YouTube audio through the Spot+ server. Full songs play in Spot+’s own player instead of YouTube’s, so there are no ads and no extra tap, on iPhone too.
+- Background playback, lock-screen controls and the queue work like any other Spot+ song.
+- Spot+ checks that the audio really streams before it plays a song from this source.
+- YouTube’s player (with ads) is now only a backup when this doesn’t work.
+
 ## 1.9.30 — SoundCloud: full songs, no ads, no extra tap
 _2026-11-19_
 

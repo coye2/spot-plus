@@ -333,13 +333,46 @@ async function soundcloudStream(track, signal, ms = 3000) {
   } finally { clearTimeout(timer); }
 }
 export const soundcloudReady = () => scOff <= Date.now();
+
+// Full YouTube audio relayed through the Spot+ worker into Spot+'s own player (no YouTube player, no ads,
+// no extra tap). Unofficial: depends on YouTube's internal API and can break when YouTube changes it.
+export const RELAY_ENDPOINT = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/yta';
+const RELAY_BASE = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/yta';
+let relayOff = 0;
+async function relayStream(track, signal, matches) {
+  if (relayOff > Date.now()) throw new Error('Relay is off');
+  const ids = uniq((matches || []).map((m) => m?.id).filter((id) => /^[\w-]{11}$/.test(id || ''))).slice(0, 3);
+  if (!ids.length) throw new Error('No YouTube match');
+  let last = 'No audio';
+  for (const id of ids) {
+    const url = `${RELAY_ENDPOINT}?id=${id}`;
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 4500);
+    try {
+      // Ask for two bytes: proves the relay really streams this song before the player commits to it.
+      const r = await fetch(url, {headers: {Range: 'bytes=0-1'}, signal: signal ? AbortSignal.any([signal, ctl.signal]) : ctl.signal, credentials: 'omit'});
+      if (r.status === 404 && !(r.headers.get('content-type') || '').includes('json')) { relayOff = Date.now() + 30 * 60e3; throw new Error('Relay is not deployed'); }
+      if (r.status === 206 || r.status === 200) {
+        r.body?.cancel?.().catch(() => {});
+        const pick = matches.find((m) => m?.id === id) || {};
+        return {url, mime: (r.headers.get('content-type') || 'audio/mp4').split(';')[0], bitrate: 128000, kind: 'ytrelay', engineLabel: 'YouTube audio', instance: RELAY_BASE, videoId: id, catalogId: id, title: pick.title, channel: pick.channel || pick.author, duration: pick.duration || track.duration, alternatives: []};
+      }
+      last = 'Relay answered ' + r.status;
+    } catch (e) { if (signal?.aborted || relayOff > Date.now()) throw e; last = e.message; }
+    finally { clearTimeout(timer); }
+  }
+  throw new Error(last);
+}
 // Ask the worker once (on the first song) whether SoundCloud is set up, so nothing waits on it when it is not.
 let scKnown = '';
+let relayKnown = '';
 let scCheck = null;
 function checkSoundcloud() {
   if (scCheck) return scCheck;
   scCheck = fetch(SC_ENDPOINT.replace(/\/sc$/, '/health'), {credentials: 'omit'}).then((r) => r.json())
-    .then((h) => { scKnown = h?.sc ? 'on' : 'off'; if (!h?.sc) scOff = Date.now() + 30 * 60e3; })
+    .then((h) => {
+      scKnown = h?.sc ? 'on' : 'off'; if (!h?.sc) scOff = Date.now() + 30 * 60e3;
+      relayKnown = h?.relay ? 'on' : 'off'; if (!h?.relay) relayOff = Date.now() + 30 * 60e3;
+    })
     .catch(() => { scKnown = 'off'; scOff = Date.now() + 5 * 60e3; });
   return scCheck;
 }
@@ -361,6 +394,8 @@ export function embedWait(t, now = Date.now()) {
   if (directDown > now) return 0;
   // SoundCloud plays ad-free straight from the tap; give it a moment before YouTube's player.
   if (scOff <= now && scKnown === 'on') return 1800;
+  // The relay plays the same full YouTube songs in Spot+'s own player, without ads; let it answer first.
+  if (relayOff <= now && relayKnown === 'on') return 3000;
   if (scOff <= now && !scKnown) return 900;
   if (appleMobile() && !embedUnlocked) return 2600;
   return 0;
@@ -727,6 +762,7 @@ export async function resolveVideoLoop(track, {signal, source, skip = []} = {}) 
 
 function kinds(s = getSettings().source) {
   if (s === 'soundcloud') return ['soundcloud'];
+  if (s === 'ytrelay') return ['ytrelay'];
   if (s === 'jiosaavn') return ['jiosaavn'];
   if (s === 'hifi') return ['hifi'];
   if (s === 'piped') return ['piped'];
@@ -734,7 +770,7 @@ function kinds(s = getSettings().source) {
   if (s === 'audius') return ['audius'];
   if (s === 'youtube') return ['youtube'];
   // HiFi relays are inactive and public Invidious/Piped servers are blocked by YouTube (their links stall).
-  return ['soundcloud', 'monochrome', 'jiosaavn'];
+  return ['soundcloud', 'ytrelay', 'monochrome', 'jiosaavn'];
 }
 
 export async function previewStream(t) {
@@ -904,7 +940,8 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
     const ytKinds = activeKinds.filter((k) => ['piped', 'invidious'].includes(k));
     const streamGroups = ytKinds.map((kind) => orderedInstances(kind, inst, set).slice(0, perKind).map((base) => ({ kind, base })));
     const sources = [];
-    if (activeKinds.includes('soundcloud')) checkSoundcloud();
+    if (activeKinds.includes('soundcloud') || activeKinds.includes('ytrelay')) checkSoundcloud();
+    if (activeKinds.includes('ytrelay') && !skip.includes(RELAY_BASE) && relayOff <= Date.now()) sources.push({ kind: 'ytrelay', base: RELAY_BASE });
     if (activeKinds.includes('soundcloud') && !skip.includes(SC_BASE) && scOff <= Date.now()) sources.push({ kind: 'soundcloud', base: SC_BASE });
     if (activeKinds.includes('monochrome') && !skip.includes(MONO_BASE)) sources.push({ kind: 'monochrome', base: MONO_BASE });
     if (activeKinds.includes('jiosaavn')) {
@@ -927,6 +964,7 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
       try {
         let value;
         if (kind === 'soundcloud') value = await soundcloudStream(t, raceSignal);
+        else if (kind === 'ytrelay') value = await relayStream(t, raceSignal, sharedMatches?.length ? sharedMatches : await (shared || Promise.resolve([])));
         else if (kind === 'monochrome') value = await monochromeStream(base, t, raceSignal, reqMs);
         else if (kind === 'audius') value = await audiusStream(t, raceSignal);
         else if (kind === 'jiosaavn') value = await jiosaavnStream(base, t, raceSignal, reqMs);

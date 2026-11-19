@@ -122,7 +122,7 @@ export function shapeStream(format, videoId, engine = 'bridge', alternatives = [
   };
 }
 
-async function innertubeStream(videoId, {fetcher, preferAac}) {
+export async function innertubeStream(videoId, {fetcher, preferAac}) {
   await ensureVisitor(fetcher);
   const attempt = async (profile = 'android_vr') => {
     const controller = new AbortController();
