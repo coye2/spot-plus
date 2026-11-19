@@ -2,6 +2,11 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.41 — Backgrounds sized for your screen
+_2026-11-19_
+
+- On a phone, Backgrounds shows tall phone wallpapers from Alpha Coders; on a computer, wide ones. No more stretched or cropped-to-nothing backgrounds.
+
 ## 1.9.40 — Correct song times, and no more stuck playback
 _2026-11-19_
 

@@ -1,6 +1,9 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.41', date: '2026-11-19', title: 'Backgrounds sized for your screen', items: [
+    'On a phone, Backgrounds shows tall phone wallpapers from Alpha Coders; on a computer, wide ones. No more stretched or cropped-to-nothing backgrounds.',
+  ]},
   {version: '1.9.40', date: '2026-11-19', title: 'Correct song times, and no more stuck playback', items: [
     'Song times are right again on iPhone. Songs showed 6–9 minutes because Safari guessed the length from the file size; Spot+ now uses the real length from YouTube.',
     'Fixed songs refusing to play until the app was restarted: one failed check of the Spot+ server (often right after the phone wakes up) switched the YouTube audio off for 5 minutes. It now just checks again.',

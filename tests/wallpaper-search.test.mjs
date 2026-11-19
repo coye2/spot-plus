@@ -36,3 +36,11 @@ test('a searched wallpaper survives in settings but only points at Alpha Coders 
   assert.equal(normalizeScene({kind:'catalog',id:'412036',item:{...item, host:'evil'}}).item, undefined);
   assert.equal(sceneFor('catalog', 'nope', null).item, undefined);
 });
+
+test('phones get portrait phone wallpapers; desktops keep landscape', () => {
+  const html = block('https://mfiles.alphacoders.com/101/1018746.png', 'Cabin iPhone Wallpaper', 0, 0, 'Minecraft, cabin, phone wallpaper')
+    + block('https://images2.alphacoders.com/138/1389054.jpg', 'Wide', 1920, 1080);
+  assert.deepEqual(parseWallpapers(html, {device: 'phone'}).map(i => [i.host, i.name]), [['mfiles', 'Cabin']]);
+  assert.deepEqual(parseWallpapers(html).map(i => i.host), ['images2']);
+  assert.equal(liveItem({id: '1018746', host: 'mfiles', folder: '101', ext: 'png'}).host, 'mfiles');
+});
