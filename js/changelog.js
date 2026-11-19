@@ -1,6 +1,10 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.36', date: '2026-11-19', title: 'Spotube-style audio', items: [
+    'Higher quality: Opus 160 kbps on Android and computers, AAC on iPhone. Data saver in Settings → Playback switches to a light 48 kbps stream.',
+    'Skips the non-music parts of YouTube uploads (spoken intros, skits, long outros) using SponsorBlock, like Spotube.',
+  ]},
   {version: '1.9.35', date: '2026-11-19', title: 'Maintenance', items: [
     'Spot+ is down for maintenance while playback is upgraded. It will be back soon.',
   ]},

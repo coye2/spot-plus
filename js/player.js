@@ -11,6 +11,7 @@ import {
   stallBudget,
 } from './playback-policy.js';
 import { YouTubeEmbedPlayer } from './yt-embed.js';
+import * as sponsor from './sponsorblock.js';
 import { telemetry } from './playback-telemetry.js';
 import { bufferEngine, classifyFailure, inspectSeek } from './buffer-engine.js';
 import { predictUpcoming, SkipTracker, ActivationTracker } from './predictive-pipeline.js';
@@ -1016,6 +1017,21 @@ api.onEmbedFound?.((id) => {
 /* ---------- Audio element events ---------- */
 let lastSave = 0, lastPos = 0;
 const boundAudio = new WeakSet();
+// SponsorBlock, as in Spotube: skip parts of a YouTube upload marked as not music (spoken intros, skits, outros).
+let sbVideo = '', sbSegments = [];
+function skipNonMusic() {
+  const vid = state.source?.kind === 'ytrelay' ? state.source.videoId || '' : '';
+  if (vid !== sbVideo) {
+    sbVideo = vid; sbSegments = [];
+    if (vid) sponsor.segmentsFor(vid).then((list) => { if (sbVideo === vid) sbSegments = list; }).catch(() => {});
+  }
+  if (!sbSegments.length || audio.paused || state.loading) return;
+  const to = sponsor.skipTarget(sbSegments, audio.currentTime || 0, audio.duration || 0);
+  if (to === null) return;
+  // An outro that runs to the end finishes the song, which moves the queue on as usual.
+  try { audio.currentTime = Number.isFinite(to) ? to : Math.max(0, (audio.duration || 0) - 0.05); } catch { /* not seekable yet */ }
+}
+
 function bindAudio(media) {
   if (boundAudio.has(media)) return;
   boundAudio.add(media);
@@ -1089,6 +1105,7 @@ function bindAudio(media) {
     emit('state');
   });
   listen('timeupdate', () => {
+    skipNonMusic();
     if (isRealSrc() && (audio.currentTime || 0) > 0.35 && !audio.paused) clearStall();
     if (isRealSrc() && audio.currentTime > 0) restorePos = 0;
     bufferEngine.recordBufferProgress(audio, state.source?.bitrate || 128_000);

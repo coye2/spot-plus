@@ -339,6 +339,15 @@ export const soundcloudReady = () => scOff <= Date.now();
 export const RELAY_ENDPOINT = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/yta';
 const RELAY_BASE = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/yta';
 let relayOff = 0;
+/** Spotube-style quality: Opus 160 kbps where it plays, AAC 128 kbps on iPhone/Safari, or the data-saver tier. */
+export function relayFormat(quality = getSettings().quality, ua = globalThis.navigator?.userAgent || '') {
+  const apple = appleMobile() || (/Safari\//.test(ua) && !/Chrome|Chromium|CriOS|Android|Edg/.test(ua));
+  let opus = false;
+  try { opus = !apple && !!globalThis.document?.createElement('audio').canPlayType('audio/webm; codecs="opus"'); } catch { opus = false; }
+  if (quality === 'low') return opus ? 'low-opus' : 'low';
+  return opus ? 'opus' : 'aac';
+}
+const RELAY_BITRATE = {opus: 160000, aac: 128000, low: 48000, 'low-opus': 50000};
 async function relayStream(track, signal, matches) {
   if (relayOff > Date.now()) throw new Error('Relay is off');
   const ids = uniq((matches || []).map((m) => m?.id).filter((id) => /^[\w-]{11}$/.test(id || ''))).slice(0, 3);
@@ -346,7 +355,8 @@ async function relayStream(track, signal, matches) {
   let last = 'No audio';
   // Two rounds: YouTube's bot check on the server comes and goes, and each new request gets a fresh session.
   for (const id of [...ids, ...ids.slice(0, 2)]) {
-    const url = `${RELAY_ENDPOINT}?id=${id}`;
+    const fmt = relayFormat();
+    const url = `${RELAY_ENDPOINT}?id=${id}&fmt=${fmt}`;
     const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 7000);
     try {
       // Ask for two bytes: proves the relay really streams this song before the player commits to it.
@@ -355,7 +365,7 @@ async function relayStream(track, signal, matches) {
       if (r.status === 206 || r.status === 200) {
         r.body?.cancel?.().catch(() => {});
         const pick = matches.find((m) => m?.id === id) || {};
-        return {url, mime: (r.headers.get('content-type') || 'audio/mp4').split(';')[0], bitrate: 128000, kind: 'ytrelay', engineLabel: 'YouTube audio', instance: RELAY_BASE, videoId: id, catalogId: id, title: pick.title, channel: pick.channel || pick.author, duration: pick.duration || track.duration, alternatives: []};
+        return {url, mime: (r.headers.get('content-type') || 'audio/mp4').split(';')[0], bitrate: RELAY_BITRATE[fmt] || 128000, kind: 'ytrelay', engineLabel: 'YouTube audio', instance: RELAY_BASE, videoId: id, catalogId: id, title: pick.title, channel: pick.channel || pick.author, duration: pick.duration || track.duration, alternatives: []};
       }
       last = 'Relay answered ' + r.status;
     } catch (e) { if (signal?.aborted || relayOff > Date.now()) throw e; last = e.message; }

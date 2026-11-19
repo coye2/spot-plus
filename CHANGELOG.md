@@ -2,6 +2,12 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.36 — Spotube-style audio
+_2026-11-19_
+
+- Higher quality: Opus 160 kbps on Android and computers, AAC on iPhone. Data saver in Settings → Playback switches to a light 48 kbps stream.
+- Skips the non-music parts of YouTube uploads (spoken intros, skits, long outros) using SponsorBlock, like Spotube.
+
 ## 1.9.35 — Maintenance
 _2026-11-19_
 

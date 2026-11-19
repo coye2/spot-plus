@@ -22,7 +22,7 @@ const PLAYER = 'https://www.youtube.com/youtubei/v1/player';
 const VISITOR = 'https://youtubei.googleapis.com/youtubei/v1/visitor_id';
 
 // Prefer AAC for InstantPlay on iPhone; Opus is fine elsewhere when the client asks.
-export const AUDIO_ITAGS = {aac: 140, opus: 251, opus70: 250, opus50: 249};
+export const AUDIO_ITAGS = {aac: 140, opus: 251, opus70: 250, opus50: 249, aacLow: 139};
 
 let visitorData = '';
 let visitorFetched = 0;
@@ -78,14 +78,14 @@ export async function ensureVisitor(fetcher = fetch, {force = false} = {}) {
   finally { clearTimeout(timer); }
 }
 
-export function pickAudioFormat(formats, {preferAac = false} = {}) {
+export function pickAudioFormat(formats, {preferAac = false, order: wanted = null} = {}) {
   const direct = (formats || []).filter(f =>
     typeof f?.url === 'string' && f.url.startsWith('https://') &&
     String(f.mimeType || f.type || '').toLowerCase().startsWith('audio/'));
   if (!direct.length) return null;
-  const order = preferAac
+  const order = wanted || (preferAac
     ? [AUDIO_ITAGS.aac, AUDIO_ITAGS.opus, AUDIO_ITAGS.opus70, AUDIO_ITAGS.opus50]
-    : [AUDIO_ITAGS.opus, AUDIO_ITAGS.aac, AUDIO_ITAGS.opus70, AUDIO_ITAGS.opus50];
+    : [AUDIO_ITAGS.opus, AUDIO_ITAGS.aac, AUDIO_ITAGS.opus70, AUDIO_ITAGS.opus50]);
   for (const itag of order) {
     const hit = direct.find(f => Number(f.itag) === itag);
     if (hit) return hit;
@@ -122,7 +122,7 @@ export function shapeStream(format, videoId, engine = 'bridge', alternatives = [
   };
 }
 
-export async function innertubeStream(videoId, {fetcher, preferAac}) {
+export async function innertubeStream(videoId, {fetcher, preferAac, order = null}) {
   await ensureVisitor(fetcher);
   const attempt = async (profile = 'android_vr') => {
     const controller = new AbortController();
@@ -155,7 +155,7 @@ export async function innertubeStream(videoId, {fetcher, preferAac}) {
         return {error: status, reason: data?.playabilityStatus?.reason || '', login: status === 'LOGIN_REQUIRED'};
       }
       const formats = data?.streamingData?.adaptiveFormats || data?.streamingData?.formats || [];
-      const picked = pickAudioFormat(formats, {preferAac});
+      const picked = pickAudioFormat(formats, {preferAac, order});
       if (!picked) return {error: 'No direct audio URL'};
       // Include a companion AAC fallback when Opus was chosen so Safari/constrained decoders stay covered.
       const extra = [];

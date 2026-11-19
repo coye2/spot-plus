@@ -66,3 +66,26 @@ test('/yta retries with a fresh YouTube session after a bot check', async () => 
   assert.equal(r.status, 206);
   assert.ok(visitors >= 2, 'asked YouTube for a new session');
 });
+
+test('/yta picks the format the app asks for, like Spotube’s quality setting', async () => {
+  const formats = [
+    {itag: 140, mimeType: 'audio/mp4; codecs="mp4a.40.2"', bitrate: 130000, url: 'https://rr1.googlevideo.com/videoplayback?itag=140&expire=9999999999'},
+    {itag: 139, mimeType: 'audio/mp4; codecs="mp4a.40.5"', bitrate: 48000, url: 'https://rr1.googlevideo.com/videoplayback?itag=139&expire=9999999999'},
+    {itag: 251, mimeType: 'audio/webm; codecs="opus"', bitrate: 160000, url: 'https://rr1.googlevideo.com/videoplayback?itag=251&expire=9999999999'},
+  ];
+  const seen = [];
+  const fetcher = async (url) => {
+    const u = String(url);
+    if (u.includes('visitor_id')) return new Response(JSON.stringify({responseContext: {visitorData: 'v'}}));
+    if (u.includes('/youtubei/v1/player')) return new Response(JSON.stringify({playabilityStatus: {status: 'OK'}, streamingData: {adaptiveFormats: formats}}));
+    seen.push(u);
+    return new Response('A', {status: 206, headers: {'Content-Range': 'bytes 0-0/9'}});
+  };
+  const types = {};
+  for (const [fmt, id] of [['opus', 'eeeeeeeeee1'], ['aac', 'eeeeeeeeee2'], ['low', 'eeeeeeeeee3']]) {
+    const r = await youtubeRelay(new Request(`https://w.dev/yta?id=${id}&fmt=${fmt}`), {fetcher});
+    types[fmt] = r.headers.get('Content-Type');
+  }
+  assert.deepEqual(seen.map(u => new URL(u).searchParams.get('itag')), ['251', '140', '139']);
+  assert.deepEqual(types, {opus: 'audio/webm', aac: 'audio/mp4', low: 'audio/mp4'});
+});
