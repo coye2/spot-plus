@@ -1,6 +1,11 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.30', date: '2026-11-19', title: 'SoundCloud: full songs, no ads, no extra tap', items: [
+    'New audio source: SoundCloud through its official API. Songs play in Spot+’s own player straight from your tap, with no YouTube box, no ads, and sound in about a third of a second, on iPhone too.',
+    'Automatic tries SoundCloud first and waits for it a moment before YouTube’s player, so most songs play ad-free.',
+    'Turns on once the Spot+ server has a SoundCloud app key.',
+  ]},
   {version: '1.9.29', date: '2026-11-19', title: 'Spot+ for iPhone app', items: [
     'New iPhone app: SpotPlus.ipa on the GitHub releases page (ios-latest). In it, one tap on a song plays it, with no tap in the YouTube box, and music keeps playing with the screen off.',
     'Install it from a computer with Sideloadly or AltStore. With a free Apple ID it needs re-signing every 7 days.',

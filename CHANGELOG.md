@@ -2,6 +2,13 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.30 — SoundCloud: full songs, no ads, no extra tap
+_2026-11-19_
+
+- New audio source: SoundCloud through its official API. Songs play in Spot+’s own player straight from your tap, with no YouTube box, no ads, and sound in about a third of a second, on iPhone too.
+- Automatic tries SoundCloud first and waits for it a moment before YouTube’s player, so most songs play ad-free.
+- Turns on once the Spot+ server has a SoundCloud app key.
+
 ## 1.9.29 — Spot+ for iPhone app
 _2026-11-19_
 

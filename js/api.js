@@ -315,6 +315,34 @@ export function instances(force = false) {
 // Shared match & stream lookup on the Spot+ bridge: edge-cached search and stream resolution.
 export const MATCH_ENDPOINT = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/match';
 export const STREAM_ENDPOINT = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/stream';
+// Full songs from SoundCloud's official API through the worker (off until the worker has a SoundCloud key).
+export const SC_ENDPOINT = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/sc';
+const SC_BASE = 'https://soundcloud.com';
+let scOff = 0;
+async function soundcloudStream(track, signal, ms = 3000) {
+  if (scOff > Date.now()) throw new Error('SoundCloud is not set up');
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), ms);
+  try {
+    const params = new URLSearchParams({title: track.searchTitle || track.title || '', artist: track.artist || '', album: track.album || '', duration: String(Math.round(Number(track.duration) || 0))});
+    const r = await fetch(`${SC_ENDPOINT}?${params}`, {signal: signal ? AbortSignal.any([signal, ctl.signal]) : ctl.signal, credentials: 'omit'});
+    if (r.status === 503 || r.status === 404 && !r.headers.get('content-type')?.includes('json')) scOff = Date.now() + 30 * 60e3;
+    if (!r.ok) throw new Error('Not on SoundCloud');
+    const d = await r.json();
+    if (!/^https:\/\//.test(d.url || '')) throw new Error('No SoundCloud link');
+    return {url: d.url, mime: 'audio/mpeg', bitrate: 128000, kind: 'soundcloud', engineLabel: 'SoundCloud', instance: SC_BASE, title: d.title, channel: d.artist, duration: d.duration || track.duration, verified: true, alternatives: []};
+  } finally { clearTimeout(timer); }
+}
+export const soundcloudReady = () => scOff <= Date.now();
+// Ask the worker once (on the first song) whether SoundCloud is set up, so nothing waits on it when it is not.
+let scKnown = '';
+let scCheck = null;
+function checkSoundcloud() {
+  if (scCheck) return scCheck;
+  scCheck = fetch(SC_ENDPOINT.replace(/\/sc$/, '/health'), {credentials: 'omit'}).then((r) => r.json())
+    .then((h) => { scKnown = h?.sc ? 'on' : 'off'; if (!h?.sc) scOff = Date.now() + 30 * 60e3; })
+    .catch(() => { scKnown = 'off'; scOff = Date.now() + 5 * 60e3; });
+  return scCheck;
+}
 let matchDown = 0;
 let streamDown = 0;
 // When every direct server failed recently, Auto goes straight to YouTube's player (instant start).
@@ -331,6 +359,9 @@ let embedUnlocked = /SpotPlusApp\//.test(globalThis.navigator?.userAgent || '');
 export function setEmbedUnlocked(on = true) { embedUnlocked = !!on; }
 export function embedWait(t, now = Date.now()) {
   if (directDown > now) return 0;
+  // SoundCloud plays ad-free straight from the tap; give it a moment before YouTube's player.
+  if (scOff <= now && scKnown === 'on') return 1800;
+  if (scOff <= now && !scKnown) return 900;
   if (appleMobile() && !embedUnlocked) return 2600;
   return 0;
 }
@@ -695,6 +726,7 @@ export async function resolveVideoLoop(track, {signal, source, skip = []} = {}) 
 }
 
 function kinds(s = getSettings().source) {
+  if (s === 'soundcloud') return ['soundcloud'];
   if (s === 'jiosaavn') return ['jiosaavn'];
   if (s === 'hifi') return ['hifi'];
   if (s === 'piped') return ['piped'];
@@ -702,7 +734,7 @@ function kinds(s = getSettings().source) {
   if (s === 'audius') return ['audius'];
   if (s === 'youtube') return ['youtube'];
   // HiFi relays are inactive and public Invidious/Piped servers are blocked by YouTube (their links stall).
-  return ['monochrome', 'jiosaavn'];
+  return ['soundcloud', 'monochrome', 'jiosaavn'];
 }
 
 export async function previewStream(t) {
@@ -872,6 +904,8 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
     const ytKinds = activeKinds.filter((k) => ['piped', 'invidious'].includes(k));
     const streamGroups = ytKinds.map((kind) => orderedInstances(kind, inst, set).slice(0, perKind).map((base) => ({ kind, base })));
     const sources = [];
+    if (activeKinds.includes('soundcloud')) checkSoundcloud();
+    if (activeKinds.includes('soundcloud') && !skip.includes(SC_BASE) && scOff <= Date.now()) sources.push({ kind: 'soundcloud', base: SC_BASE });
     if (activeKinds.includes('monochrome') && !skip.includes(MONO_BASE)) sources.push({ kind: 'monochrome', base: MONO_BASE });
     if (activeKinds.includes('jiosaavn')) {
       for (const base of orderedInstances('jiosaavn', inst, set).slice(0, 2)) {
@@ -892,7 +926,8 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
       const began = performance.now();
       try {
         let value;
-        if (kind === 'monochrome') value = await monochromeStream(base, t, raceSignal, reqMs);
+        if (kind === 'soundcloud') value = await soundcloudStream(t, raceSignal);
+        else if (kind === 'monochrome') value = await monochromeStream(base, t, raceSignal, reqMs);
         else if (kind === 'audius') value = await audiusStream(t, raceSignal);
         else if (kind === 'jiosaavn') value = await jiosaavnStream(base, t, raceSignal, reqMs);
         else if (kind === 'hifi') value = await hifiStream(base, t, raceSignal, reqMs);
