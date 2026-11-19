@@ -1,6 +1,10 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.29', date: '2026-11-19', title: 'Spot+ for iPhone app', items: [
+    'New iPhone app: SpotPlus.ipa on the GitHub releases page (ios-latest). In it, one tap on a song plays it, with no tap in the YouTube box, and music keeps playing with the screen off.',
+    'Install it from a computer with Sideloadly or AltStore. With a free Apple ID it needs re-signing every 7 days.',
+  ]},
   {version: '1.9.28', date: '2026-11-19', title: 'InstantPlay: the next song is ready before you ask', items: [
     'A hidden second YouTube player loads the next song in your queue (and the song you touch) ahead of time. Skipping swaps players instead of loading, and the next song starts in under a second.',
     'The YouTube player loads when the app opens, so the first song starts about twice as fast.',

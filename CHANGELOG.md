@@ -2,6 +2,12 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.29 — Spot+ for iPhone app
+_2026-11-19_
+
+- New iPhone app: SpotPlus.ipa on the GitHub releases page (ios-latest). In it, one tap on a song plays it, with no tap in the YouTube box, and music keeps playing with the screen off.
+- Install it from a computer with Sideloadly or AltStore. With a free Apple ID it needs re-signing every 7 days.
+
 ## 1.9.28 — InstantPlay: the next song is ready before you ask
 _2026-11-19_
 
