@@ -351,12 +351,17 @@ const RELAY_BITRATE = {opus: 160000, aac: 128000, low: 48000, 'low-opus': 50000}
 // The relay usually answers in well under a second. When YouTube refuses an upload, the worker spends a few
 // seconds retrying before it gives up, so the next upload starts in parallel after a short wait (hedging)
 // instead of queueing behind it. The first upload that really streams wins; the others are cancelled.
+// Uploads whose stream just dropped are tried last for a few minutes, so a retry lands on another upload.
+const relayAvoid = new Map();
+export function avoidRelayVideo(id) { if (id) relayAvoid.set(id, Date.now() + 5 * 60e3); }
+const avoided = (id) => (relayAvoid.get(id) || 0) > Date.now();
 export const RELAY_HEDGE_MS = 1500;
 const RELAY_PROBE_MS = 9000;
 const RELAY_PARALLEL = 2;
 export async function relayStream(track, signal, matches) {
   if (relayOff > Date.now()) throw new Error('Relay is off');
-  const ids = uniq((matches || []).map((m) => m?.id).filter((id) => /^[\w-]{11}$/.test(id || ''))).slice(0, 3);
+  const all = uniq((matches || []).map((m) => m?.id).filter((id) => /^[\w-]{11}$/.test(id || '')));
+  const ids = [...all.filter((id) => !avoided(id)), ...all.filter(avoided)].slice(0, 3);
   if (!ids.length) throw new Error('No YouTube match');
   const fmt = relayFormat();
   // Ask for two bytes: proves the relay really streams this song before the player commits to it.

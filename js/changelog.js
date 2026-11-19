@@ -1,6 +1,9 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.42', date: '2026-11-19', title: 'Songs recover when a stream drops', items: [
+    'If a song’s stream drops partway, Spot+ retries from the same spot using another upload of the song, instead of giving up on it.',
+  ]},
   {version: '1.9.41', date: '2026-11-19', title: 'Backgrounds sized for your screen', items: [
     'On a phone, Backgrounds shows tall phone wallpapers from Alpha Coders; on a computer, wide ones. No more stretched or cropped-to-nothing backgrounds.',
   ]},

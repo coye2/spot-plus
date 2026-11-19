@@ -352,11 +352,13 @@ function recoverMedia(mediaErr = null) {
   if (diagnosis.retryMode === 'refresh-url') {
     memoryEngine.forgetStream(api.streamKey(cur));
   }
-  if (!state.offline && !cur.local && failed && !failed.preview && errRetries < 2) {
+  const relayFailed = failed?.kind === 'ytrelay';
+  if (!state.offline && !cur.local && failed && !failed.preview && errRetries < (relayFailed ? 3 : 2)) {
     errRetries++;
-    // The relay hands out a fresh YouTube link on every retry, so give it one more go before skipping it.
-    const retryRelay = failed.kind === 'ytrelay' && errRetries === 1;
-    if (retryRelay) memoryEngine.forgetStream(api.streamKey(cur));
+    // A relay stream that drops is usually YouTube refusing that one upload for a moment: try again from the
+    // same spot, preferring another upload of the song, instead of giving up on the relay for this song.
+    const retryRelay = relayFailed;
+    if (retryRelay) { api.avoidRelayVideo(failed.videoId); memoryEngine.forgetStream(api.streamKey(cur)); }
     else if (failed.instance) skipList.push(failed.instance);
     telemetry.endRecovery(recStart, true);
     load({ keepSkip: true, startAt: audio.currentTime || 0 });

@@ -2,6 +2,11 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.42 — Songs recover when a stream drops
+_2026-11-19_
+
+- If a song’s stream drops partway, Spot+ retries from the same spot using another upload of the song, instead of giving up on it.
+
 ## 1.9.41 — Backgrounds sized for your screen
 _2026-11-19_
 
