@@ -10,6 +10,7 @@ import {corsOK, knownCors} from './cors-probe.js';
 import { router, validateSourceCandidate, isVerifiedEquivalent } from './source-router.js';
 import { memoryEngine } from './memory-engine.js';
 import { bufferEngine } from './buffer-engine.js';
+import { nameMatch } from './search-rank.js';
 
 const DEEZER = 'https://api.deezer.com';
 const LRCLIB = 'https://lrclib.net/api';
@@ -127,6 +128,41 @@ export async function home() {
   };
 }
 
+// Deezer's search matches whole words, so "just" never finds Justin Bieber. A list of popular artists from
+// Deezer's charts (about 14 genres, refreshed weekly, kept on the device) lets search complete partly typed
+// names instantly, before the network answers.
+const POPULAR_KEY = 'spotplus.popularArtists';
+const CHART_GENRES = [0, 132, 116, 152, 113, 165, 85, 84, 464, 122, 106, 169, 144, 197];
+let popular = null, popularJob = null;
+function readPopular() {
+  if (popular) return popular;
+  try { const saved = JSON.parse(localStorage.getItem(POPULAR_KEY) || 'null'); if (saved?.list) popular = saved; } catch { /* no storage */ }
+  return popular;
+}
+export function refreshPopularArtists() {
+  const saved = readPopular();
+  if (popularJob || (saved && Date.now() - saved.at < 7 * 864e5)) return popularJob;
+  popularJob = Promise.allSettled(CHART_GENRES.map((g) => jsonp(`/chart/${g}/artists`, {limit: 100}))).then((all) => {
+    const byId = new Map();
+    all.forEach((r) => data(settled(r)).forEach((a, position) => {
+      const rank = 100 - position, old = byId.get(a.id);
+      if (!old || old.rank < rank) byId.set(a.id, {...normArtist(a), rank});
+    }));
+    if (byId.size < 50) return;
+    popular = {at: Date.now(), list: [...byId.values()]};
+    try { localStorage.setItem(POPULAR_KEY, JSON.stringify(popular)); } catch { /* full */ }
+  }).catch(() => {}).finally(() => { popularJob = null; });
+  return popularJob;
+}
+/** Popular (and followed) artists whose name starts with what's typed, best first. Instant, no network. */
+export function localArtistMatches(q, extra = [], limit = 4) {
+  const list = [...extra, ...(readPopular()?.list || [])];
+  const seen = new Set();
+  return list.map((a) => ({a, m: nameMatch(a.name, q)})).filter(({a, m}) => m >= 0.75 && !seen.has(String(a.id)) && seen.add(String(a.id)))
+    .sort((x, y) => (y.m * 100 + (y.a.rank || 0) * 0.5) - (x.m * 100 + (x.a.rank || 0) * 0.5)).slice(0, limit)
+    // Chart artists rarely carry a fan count; give them one in line with being on a chart.
+    .map(({a}) => ({...a, fans: a.fans || 2e6 + (a.rank || 0) * 1e5}));
+}
 export async function searchTracks(q) { return data(await jsonp('/search/track', { q, limit: 30 })).map(t => normTrack(t)); }
 export async function search(q) {
   const [t, ar, al, pl] = await Promise.allSettled([
@@ -136,9 +172,10 @@ export async function search(q) {
     jsonp('/search/playlist', { q, limit: 12 }),
   ]);
   if (t.status === 'rejected' && ar.status === 'rejected') throw t.reason;
+  const found = data(settled(ar)).map(normArtist), ids = new Set(found.map((x) => String(x.id)));
   return {
     tracks: data(settled(t)).map((x) => normTrack(x)),
-    artists: data(settled(ar)).map(normArtist),
+    artists: [...localArtistMatches(q).filter((x) => !ids.has(String(x.id))), ...found],
     albums: data(settled(al)).map(normAlbum),
     playlists: data(settled(pl)).map(normPlaylist),
   };
@@ -157,6 +194,8 @@ export async function artist(id) {
     related: data(settled(related)).map(normArtist),
   };
 }
+
+export async function searchPlaylists(q, limit = 12) { return data(await jsonp('/search/playlist', {q, limit})).map(normPlaylist); }
 
 export async function artistRadio(id) {
   return data(await jsonp(`/artist/${id}/radio`, { limit: 50 })).map((t) => normTrack(t));

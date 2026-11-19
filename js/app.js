@@ -1,3 +1,5 @@
+import { buildFeed } from './feed.js';
+import { rankSearch } from './search-rank.js';
 import {CanvasPlayer,canvasEnabled,setCanvasEnabled,findVisualLoop} from './canvas.js';
 import {audioHasHeadroom} from './playback-policy.js';
 import {PlayerColors,syncChrome} from './player-colors.js';
@@ -224,6 +226,15 @@ const errorHtml = (e) => `<div class="empty"><h2>Something went wrong</h2><p cla
 let mixList = mixes.cachedMixes() || [], mixBuild = null;
 const mixCard = m => `<a class="card mix-card" href="#/mix/${m.id}" style="--mix:${m.color}"><div class="mix-cover">${m.picture?`<img src="${esc(m.picture)}" alt="" loading="lazy">`:''}<span>${esc(m.title)}</span></div><div class="ctitle">${esc(m.title)}</div><div class="csub">${esc(m.subtitle)}</div></a>`;
 function mixCards(){ensureMixes();return mixList.map(mixCard);}
+// The living feed (daylist, On Repeat, Discover Weekly, Release Radar, holidays): cached per period, rebuilt in the
+// background when a period turns over, then the home screen refreshes.
+let feed=null,feedBuild=null,feedAt=0;
+function ensureFeed(){
+  if(feedBuild||(feed&&Date.now()-feedAt<15*60e3))return feedBuild;
+  feedBuild=buildFeed({api,onRepeat:store.getOnRepeat(),recent:store.getRecent(),likes:store.getLikes()}).then(f=>{const first=!feed;feed=f;feedAt=Date.now();if(first&&['','#/','#/home'].includes(location.hash))route({keepScroll:true});}).catch(()=>{}).finally(()=>{feedBuild=null;});
+  return feedBuild;
+}
+const feedMixes=()=>feed?[feed.daylist,feed.onRepeat,feed.discover].filter(Boolean):[];
 function ensureMixes(){
   if(mixList.length||mixBuild)return mixBuild;
   mixBuild=(async()=>{
@@ -234,14 +245,14 @@ function ensureMixes(){
 }
 async function viewMix(id){
   if(!mixList.length)await ensureMixes();
-  const m=mixList.find(x=>x.id===id);
+  const m=mixList.find(x=>x.id===id)||feedMixes().find(x=>x.id===id);
   if(!m)return '<div class="empty"><h2>Your mixes are on the way</h2><p class="muted">Play a few songs or like some, and Spot+ makes Daily Mixes for you.</p><a class="btn" href="#/home">Back home</a></div>';
   const k=reg(m.tracks,{name:m.title});
   return header({coverHtml:`<div class="mix-cover big" style="--mix:${m.color}">${m.picture?`<img src="${esc(m.picture)}" alt="">`:''}<span>${esc(m.title)}</span></div>`,kicker:'Made for you',title:m.title,sub:`${esc(m.subtitle)} · ${plural(m.tracks.length,'song')} · New every day`})
     +actions(k,`${dlButton(k)}<button class="icon" data-act="save-list" data-key="${k}" aria-label="Save as playlist">${I.plus}</button>`)+trackRows(m.tracks,k);
 }
 player.setQueueHooks({
-  continueQueue:queue=>store.getSettings().smartRadio===false?null:mixes.radioAfter(queue,{artistRadio:api.artistRadio,findArtist:api.findArtist}),
+  continueQueue:queue=>store.getSettings().smartRadio===false?null:mixes.radioAfter(queue,{artistRadio:api.artistRadio,findArtist:api.findArtist,onRepeat:store.getOnRepeat(),library:[...store.getLikes(),...store.getPlaylists().flatMap(p=>p.tracks||[])]}),
   onSkip:(t,sec)=>{if(!spoken.isSpoken(t))mixes.recordSkip(t,sec);},
   onFinish:t=>{if(!spoken.isSpoken(t))mixes.recordFinish(t);},
   resumeAt:t=>spoken.resumeAt(t),
@@ -450,7 +461,11 @@ async function viewHome() {
   d.tracks = visibleTracks(d.tracks,store.getSettings());
   const tk = reg(d.tracks);
   const linked=cachedLinks(),mfy=madeForYou(linked).map(p=>`<a class="card" href="#/linked/${p.id}">${img(p.cover)}<div class="ctitle">${esc(p.name)}</div><div class="csub">From your Spotify</div></a>`),pub=(linked?.profile?.playlists||[]).map(p=>`<a class="card" href="#/linked/${p.id}">${img(p.cover)}<div class="ctitle">${esc(p.name)}</div><div class="csub">Your playlist</div></a>`);
-  return toolbar + shortcuts + requestBar + shelf('Made for you', [...mixCards(), ...mfy]) + `<div data-home-section="recent">${shelf('Jump back in', recent.slice(0, 12).map((t, i) => trackCard(t, rk, i)))}</div>` + shelf('Your Spotify playlists', pub)
+  ensureFeed();
+  const fm=feedMixes(),seasonal=(feed?.seasonal||[]).map(s=>shelf(s.title,s.playlists.map(playlistCard))).join('');
+  return toolbar + shortcuts + requestBar + shelf('Made for you', [...fm.filter(m=>m.id!=='discover-weekly').map(mixCard), ...mixCards(), ...fm.filter(m=>m.id==='discover-weekly').map(mixCard), ...mfy]) + `<div data-home-section="recent">${shelf('Jump back in', recent.slice(0, 12).map((t, i) => trackCard(t, rk, i)))}</div>` + shelf('Your Spotify playlists', pub)
+    + shelf('Release Radar: new from your artists', (feed?.releaseRadar||[]).map(albumCard))
+    + seasonal
     + shelf('Trending songs', d.tracks.slice(0,12).map((t,i)=>trackCard(t,tk,i)))
     + shelf('Popular artists', d.artists.slice(0,12).map(artistCard))
     + shelf('New releases', d.releases.slice(0,12).map(albumCard))
@@ -459,7 +474,43 @@ async function viewHome() {
 }
 
 let searchTimer = 0, searchTok = 0;
+// Results for recent queries: typing back over a query (or the next letter of one) shows something at once.
+const searchCache = new Map();
+function knownForSearch() {
+  const tracks = [...store.getRecent(), ...store.getLikes()];
+  return {knownTracks: new Set(tracks.map((t) => String(t.id))),
+    knownArtists: new Set([...tracks.map((t) => String(t.artistId || '')), ...store.getArtists().map((a) => String(a.id))].filter(Boolean))};
+}
+function topResultCard(top) {
+  if (!top) return '';
+  const {kind, item} = top;
+  if (kind === 'artist') return `<a class="top-result" href="#/artist/${item.id}">${img(item.picture, 'top-art round')}<b>${esc(item.name)}</b><small>Artist</small></a>`;
+  if (kind === 'album') return `<a class="top-result" href="#/album/${item.id}">${img(item.cover, 'top-art')}<b>${esc(item.title)}</b><small>Album · ${esc(item.artist)}</small></a>`;
+  const k = reg([item]);
+  return `<button class="top-result" data-act="track-play" data-key="${k}" data-i="0" aria-label="Play ${esc(item.title)} by ${esc(item.artist)}">${img(item.cover, 'top-art')}<b>${esc(item.title)}</b><small>Song · ${esc(item.artist)}</small></button>`;
+}
+function renderSearchResults(box, raw, q) {
+  const d = rankSearch({...raw, tracks: visibleTracks(raw.tracks, store.getSettings())}, q, knownForSearch());
+  const none = !d.tracks.length && !d.artists.length && !d.albums.length && !d.playlists.length;
+  if (none) { box.innerHTML = `<div class="empty"><p class="muted">Nothing found for “${esc(q)}”.</p></div>`; return; }
+  const k = reg(d.tracks);
+  // With a Top result, "All" shows four songs beside it; the full list is under the Songs filter.
+  const songs = d.tracks.length ? `<section data-search-section="${d.top ? 'songs-full' : 'songs'}"${d.top ? ' hidden' : ''}><h2>Songs</h2>${trackRows(d.tracks, k)}</section>` : '';
+  const artists = `<div data-search-section="artists">${shelf('Artists', d.artists.map(artistCard))}</div>`;
+  const albums = `<div data-search-section="albums">${shelf('Albums', d.albums.map(albumCard))}</div>`;
+  const playlists = `<div data-search-section="playlists">${shelf('Playlists', d.playlists.map(playlistCard))}</div>`;
+  const order = d.intent === 'songs' ? [songs, artists, albums, playlists] : d.intent === 'albums' ? [albums, songs, artists, playlists] : [artists, songs, albums, playlists];
+  // Spotify-style head: the Top result beside the first few songs.
+  const firstSongs = d.tracks.slice(0, 4);
+  const head = d.top ? `<div class="search-top" data-search-section="all"><section><h2>Top result</h2>${topResultCard(d.top)}</section>${firstSongs.length ? `<section><h2>Songs</h2>${trackRows(firstSongs, k)}</section>` : ''}</div>` : '';
+  box.innerHTML = `
+      <div class="chips search-filters">${['All','Songs','Artists','Albums','Playlists'].map((name,i)=>`<button class="chip${i?'':' on'}" data-act="search-filter" data-filter="${name.toLowerCase()}" aria-pressed="${!i}">${name}</button>`).join('')}</div>
+      ${q.toLowerCase()==='dj'?'<p><a class="btn primary" href="#/dj">Open Spot+ DJ</a></p>':''}
+      <div id="lyricSlot"></div>${head}${order.join('')}`;
+  hydrateStatistics(box);
+}
 function viewSearch(q = '') {
+  api.refreshPopularArtists();
   setTimeout(() => {
     const inp = matchMedia('(min-width:768px)').matches?$('#globalQ'):$('#q');
     $('#globalQ').value=q;$('#globalClear').hidden=!q;
@@ -487,26 +538,23 @@ async function runSearch(q) {
   if (!box) return;
   history.replaceState(history.state, '', q ? `#/search/${encodeURIComponent(q)}` : '#/search');
   if (!q) { box.innerHTML = browseHome(); return; }
-  box.innerHTML = loadingHtml;
+  // Show the closest cached results at once (this query, or the longest earlier query it extends), then refresh.
+  const cachedKey = [...searchCache.keys()].filter((c) => q.toLowerCase().startsWith(c)).sort((x, y) => y.length - x.length)[0];
+  // Nothing cached yet: popular artists whose name starts with the query show at once while the search runs.
+  const instant = cachedKey ? null : api.localArtistMatches(q, store.getArtists());
+  if (cachedKey) renderSearchResults(box, searchCache.get(cachedKey), q);
+  else if (instant.length) renderSearchResults(box, {tracks: [], artists: instant, albums: [], playlists: []}, q);
+  else box.innerHTML = loadingHtml;
   // Lyrics search runs alongside the normal search and fills in on top when ready.
   const lyricJob=api.looksLikeLyrics(q)?api.lyricsSearch(q).catch(()=>[]):null;
   try {
     const d = await api.search(q);
     if (my !== searchTok) return;
-    d.tracks=visibleTracks(d.tracks,store.getSettings());
+    searchCache.set(q.toLowerCase(), d);
+    if (searchCache.size > 40) searchCache.delete(searchCache.keys().next().value);
     store.addSearch(q);
-    const k = reg(d.tracks);
-    const none = !d.tracks.length && !d.artists.length && !d.albums.length && !d.playlists.length;
-    box.innerHTML = none ? `<div class="empty"><p class="muted">Nothing found for “${esc(q)}”.</p></div>` : `
-      <div class="chips search-filters">${['All','Songs','Artists','Albums','Playlists'].map((name,i)=>`<button class="chip${i?'':' on'}" data-act="search-filter" data-filter="${name.toLowerCase()}" aria-pressed="${!i}">${name}</button>`).join('')}</div>
-      ${q.toLowerCase()==='dj'?'<p><a class="btn primary" href="#/dj">Open Spot+ DJ</a></p>':''}
-      ${lyricJob?'<section class="lyrics-matches" data-search-section="songs" id="lyricMatches"><h2>Lyrics</h2><div class="lyric-loading"><span></span><span></span><span></span></div></section>':''}
-      ${d.tracks.length ? `<section data-search-section="songs"><h2>Songs</h2>${trackRows(d.tracks, k)}</section>` : ''}
-      <div data-search-section="artists">${shelf('Artists', d.artists.map(artistCard))}</div>
-      <div data-search-section="albums">${shelf('Albums', d.albums.map(albumCard))}</div>
-      <div data-search-section="playlists">${shelf('Playlists', d.playlists.map(playlistCard))}</div>`;
-    hydrateStatistics(box);
-    if(lyricJob)lyricJob.then(found=>{if(my===searchTok)renderLyricMatches(found,q);});
+    renderSearchResults(box, d, q);
+    if(lyricJob){$('#lyricSlot').outerHTML='<section class="lyrics-matches" data-search-section="songs" id="lyricMatches"><h2>Lyrics</h2><div class="lyric-loading"><span></span><span></span><span></span></div></section>';lyricJob.then(found=>{if(my===searchTok)renderLyricMatches(found,q);});}
   } catch (e) { if (my === searchTok) box.innerHTML = errorHtml(e); }
 }
 
@@ -903,7 +951,7 @@ async function handleAct(act, el) {
     case 'follow-artist': if(activeArtist){const on=store.toggleArtist(activeArtist);el.textContent=on?'Following':'Follow';el.setAttribute('aria-pressed',String(on));toast(on?'Artist added to your library':'Artist removed from your library');}break;
     case 'save-album': if(activeAlbum){const on=store.toggleAlbum(activeAlbum);el.innerHTML=`${on?I.check:I.plus}<span>${on?'Saved':'Save album'}</span>`;el.setAttribute('aria-pressed',String(on));toast(on?'Album added to your library':'Album removed from your library');}break;
     case 'home-filter': $$('[data-act=home-filter]').forEach(b=>{b.classList.toggle('on',b===el);b.setAttribute('aria-pressed',String(b===el));});$$('[data-home-section=recent]').forEach(x=>x.hidden=el.dataset.filter==='music');break;
-    case 'search-filter': $$('[data-act=search-filter]').forEach(b=>{b.classList.toggle('on',b===el);b.setAttribute('aria-pressed',String(b===el));});$$('[data-search-section]').forEach(x=>x.hidden=el.dataset.filter!=='all'&&x.dataset.searchSection!==el.dataset.filter);break;
+    case 'search-filter': $$('[data-act=search-filter]').forEach(b=>{b.classList.toggle('on',b===el);b.setAttribute('aria-pressed',String(b===el));});$$('[data-search-section]').forEach(x=>{const f=el.dataset.filter,sec=x.dataset.searchSection;x.hidden=f==='all'?sec==='songs-full':!(sec===f||(f==='songs'&&sec==='songs-full'));});break;
     case 'clear-searches': store.clearSearches();if($('#results'))$('#results').innerHTML=browseHome();break;
     case 'mute': if(player.el.volume>0){lastVolume=player.el.volume;player.setVolume(0);}else player.setVolume(lastVolume||.7);vol.value=player.el.volume*100;vol.style.setProperty('--p',vol.value+'%');el.setAttribute('aria-label',player.el.volume?'Mute':'Unmute');el.classList.toggle('on',!player.el.volume);break;
     case 'retry-playback': player.retry();break;
@@ -1133,7 +1181,7 @@ document.addEventListener('click', (e) => {
 });
 document.addEventListener('change',e=>{if(e.target.id==='jamControl')jam.setGuestControl(e.target.checked);});
 document.addEventListener('input', (e) => {
-  if (['q','globalQ'].includes(e.target.id)) {clearTimeout(searchTimer);const q=e.target.value.trim();if($('#q')&&e.target.id!=='q')$('#q').value=q;if(e.target.id!=='globalQ')$('#globalQ').value=q;$('#globalClear').hidden=!q;if($('#searchClear'))$('#searchClear').hidden=!q;if($('#results')){++searchTok;searchTimer=setTimeout(()=>runSearch(q),250);}}
+  if (['q','globalQ'].includes(e.target.id)) {clearTimeout(searchTimer);const q=e.target.value.trim();if($('#q')&&e.target.id!=='q')$('#q').value=q;if(e.target.id!=='globalQ')$('#globalQ').value=q;$('#globalClear').hidden=!q;if($('#searchClear'))$('#searchClear').hidden=!q;if($('#results')){++searchTok;searchTimer=setTimeout(()=>runSearch(q),q.length<3?160:110);}}
   if(e.target.id==='folderQ'&&$('#folderItems'))$('#folderItems').innerHTML=renderLibraryItems({folderId:$('#folderItems').dataset.folderId,query:e.target.value});
 });
 document.addEventListener('change', async (e) => {

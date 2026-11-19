@@ -70,17 +70,32 @@ export function saveMixes(mixes, now = Date.now(), storage = globalThis.localSto
 }
 
 /** Smart Radio: songs to keep going after the queue ends, similar to what was just playing. */
-export async function radioAfter(queue, {artistRadio, findArtist, skips = loadSkips(), limit = 20}) {
+export async function radioAfter(queue, {artistRadio, findArtist, skips = loadSkips(), limit = 20, library = [], onRepeat = []}) {
   const recentIds = new Set(queue.slice(-200).map(t => String(t.id)));
   const lastArtists = [...new Set(queue.slice(-5).reverse().map(t => t.artistId ? `id:${t.artistId}` : t.artist).filter(Boolean))].slice(0, 2);
-  const pool = [];
+  const similar = [];
   for (const who of lastArtists) {
     try {
       const id = who.startsWith('id:') ? who.slice(3) : (await findArtist(who))?.id;
-      if (id) pool.push(...await artistRadio(id));
+      if (id) similar.push(...await artistRadio(id));
     } catch { /* try the next artist */ }
   }
+  // Up next leans on your own music first: songs from your library and what you have on repeat by the artists
+  // playing now or the similar artists their radio found, then what you have on repeat, then similar songs.
+  const near = new Set([...lastArtists.map((w) => w.startsWith('id:') ? w.slice(3) : norm(w)),
+    ...similar.map((t) => String(t.artistId || '')), ...similar.map((t) => norm(t.artist))].filter(Boolean));
+  const related = (t) => near.has(String(t.artistId || '')) || near.has(norm(t.artist));
+  const mine = [...onRepeat, ...library];
+  const yoursRelated = seeded(mine.filter(related), Date.now() % 1e6);
+  const repeat = onRepeat.filter((t) => !related(t));
+  const radio = seeded(similar, Date.now() % 1e6);
+  // Two of yours (related first, then on repeat) for every similar song, until a list runs out.
+  const yours = [...yoursRelated, ...repeat], picks = [];
+  while (yours.length || radio.length) {
+    const wantRadio = picks.length % 3 === 2;
+    picks.push((wantRadio && radio.length) || !yours.length ? radio.shift() : yours.shift());
+  }
   const out = [], seen = new Set(recentIds);
-  for (const t of seeded(pool, Date.now() % 1e6)) { const id = String(t.id); if (seen.has(id) || (skips[norm(t.artist)] || 0) >= 4) continue; seen.add(id); out.push(t); if (out.length >= limit) break; }
+  for (const t of picks) { const id = String(t.id); if (seen.has(id) || (skips[norm(t.artist)] || 0) >= 4) continue; seen.add(id); out.push(t); if (out.length >= limit) break; }
   return out;
 }

@@ -103,6 +103,24 @@ export function addRecent(t) {
   const r = getRecent().filter((x) => x.id !== t.id);
   r.unshift(slim(t));
   write('recent', r.slice(0, 30));
+  addPlay(t);
+}
+
+/* ---------- Play counts: what you have on repeat ---------- */
+export const getPlays = () => read('plays', {});
+export function addPlay(t, now = Date.now()) {
+  if (!t?.id) return;
+  const plays = getPlays(), id = String(t.id), old = plays[id];
+  plays[id] = {t: slim(t), n: (old?.n || 0) + 1, last: now};
+  // Keep the 400 most recently played songs.
+  const ids = Object.keys(plays);
+  if (ids.length > 400) ids.sort((a, b) => plays[a].last - plays[b].last).slice(0, ids.length - 400).forEach((k) => delete plays[k]);
+  write('plays', plays);
+}
+/** Your most-played songs of the last `days` days (at least twice), most played first. */
+export function getOnRepeat({days = 30, limit = 50, now = Date.now()} = {}) {
+  return Object.values(getPlays()).filter((p) => p.n >= 2 && now - p.last < days * 864e5)
+    .sort((a, b) => b.n - a.n || b.last - a.last).slice(0, limit).map((p) => p.t);
 }
 
 /* ---------- Downloads (audio lives in Cache Storage, this is the list) ---------- */

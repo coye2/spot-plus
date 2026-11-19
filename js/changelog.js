@@ -1,6 +1,12 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.52', date: '2026-11-19', title: 'Smarter search, better Up next, a livelier home', items: [
+    'Search shows a Top result and puts artists first: type “just” and Justin Bieber comes up, type a song title and the song does. Results appear as you type.',
+    'Up next keeps playing your music: songs you have on repeat and songs from your library by the same or similar artists, mixed with similar songs.',
+    'Home: a daylist that changes through the day, On Repeat, Discover Weekly (every Monday), Release Radar with new music from your artists (every Friday), and holiday playlists.',
+    'Fixed songs being skipped as unavailable: 1.9.51 stopped trying YouTube after a couple of refusals, but the other sources often can’t play on iPhone. Each song now tries three YouTube uploads again.',
+  ]},
   {version: '1.9.51', date: '2026-11-19', title: 'No more songs stuck at 0:00 when YouTube blocks Spot+', items: [
     'When YouTube starts refusing the Spot+ server (it does after a while), Automatic now notices after two songs and plays from its other full-song sources for a few minutes, then tries YouTube again. Before, every song sat at 0:00 for up to a minute.',
     'A refused song moves on after two uploads instead of three.',

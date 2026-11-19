@@ -2,6 +2,14 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.52 — Smarter search, better Up next, a livelier home
+_2026-11-19_
+
+- Search shows a Top result and puts artists first: type “just” and Justin Bieber comes up, type a song title and the song does. Results appear as you type.
+- Up next keeps playing your music: songs you have on repeat and songs from your library by the same or similar artists, mixed with similar songs.
+- Home: a daylist that changes through the day, On Repeat, Discover Weekly (every Monday), Release Radar with new music from your artists (every Friday), and holiday playlists.
+- Fixed songs being skipped as unavailable: 1.9.51 stopped trying YouTube after a couple of refusals, but the other sources often can’t play on iPhone. Each song now tries three YouTube uploads again.
+
 ## 1.9.51 — No more songs stuck at 0:00 when YouTube blocks Spot+
 _2026-11-19_
 
