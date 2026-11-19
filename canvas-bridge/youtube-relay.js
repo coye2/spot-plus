@@ -32,11 +32,11 @@ const UA = 'Mozilla/5.0';
 
 // YouTube sometimes hands out a link that plays the first chunk and refuses the rest (it wants a PO token
 // for that client). Asking for the last two bytes catches that before the app gets a song that cuts out.
-async function servesWholeFile(stream, fetcher) {
+async function servesWholeFile(stream, fetcher, signal) {
   if (!Number.isSafeInteger(stream.length) || stream.length < 2) return true;
   const from = stream.length - 2, to = stream.length - 1;
   const probe = await fetcher(stream.url, {
-    headers: {Range: 'bytes=' + from + '-' + to, 'User-Agent': UA}, redirect: 'follow',
+    headers: {Range: 'bytes=' + from + '-' + to, 'User-Agent': UA}, redirect: 'follow', signal,
   });
   const range = validateUpstreamRange(probe, from, to, stream.length);
   if (!range) { await probe.body?.cancel?.().catch(() => {}); return false; }
@@ -45,7 +45,7 @@ async function servesWholeFile(stream, fetcher) {
   catch { return false; }
 }
 
-async function resolveLink(id, {fetcher, cache, waitUntil, fresh = false, fmt = 'aac'}) {
+async function resolveLink(id, {fetcher, cache, waitUntil, fresh = false, fmt = 'aac', signal}) {
   const hit = memo.get(`${fmt}:${id}`);
   if (!fresh && hit && hit.expires - Date.now() > 10 * 60e3) return hit;
   // Other copies of the worker in this Cloudflare location share the link through the edge cache.
@@ -58,8 +58,13 @@ async function resolveLink(id, {fetcher, cache, waitUntil, fresh = false, fmt = 
   // The check comes in bursts of a few seconds, so the retries are spread out to outlast one.
   let result = null;
   for (const [attempt, wait] of RETRY_WAITS.entries()) {
-    if (attempt) { await new Promise((ok) => setTimeout(ok, wait)); await ensureVisitor(fetcher, {force: true}).catch(() => {}); }
-    result = await innertubeStream(id, {fetcher, preferAac: fmt !== 'opus', order: FORMATS[fmt], validate: (stream) => servesWholeFile(stream, fetcher)});
+    if (signal?.aborted) throw new Error('Playback request cancelled');
+    if (attempt) {
+      await new Promise((ok) => setTimeout(ok, wait));
+      if (signal?.aborted) throw new Error('Playback request cancelled');
+      await ensureVisitor(fetcher, {force: true, signal}).catch(() => {});
+    }
+    result = await innertubeStream(id, {fetcher, signal, preferAac: fmt !== 'opus', order: FORMATS[fmt], validate: (stream) => servesWholeFile(stream, fetcher, signal)});
     if (result?.stream?.url) break;
   }
   const stream = result?.stream;
@@ -125,7 +130,7 @@ export async function youtubeRelay(request, {fetcher = fetch, cache, waitUntil =
   for (const fresh of [false, true]) {
     if (request.signal?.aborted) return fail(499, 'Playback request cancelled');
     try {
-      link = await resolveLink(id, {fetcher, cache, waitUntil, fresh, fmt});
+      link = await resolveLink(id, {fetcher, cache, waitUntil, fresh, fmt, signal: request.signal});
       let totalHint = Number(link.length) || 0;
       if (want.suffix !== undefined && !totalHint) {
         // Suffix ranges are uncommon but valid; discover the length using one byte.
@@ -194,7 +199,7 @@ export async function youtubeRelay(request, {fetcher = fetch, cache, waitUntil =
           await discard(part);
           memo.delete(fmt + ':' + id);
           await cache?.delete(linkKey(id, fmt)).catch(() => {});
-          const newer = await resolveLink(id, {fetcher, cache, waitUntil, fresh: true, fmt});
+          const newer = await resolveLink(id, {fetcher, cache, waitUntil, fresh: true, fmt, signal: request.signal});
           // A new itag or file length would splice two different encodings and corrupt the song.
           if (newer.mime !== link.mime ||
               (link.itag && newer.itag && link.itag !== newer.itag) ||
