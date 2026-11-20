@@ -401,18 +401,34 @@ export function noteRelaySong(ok) {
 // Spot+ servers in three regions. YouTube refuses servers in bursts per address, so when one is refused the next
 // try goes through another region (each finds and streams its own link: YouTube's links only work from the
 // address that asked). A refused region is rested for 90 seconds.
-export const RELAY_REGIONS = ['https://spot-plus-canvas.pwr97pnmkn.workers.dev', 'https://spot-plus-relay-west.pwr97pnmkn.workers.dev', 'https://spot-plus-relay-eu.pwr97pnmkn.workers.dev'];
+// Measured live 2026-11-19 (10 songs): Europe 8/10, main 2/10, US West 0/10. YouTube refuses Cloudflare's US
+// addresses far more, so Europe goes first; the order then adapts to what works on this device.
+export const RELAY_REGIONS = ['https://spot-plus-relay-eu.pwr97pnmkn.workers.dev', 'https://spot-plus-relay-de.pwr97pnmkn.workers.dev',
+  'https://spot-plus-canvas.pwr97pnmkn.workers.dev', 'https://spot-plus-relay-asia.pwr97pnmkn.workers.dev', 'https://spot-plus-relay-west.pwr97pnmkn.workers.dev'];
+const MAIN_REGION = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev';
+// Per-region record of recent results on this device (kept between visits): the best region is asked first.
+const REGION_KEY = 'spotplus.relayRegions';
+let regionScore = (() => { try { return JSON.parse(localStorage.getItem(REGION_KEY) || '{}'); } catch { return {}; } })();
+export function noteRelayRegion(base, ok) {
+  if (!base) return;
+  const r = regionScore[base] || {ok: 0, fail: 0};
+  // Recent results count most: older ones fade so a region that recovers gets picked again.
+  r.ok = r.ok * 0.9 + (ok ? 1 : 0); r.fail = r.fail * 0.9 + (ok ? 0 : 1);
+  regionScore[base] = r;
+  try { localStorage.setItem(REGION_KEY, JSON.stringify(regionScore)); } catch { /* storage full */ }
+}
+const regionOdds = (base) => { const r = regionScore[base] || {ok: 0, fail: 0}; return (r.ok + 1) / (r.ok + r.fail + 2); };
 const regionRest = new Map();
 export function restRelayRegion(base, ms = 90e3) { if (base) regionRest.set(base, Date.now() + ms); }
 const regionResting = (base) => (regionRest.get(base) || 0) > Date.now();
 // Only regions whose server answers its health check are used (the main one always is). Checked in the background
 // once per session; a region that isn't deployed is never tried.
-const regionsUp = new Set([RELAY_REGIONS[0]]);
+const regionsUp = new Set([MAIN_REGION]);
 let regionsChecked = false;
 function checkRelayRegions() {
   if (regionsChecked || typeof fetch !== 'function') return;
   regionsChecked = true;
-  for (const base of RELAY_REGIONS.slice(1)) {
+  for (const base of RELAY_REGIONS.filter((b) => b !== MAIN_REGION)) {
     const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 6000);
     fetch(base + '/health', {credentials: 'omit', signal: ctl.signal}).then((r) => r.ok && r.json()).then((h) => { if (h?.relay) regionsUp.add(base); }).catch(() => {}).finally(() => clearTimeout(t));
   }
@@ -420,7 +436,8 @@ function checkRelayRegions() {
 export const relayRegionsUp = () => RELAY_REGIONS.filter((b) => regionsUp.has(b));
 function relayRegion() {
   checkRelayRegions();
-  const awake = RELAY_REGIONS.filter((b) => regionsUp.has(b) && !regionResting(b));
+  // Best odds first; equal odds keep the measured order (Europe first).
+  const awake = RELAY_REGIONS.filter((b) => regionsUp.has(b) && !regionResting(b)).sort((a, b) => regionOdds(b) - regionOdds(a));
   return awake[0] || relayRegionsUp().sort((a, b) => (regionRest.get(a) || 0) - (regionRest.get(b) || 0))[0];
 }
 // Uploads YouTube just refused are tried last for a few minutes, so a retry lands on another upload.

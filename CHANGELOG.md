@@ -2,6 +2,11 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.60 — YouTube Relay goes through Europe first
+_2026-11-19_
+
+- Measured live: YouTube let 8 of 10 songs through from Spot+’s European server, against 2 of 10 from the US ones. Songs now ask Europe first, then the other regions, and each phone learns which region works best for it.
+
 ## 1.9.59 — Spot+ YouTube Relay in three regions
 _2026-11-19_
 

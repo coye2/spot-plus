@@ -361,7 +361,7 @@ function recoverMedia(mediaErr = null) {
     const retryRelay = relayFailed;
     // Rest the region that was refused (the next try goes through another one); once every region has been
     // tried for this song, also move on to another upload.
-    if (retryRelay) { api.restRelayRegion(failed.relayRegion); if (errRetries >= api.relayRegionsUp().length) api.avoidRelayVideo(failed.videoId); memoryEngine.forgetStream(api.streamKey(cur)); }
+    if (retryRelay) { api.restRelayRegion(failed.relayRegion); api.noteRelayRegion(failed.relayRegion, false); if (errRetries >= api.relayRegionsUp().length) api.avoidRelayVideo(failed.videoId); memoryEngine.forgetStream(api.streamKey(cur)); }
     else if (failed.instance) skipList.push(failed.instance);
     telemetry.endRecovery(recStart, true);
     // Asking YouTube again for an upload it just refused: give the refusal a moment to clear first.
@@ -1140,7 +1140,7 @@ function bindAudio(media) {
   });
   listen('playing', () => {
     sessionHandlers();
-    if (state.source?.kind === 'ytrelay') api.noteRelaySong(true);
+    if (state.source?.kind === 'ytrelay') { api.noteRelaySong(true); api.noteRelayRegion(state.source.relayRegion, true); }
     if (!mixing) silenceOthers(); // one song at a time (AutoMix overlaps on purpose)
     unavailableRun = 0;
     suppressError = false;
