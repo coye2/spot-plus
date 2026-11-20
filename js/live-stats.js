@@ -19,10 +19,10 @@ export async function countInstall({standalone, storage = globalThis.localStorag
   return data;
 }
 let lastBeat = 0, lastPlaying = null;
-/** Check in while music plays (about every 90s), and once when it stops. */
+/** Check in while music plays (about every 4 minutes), and once when it stops. */
 export function heartbeat(playing) {
   const now = Date.now();
-  if (playing === lastPlaying && now - lastBeat < 90_000) return null;
+  if (playing === lastPlaying && now - lastBeat < 230_000) return null;
   if (!playing && !lastPlaying) return null;
   lastBeat = now; lastPlaying = playing;
   const id = deviceId(); if (!id) return null;

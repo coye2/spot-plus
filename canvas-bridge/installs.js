@@ -1,6 +1,6 @@
 // Live counters for Spot+: total installs (one per device, stored for good) and people listening
 // right now (players check in while music plays; kept in memory, counted over the last ~3 minutes).
-const LIVE_WINDOW = 200_000;
+const LIVE_WINDOW = 540_000; // listeners check in every 4 minutes
 export class InstallCounter {
   constructor(state) { this.state = state; this.live = new Map(); this.ipDay = new Map(); }
   liveCount(now = Date.now()) { for (const [id, at] of this.live) if (now - at > LIVE_WINDOW) this.live.delete(id); return this.live.size; }

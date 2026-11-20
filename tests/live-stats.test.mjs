@@ -16,5 +16,5 @@ test('listening counts players that checked in recently',async()=>{
   await c.fetch(post('/listening',{device:dev(1),playing:true}));await c.fetch(post('/listening',{device:dev(2),playing:true}));
   await c.fetch(post('/listening',{device:dev(2),playing:false}));
   assert.equal((await (await c.fetch(new Request('https://counter/stats'))).json()).listening,1);
-  c.live.set(dev(3),Date.now()-300000);assert.equal(c.liveCount(),1,'stale players drop off');
+  c.live.set(dev(3),Date.now()-600000);assert.equal(c.liveCount(),1,'stale players drop off');
 });

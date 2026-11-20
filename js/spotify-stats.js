@@ -1,5 +1,5 @@
 const ENDPOINT='https://spot-plus-canvas.pwr97pnmkn.workers.dev/spotify-stats';
-const cache=new Map(),pending=new Map(),queue=[];let active=0;
+const cache=new Map(),pending=new Map(),queue=[];let active=0,limitedUntil=0;
 const normalize=value=>String(value||'').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim();
 export function matchPlayCount(track,counters){
   if(!counters?.available)return null;
@@ -11,12 +11,16 @@ function pump(){while(active<2&&queue.length){active++;const task=queue.shift();
 export function getSpotifyStats({spotifyId,artistId,spotifyArtistId}={}){
   const query=spotifyArtistId?{artistId:spotifyArtistId}:spotifyId?{trackId:spotifyId}:artistId&&/^\d+$/.test(artistId)?{deezerArtistId:artistId}:null;
   if(!query)return Promise.resolve({available:false});const key=new URLSearchParams(query).toString();
+  if(!cache.has(key)){try{const saved=JSON.parse(localStorage.getItem('spotplus.stats.'+key)||'null');if(saved?.expires>Date.now())cache.set(key,saved);}catch{/* storage blocked */}}
   if(cache.has(key)&&cache.get(key).expires>Date.now())return Promise.resolve(cache.get(key).data);
+  if(limitedUntil>Date.now())return Promise.resolve({available:false});
   if(pending.has(key))return pending.get(key);
   const promise=new Promise(resolve=>{queue.push(async()=>{
     let data={available:false};const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),12000);
-    try{const r=await fetch(ENDPOINT+'?'+key,{signal:controller.signal,credentials:'omit'});if(r.ok)data=await r.json();}catch{/* A counter must never interrupt playback. */}finally{clearTimeout(timer);}
-    cache.set(key,{data,expires:Date.now()+(data.available?21600000:600000)});pending.delete(key);resolve(data);
+    try{const r=await fetch(ENDPOINT+'?'+key,{signal:controller.signal,credentials:'omit'});if(r.status===429)limitedUntil=Date.now()+3600e3;if(r.ok)data=await r.json();}catch{/* A counter must never interrupt playback. */}finally{clearTimeout(timer);}
+    const entry={data,expires:Date.now()+(data.available?21600000:600000)};cache.set(key,entry);
+    // Kept on the device for six hours, so reopening Spot+ doesn't ask again for every counter on screen.
+    if(data.available){try{localStorage.setItem('spotplus.stats.'+key,JSON.stringify(entry));}catch{/* storage full */}}pending.delete(key);resolve(data);
   });});pending.set(key,promise);pump();return promise;
 }
 

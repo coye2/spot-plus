@@ -2,6 +2,12 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 2.0.6 — Fewer server requests
+_2026-11-20_
+
+- Spot+ hit the free server plan’s daily limit (100,000 requests) after a busy day. Each song now asks the servers about half as often: one backup region instead of all of them, the next song warmed in one region, region checks twice a day, and counters remembered on your device.
+- If the daily limit is ever reached again, Spot+ says so once with the time music is back, and stops retrying in the meantime.
+
 ## 2.0.5 — Open Spotify links, smarter search, a more personal home
 _2026-11-20_
 

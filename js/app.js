@@ -2347,7 +2347,7 @@ window.dispatchEvent(new Event('spotplus-ready'));
 live.countInstall({standalone:isStandalone()});
 window.addEventListener('appinstalled',()=>live.countInstall({standalone:true}));
 const beat=()=>live.heartbeat(player.isPlaying());
-player.on('state',beat);setInterval(beat,95000);addEventListener('pagehide',()=>live.heartbeat(false));
+player.on('state',beat);setInterval(beat,240000);addEventListener('pagehide',()=>live.heartbeat(false));
 function showRating(r){if(!r)return;$$('[data-live="rating"]').forEach(el=>{el.textContent=r.count?r.average.toFixed(1):'–';el.closest('[data-live-box]')?.removeAttribute('hidden');});$$('[data-live="rating-stars"]').forEach(el=>{el.innerHTML=rating.starsHtml(r.average||0);});$$('[data-live="rating-count"]').forEach(el=>{el.textContent=r.count?`${r.count.toLocaleString('en-US')} rating${r.count===1?'':'s'}`:'no ratings yet';});}
 // Snake: the song playing now is the head, then your queue; topped up with Liked Songs and recent plays so
 // there's always plenty to eat.
@@ -2376,7 +2376,7 @@ player.on('state',()=>{
   setTimeout(()=>{if(!sheet.hidden||npOpen||document.querySelector('dialog[open]')||!player.isPlaying()){ratingAsked=false;return;}rating.noteAsked('shown');askRating();},6000);
 });
 async function refreshLive(){const data=await live.stats();if(!data)return;showRating(data.rating);$$('[data-live="listening"]').forEach(el=>{el.textContent=live.formatCount(data.listening);el.closest('[data-live-box]')?.removeAttribute('hidden');});$$('[data-live="installs"]').forEach(el=>{el.textContent=live.formatCount(data.installs);el.closest('[data-live-box]')?.removeAttribute('hidden');});}
-setInterval(()=>{if(!document.hidden&&$('[data-live]'))refreshLive();},30000);
+setInterval(()=>{if(!document.hidden&&$('[data-live]'))refreshLive();},120000);
 /* ---------------- What's new ---------------- */
 function whatsNew(releases){
   const body=`<div class="whats-new">${releases.map(r=>`<section><h3>${esc(r.title)} <small>${esc(r.version)}</small></h3><ul>${r.items.map(i=>`<li>${esc(i)}</li>`).join('')}</ul></section>`).join('')}<a class="link" href="https://github.com/coye2/spot-plus/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Full changelog</a></div>`;
@@ -2467,3 +2467,9 @@ function pickSuggestion(it,input){
 }
 suggest.attach($('#globalQ'),{data:suggestData,pick:pickSuggestion});
 new MutationObserver(()=>{const q=$('#q');if(q&&!q.dataset.suggest)suggest.attach(q,{data:suggestData,pick:pickSuggestion});}).observe(document.getElementById('view')||document.body,{childList:true,subtree:true});
+
+// When the Spot+ servers reach the free plan's daily limit, say so plainly (once) instead of failing song by song.
+addEventListener('spotplus-limit',(e)=>{
+  const at=new Date(e.detail?.until||Date.now()).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+  toast(`Spot+ servers are very busy today and hit their daily limit. Music is back at ${at}.`);
+});

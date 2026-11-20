@@ -507,10 +507,12 @@ let regionsChecked = false;
 function checkRelayRegions() {
   if (regionsChecked || typeof fetch !== 'function') return;
   regionsChecked = true;
+  // Checked at most twice a day per device.
+  try { const at = Number(localStorage.getItem('spotplus.regionsChecked')) || 0; if (Date.now() - at < 12 * 3600e3) return; localStorage.setItem('spotplus.regionsChecked', String(Date.now())); } catch { /* storage blocked */ }
   for (const base of RELAY_REGIONS.filter((b) => b !== MAIN_REGION)) {
     const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 6000);
     fetch(base + '/health', {credentials: 'omit', signal: ctl.signal})
-      .then(async (r) => { const h = r.ok ? await r.json().catch(() => null) : null; if (h?.relay) regionsUp.add(base); else regionsUp.delete(base); })
+      .then(async (r) => { noteWorkerLimit(r.status); if (r.status === 429) return; const h = r.ok ? await r.json().catch(() => null) : null; if (h?.relay) regionsUp.add(base); else regionsUp.delete(base); })
       .catch(() => {}).finally(() => clearTimeout(t));
   }
 }
@@ -553,6 +555,24 @@ function regionsFor(trackId) {
   return relayRegionsUp().filter((b) => !regionResting(b) && !refusedFor(trackId, b)).sort((a, b) => regionOdds(b) - regionOdds(a));
 }
 const relayReadyListeners = new Set();
+// Cloudflare's free plan allows 100,000 requests a day across all Spot+ servers. When it answers 429 (limit
+// reached), extra requests (hedges, warm-ups, region checks) stop until the next day's reset.
+let limitedUntil = 0;
+export function noteWorkerLimit(status) {
+  if (status !== 429) return;
+  const reset = new Date(); reset.setUTCHours(24, 0, 30, 0);
+  const first = limitedUntil <= Date.now();
+  limitedUntil = Math.min(reset.getTime(), Date.now() + 6 * 3600e3);
+  if (first) globalThis.dispatchEvent?.(new CustomEvent('spotplus-limit', {detail: {until: reset.getTime()}}));
+}
+export const workerLimited = () => limitedUntil > Date.now();
+let limitCheckedAt = 0;
+/** After a relay song fails: is the daily limit the reason? (asks at most every 10 minutes) */
+export function checkWorkerLimit() {
+  if (Date.now() - limitCheckedAt < 600e3 || typeof fetch !== 'function') return;
+  limitCheckedAt = Date.now();
+  fetch(MAIN_REGION + '/health', {credentials: 'omit'}).then((r) => noteWorkerLimit(r.status)).catch(() => {});
+}
 /** Called with (trackId, region) when a region is found to have a song ready. */
 export const onRelayReady = (fn) => { relayReadyListeners.add(fn); return () => relayReadyListeners.delete(fn); };
 const relayUrl = (region, id, alt, fmt) => `${region}/yta?id=${id}&fmt=${fmt}${alt.length ? '&alt=' + alt.join(',') : ''}`;
@@ -574,6 +594,7 @@ function probeRegions(trackId, regions, path, signal) {
     for (const region of regions) {
       fetch(region + path, {method: 'HEAD', headers: {Range: 'bytes=0-1'}, credentials: 'omit', signal: ctl.signal})
         .then((r) => {
+          noteWorkerLimit(r.status);
           if (r.status !== 206 && r.status !== 200) throw new Error('refused');
           relayWarm.set(trackId, {region, until: Date.now() + WARM_MS});
           noteRelayRegion(region, true);
@@ -591,8 +612,8 @@ function probeRegions(trackId, regions, path, signal) {
  * Before the next song is buffered: find a region that has it ready and point the stream there, so the song
  * starts the moment it's reached. Changes the stream object in place (cached copies see the new region).
  */
-export async function warmRelaySource(track, source, {regions = 3, signal} = {}) {
-  if (source?.kind !== 'ytrelay' || !track?.id) return source;
+export async function warmRelaySource(track, source, {regions = 1, signal} = {}) {
+  if (source?.kind !== 'ytrelay' || !track?.id || workerLimited()) return source;
   const ready = warmRegion(track.id);
   const region = ready || await (relayWarming.get(track.id) || probeRegions(track.id, regionsFor(track.id).slice(0, regions),
     source.url.slice(source.url.indexOf('/yta')), signal));
@@ -628,8 +649,9 @@ export async function relayStream(track, signal, matches) {
   // Cold start: while this region is asked, the other regions are asked too (HEAD, one YouTube lookup each, so
   // no address is asked more than once for the song). The first region that has it takes over at once (the player
   // listens through onRelayReady), so a refusal no longer costs two to four seconds per region in turn.
-  if (!warm && track?.id && !relayWarming.has(track.id)) {
-    const hedge = regionsFor(track.id).filter((b) => b !== region);
+  if (!warm && track?.id && !relayWarming.has(track.id) && !workerLimited()) {
+    // One other region only: asking all of them for every song used up the free plan's daily requests.
+    const hedge = regionsFor(track.id).filter((b) => b !== region).slice(0, 1);
     if (hedge.length) probeRegions(track.id, hedge, relayUrl('', id, alt, fmt)).catch(() => {});
   }
   return {url: relayUrl(region, id, alt, fmt), relayRegion: region, warm: !!warm, mime: fmt.includes('opus') ? 'audio/webm' : 'audio/mp4',

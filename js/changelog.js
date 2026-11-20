@@ -1,6 +1,10 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '2.0.6', date: '2026-11-20', title: 'Fewer server requests', items: [
+    'Spot+ hit the free server plan’s daily limit (100,000 requests) after a busy day. Each song now asks the servers about half as often: one backup region instead of all of them, the next song warmed in one region, region checks twice a day, and counters remembered on your device.',
+    'If the daily limit is ever reached again, Spot+ says so once with the time music is back, and stops retrying in the meantime.',
+  ]},
   {version: '2.0.5', date: '2026-11-20', title: 'Open Spotify links, smarter search, a more personal home', items: [
     'Open Spotify links in Spot+: paste a song, album, playlist or artist link into search (or anywhere in the app) and it opens and plays here. On Android you can also share a Spotify link straight to Spot+ from the share sheet.',
     'Search suggests as you type: your recent searches, artists whose name starts with what you typed (with photos) and songs, with arrow keys and Enter on a computer.',

@@ -360,8 +360,9 @@ function recoverMedia(mediaErr = null) {
   const relayFailed = failed?.kind === 'ytrelay';
   // Automatic: when every region has just refused the song (all asked at once, each with every upload), more
   // relay tries would only add seconds of silence, so the backup plays it now.
+  if (relayFailed) api.checkWorkerLimit?.();
   const refusedEverywhere = relayFailed && store.getSettings().source === 'auto' && api.relayRefusedEverywhere?.(cur.id);
-  if (!state.offline && !cur.local && failed && !failed.preview && !refusedEverywhere && errRetries < (relayFailed ? (store.getSettings().source === 'auto' ? api.relayRegionsUp().length : 6) : 2)) {
+  if (!state.offline && !cur.local && failed && !failed.preview && !refusedEverywhere && !api.workerLimited?.() && errRetries < (relayFailed ? (store.getSettings().source === 'auto' ? api.relayRegionsUp().length : 6) : 2)) {
     errRetries++;
     // A relay stream that drops is usually YouTube refusing that one upload for a moment: try again from the
     // same spot, preferring another upload of the song, instead of giving up on the relay for this song.
