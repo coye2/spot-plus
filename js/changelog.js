@@ -1,6 +1,10 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.63', date: '2026-11-20', title: 'Playlist photos, and adding to your Spotify playlists', items: [
+    'Give any playlist your own cover photo: tap the photo button on a playlist (your own or a Spotify one you synced) and choose a picture. It’s cropped square and shown everywhere in your library.',
+    'You can now add songs to the Spotify playlists you synced, not just to Spot+ playlists. They’re kept in Spot+ at the end of the playlist (Spotify itself isn’t changed) and stay through refreshes. Remove one from its ⋯ menu.',
+  ]},
   {version: '1.9.62', date: '2026-11-20', title: 'Instant playback', items: [
     'The next song is made ready in every relay region while the current one plays, and plays from the first region that has it: songs after the first now start in about 0.2 seconds (measured: Blinding Lights and Pilula went from 8 seconds to 0.2).',
     'Tapping a song asks all the relay regions at once and plays from whichever answers first, instead of trying them one after another (a refusal used to cost 2 to 4 seconds per region). Measured cold taps: mostly 0.5 to 2 seconds.',

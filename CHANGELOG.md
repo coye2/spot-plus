@@ -2,6 +2,12 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.63 — Playlist photos, and adding to your Spotify playlists
+_2026-11-20_
+
+- Give any playlist your own cover photo: tap the photo button on a playlist (your own or a Spotify one you synced) and choose a picture. It’s cropped square and shown everywhere in your library.
+- You can now add songs to the Spotify playlists you synced, not just to Spot+ playlists. They’re kept in Spot+ at the end of the playlist (Spotify itself isn’t changed) and stay through refreshes. Remove one from its ⋯ menu.
+
 ## 1.9.62 — Instant playback
 _2026-11-20_
 

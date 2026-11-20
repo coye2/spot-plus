@@ -60,7 +60,7 @@ export function updatePlaylist(id, fn, {remote = false} = {}) {
   savePlaylists(pls);
 }
 export const renamePlaylist = (id, name) => updatePlaylist(id, (p) => { p.name = name; });
-export const deletePlaylist = (id) => savePlaylists(getPlaylists().filter((p) => p.id !== id));
+export const deletePlaylist = (id) => { savePlaylists(getPlaylists().filter((p) => p.id !== id)); setPlaylistCover(id, null); };
 export function addToPlaylist(id, tracks) {
   let added = 0;
   updatePlaylist(id, (p) => {
@@ -70,6 +70,38 @@ export function addToPlaylist(id, tracks) {
   return added;
 }
 export const removeFromPlaylist = (id, index) => updatePlaylist(id, (p) => { p.tracks.splice(index, 1); });
+
+// Your own cover photos, for your playlists and for Spotify playlists you synced (key: playlist id, or 'sp:' + Spotify
+// id). Kept apart from the playlists themselves so library sync and shared playlists don't carry the image data.
+const COVER_OK = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+export const getPlaylistCover = (key) => { const v = read('plCovers', {})[key]; return typeof v === 'string' && COVER_OK.test(v) ? v : ''; };
+export function setPlaylistCover(key, dataUrl) {
+  if (!key) return false;
+  const all = read('plCovers', {});
+  if (dataUrl) { if (!COVER_OK.test(dataUrl) || dataUrl.length > 400000) return false; all[key] = dataUrl; }
+  else delete all[key];
+  write('plCovers', all);
+  return true;
+}
+
+// Songs you add to a Spotify playlist you synced. Spot+ can't change the playlist on Spotify, so they're kept here
+// and shown at the end of it; a refresh from Spotify keeps them (and drops any that Spotify now has itself).
+export const getSpotifyAdds = (id) => (read('spotifyAdds', {})[id] || []).filter((t) => t && t.id);
+export function addToSpotifyPlaylist(id, tracks, existing = []) {
+  const all = read('spotifyAdds', {});
+  const list = (all[id] || []).filter((t) => t && t.id);
+  const have = new Set([...existing.map((t) => t?.id), ...list.map((t) => t.id)]);
+  let added = 0;
+  for (const t of tracks) if (t?.id && !have.has(t.id)) { list.push(slim(t)); have.add(t.id); added++; }
+  all[id] = list;
+  write('spotifyAdds', all);
+  return added;
+}
+export function removeSpotifyAdd(id, trackId) {
+  const all = read('spotifyAdds', {});
+  all[id] = (all[id] || []).filter((t) => t?.id !== trackId);
+  write('spotifyAdds', all);
+}
 
 /* ---------- Playlist folders (local organization only) ---------- */
 export const getFolders = () => normalizeFolders(read('folders', []));
@@ -269,7 +301,7 @@ export function importSpotify(bundle){
 /* ---------- Backup ---------- */
 export function exportData() {
   const account=getSpotifyAccount();
-  return { app: 'spotplus', version: 2, exported: new Date().toISOString(), likes: getLikes(), playlists: getPlaylists(), folders:getFolders(), recent: getRecent(), settings: getSettings(), albums:getAlbums(), artists:getArtists(), pins:getPins(), spotifyLinks:getSpotifyLinks(),spotifyAccount:account?validateAccountSnapshot(account):null,themes:getThemes(),vcache: read('vcache', {}) };
+  return { app: 'spotplus', version: 2, exported: new Date().toISOString(), likes: getLikes(), playlists: getPlaylists(), folders:getFolders(), recent: getRecent(), settings: getSettings(), albums:getAlbums(), artists:getArtists(), pins:getPins(), spotifyLinks:getSpotifyLinks(),spotifyAccount:account?validateAccountSnapshot(account):null,themes:getThemes(),plCovers: read('plCovers', {}),spotifyAdds: read('spotifyAdds', {}),vcache: read('vcache', {}) };
 }
 export function importData(d) {
   if (!d || d.app !== 'spotplus') throw new Error('Not a Spot+ backup file');
@@ -290,6 +322,8 @@ export function importData(d) {
   }
   if (d.settings) setSettings(d.settings);
   if (d.vcache) write('vcache', { ...read('vcache', {}), ...d.vcache }, true);
+  if (d.plCovers && typeof d.plCovers === 'object') for (const [k, v] of Object.entries(d.plCovers)) if (!getPlaylistCover(k)) setPlaylistCover(k, v);
+  if (d.spotifyAdds && typeof d.spotifyAdds === 'object') for (const [k, list] of Object.entries(d.spotifyAdds)) if (Array.isArray(list)) addToSpotifyPlaylist(k, list);
   for (const key of ['albums','artists','recent']) if (Array.isArray(d[key])) {
     const merged = new Map([...read(key,[]), ...d[key].filter(x=>x && x.id != null)].map(x=>[String(x.id),x]));
     write(key,[...merged.values()]);

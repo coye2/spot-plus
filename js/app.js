@@ -27,6 +27,7 @@ import * as spotify from './spotify.js';
 import * as themes from './themes.js';
 import * as scene from './backgrounds.js';
 import * as photo from './profile-photo.js';
+import {coverFromFile} from './playlist-art.js';
 import {clipSource,hasLocalClip,prefetchClips} from './canvas-cache.js';
 import {Jam,jamLink,validJamCode} from './jam.js';
 import qrcode from './vendor/qrcode.js';
@@ -50,6 +51,7 @@ const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
 /* ---------------- Icons ---------------- */
 const P = {
+  image: '<path d="M4 4h16v16H4zm2 2v9.6l3.5-3.5 3 3 4-4L19 13.6V6zm0 12h13v-1.6l-2.5-2.5-4 4-3-3L6 17.4zm9-9.5a1.5 1.5 0 110 3 1.5 1.5 0 010-3z"/>',
   mic: '<path d="M12 15a3 3 0 003-3V5a3 3 0 00-6 0v7a3 3 0 003 3zm-5-3H5a7 7 0 006 6.93V22h2v-3.07A7 7 0 0019 12h-2a5 5 0 01-10 0z"/>',
   folder: '<path d="M3 4h7l2 2h9v14H3zm2 4v10h14V8h-8l-2-2H5z"/>',
   arrowUpRight: '<path d="M7 5v2h8.6L5.3 17.3l1.4 1.4L17 8.4V17h2V5z"/>',
@@ -642,9 +644,11 @@ function viewMy(id) {
   const p = store.getPlaylist(id);
   if (!p) return '<div class="empty"><h2>Playlist not found</h2><a class="btn" href="#/library">Back to library</a></div>';
   const k = reg(p.tracks, { playlistId: p.id, name: p.name });
-  return header({ coverHtml: mosaic(p.tracks), kicker: 'Your playlist', title: p.name, sub: `${plural(p.tracks.length, 'song')}${p.tracks.length&&p.tracks.every(t=>t.duration>0) ? ', ' + total(p.tracks) : ''}` })
+  const own = store.getPlaylistCover(p.id);
+  return header({ cover: own, coverHtml: own ? '' : mosaic(p.tracks), kicker: 'Your playlist', title: p.name, sub: `${plural(p.tracks.length, 'song')}${p.tracks.length&&p.tracks.every(t=>t.duration>0) ? ', ' + total(p.tracks) : ''}` })
     + actions(k, `${dlButton(k,'pl:'+p.id)}<button class="btn icon-only${p.collab?' collab-on':''}" data-act="share-pl" data-id="${p.id}" aria-label="${p.collab?'Shared playlist: invite more people':'Edit together with friends'}">${I.share||I.plus}</button>
       <button class="btn icon-only" data-act="folder-move" data-id="${p.id}" aria-label="Move to folder">${I.folder}</button>
+      <button class="btn icon-only" data-act="cover-pl" data-id="${p.id}" aria-label="${own?'Change or remove cover photo':'Add a cover photo'}">${I.image}</button>
       <button class="btn icon-only" data-act="rename-pl" data-id="${p.id}" aria-label="Rename">${I.edit}</button>
       <button class="btn icon-only" data-act="delete-pl" data-id="${p.id}" aria-label="Delete">${I.trash}</button>`)
     + (p.tracks.length ? trackRows(p.tracks, k) : '<p class="muted pad">Empty for now. Use ⋯ on any song → “Add to playlist”.</p>');
@@ -874,6 +878,12 @@ function playlistPicker(tracks) {
         const n = store.addToPlaylist(p.id, tracks);
         toast(n ? `Added to ${p.name}` : 'Already in that playlist');
       } })),
+      // Spotify playlists you synced: the songs are kept in Spot+ and shown at the end (Spotify itself isn't changed).
+      ...(store.getSpotifyAccount()?.playlists || []).map((p) => ({ icon: I.library, label: p.title, sub: `Spotify · ${plural(p.tracks.length + store.getSpotifyAdds(p.id).length, 'song')}`, fn: () => {
+        const n = store.addToSpotifyPlaylist(p.id, tracks, p.tracks);
+        toast(n ? `Added to ${p.title}` : 'Already in that playlist');
+        if (n && location.hash === '#/spotify-account/playlist/' + p.id) route({ keepScroll: true });
+      } })),
     ],
   });
 }
@@ -914,6 +924,7 @@ function trackSheet(t, meta = {}) {
       meta.playlistId && meta.index>0 && {icon:I.up,label:'Move up in playlist',fn:()=>store.updatePlaylist(meta.playlistId,p=>{[p.tracks[meta.index-1],p.tracks[meta.index]]=[p.tracks[meta.index],p.tracks[meta.index-1]];})},
       meta.playlistId && meta.index<store.getPlaylist(meta.playlistId).tracks.length-1 && {icon:I.down,label:'Move down in playlist',fn:()=>store.updatePlaylist(meta.playlistId,p=>{[p.tracks[meta.index+1],p.tracks[meta.index]]=[p.tracks[meta.index],p.tracks[meta.index+1]];})},
       meta.playlistId && { icon: I.trash, label: 'Remove from this playlist', fn: () => store.removeFromPlaylist(meta.playlistId, meta.index) },
+      meta.spotifyPlaylistId && store.getSpotifyAdds(meta.spotifyPlaylistId).some(x=>x.id===t.id) && { icon: I.trash, label: 'Remove from this playlist', fn: () => { store.removeSpotifyAdd(meta.spotifyPlaylistId, t.id); toast('Removed'); route({ keepScroll: true }); } },
     ].filter(Boolean),
   });
 }
@@ -1015,6 +1026,17 @@ async function handleAct(act, el) {
       const folderId=location.hash.match(/^#\/folder\/(folder[\w-]+)$/)?.[1];
       const name = await ask({ title: 'New playlist', placeholder: 'Playlist name', ok: 'Create' });
       if (name) {const p=store.createPlaylist(name);if(folderId&&store.getFolder(folderId))store.moveToFolder(p.id,folderId);go(`#/my/${p.id}`);}
+      break;
+    }
+    case 'cover-pl': {
+      const coverKey=el.dataset.id;
+      const choose=()=>{const input=document.createElement('input');input.type='file';input.accept='image/*';
+        input.onchange=async()=>{const file=input.files?.[0];if(!file)return;
+          try{const url=await coverFromFile(file);if(!store.setPlaylistCover(coverKey,url))throw new Error('That photo couldn’t be saved.');toast('Cover photo updated');route({keepScroll:true});}
+          catch(e){toast(e.message||'That photo couldn’t be used');}};
+        input.click();};
+      if(!store.getPlaylistCover(coverKey)){choose();break;}
+      openSheet({head:'<div class="sheet-title">Cover photo</div>',items:[{icon:I.image,label:'Choose a new photo',fn:choose},{icon:I.trash,label:'Remove cover photo',fn:()=>{store.setPlaylistCover(coverKey,null);toast('Cover photo removed');route({keepScroll:true});}}]});
       break;
     }
     case 'new-folder': {const name=await ask({title:'New folder',placeholder:'Folder name',ok:'Create'});if(name)go('#/folder/'+store.createFolder(name).id);break;}
@@ -1479,13 +1501,13 @@ function karaokeLoop() {
 let activeArtist=null, activeAlbum=null, libraryQuery='', sheetFocus=null, npFocus=null;
 let lastVolume=.7, sleepTimer=null;
 const libraryFilterNames=[['all','All'],['playlists','Playlists'],['artists','Artists'],['albums','Albums'],['downloaded','Downloaded']];
-function safeImage(url) { try { const u=new URL(url,location.href);return ['https:','http:','blob:'].includes(u.protocol)?u.href:'icons/icon-192.png'; } catch { return 'icons/icon-192.png'; } }
+function safeImage(url) { if(/^data:image\/(jpeg|png|webp);base64,/.test(String(url||'')))return url; try { const u=new URL(url,location.href);return ['https:','http:','blob:'].includes(u.protocol)?u.href:'icons/icon-192.png'; } catch { return 'icons/icon-192.png'; } }
 function emptyState(title,description,label,href){return `<div class="empty">${I.note}<h2>${esc(title)}</h2><p class="muted">${esc(description)}</p>${label?`<a class="btn white" href="${href}">${esc(label)}</a>`:''}</div>`;}
 function libraryFilters(){return libraryFilterNames.map(([key,label])=>`<button class="chip${store.getSettings().libraryFilter===key?' on':''}" data-act="library-filter" data-filter="${key}" aria-pressed="${store.getSettings().libraryFilter===key}">${label}</button>`).join('');}
 function libraryData(){return {likes:store.getLikes(),downloads:store.getDownloads(),playlists:store.getPlaylists(),albums:store.getAlbums(),artists:store.getArtists(),localFiles:store.getLocalFiles(),spotifyLinks:store.getSpotifyLinks(),spotifyAccount:store.getSpotifyAccount(),folders:store.getFolders()};}
 function renderLibraryItems({folderId=null,query=libraryQuery}={}){
   const s=store.getSettings(),pins=store.getPins();
-  const items=libraryItems(libraryData(),{filter:folderId?'all':s.libraryFilter,sort:s.librarySort,query,pins,folderId});
+  const items=libraryItems(libraryData(),{filter:folderId?'all':s.libraryFilter,sort:s.librarySort,query,pins,folderId}).map(x=>{const m=/^#\/my\/(\w+)$/.exec(x.route||'')||/^#\/spotify-account\/playlist\/(\w+)$/.exec(x.route||'');const own=m&&store.getPlaylistCover(x.route.startsWith('#/my/')?m[1]:'sp:'+m[1]);return own?{...x,cover:own}:x;});
   return items.map(x=>`<div class="library-item${location.hash===x.route?' active':''}" data-library-id="${esc(x.id)}"><a href="${x.route}" title="${esc(x.title)}"><div class="library-art${x.type==='artists'?' artist':''}">${x.cover?img(x.cover):`<div class="ph-cover ${x.className||''}">${I[x.icon]||I.note}</div>`}</div><div class="library-copy"><b>${esc(x.title)}</b><small>${pins.includes(x.id)?I.pin:''}${esc(x.subtitle)}${query&&x.folderName?' · '+esc(x.folderName):''}</small></div></a><button class="icon pin-button${pins.includes(x.id)?' on':''}" data-act="pin" data-id="${esc(x.id)}" aria-label="${pins.includes(x.id)?'Unpin':'Pin'} ${esc(x.title)}" aria-pressed="${pins.includes(x.id)}">${I.pin}</button>${x.folderable||x.isFolder?`<button class="icon library-menu" data-act="library-menu" data-id="${esc(x.id)}" aria-label="Options for ${esc(x.title)}">${I.more}</button>`:''}</div>`).join('') || `<p class="muted pad">${folderId&&!query?'No playlists yet. Add one above, or create a new playlist.':'No matching items in your library.'}</p>`;
 }
 function renderSidebar(){
@@ -1884,8 +1906,10 @@ function viewSpotifyAccountList(id){
   const account=store.getSpotifyAccount();if(!account)return emptyState('Connect your Spotify library','Connect Spotify to see your saved music here.','Spotify account','#/spotify-account');
   const p=id==='likes'?{title:'Spotify Liked Songs',tracks:account.likes,status:account.likesUnreadable?'partial':'ready',unreadable:account.likesUnreadable}:account.playlists.find(x=>x.id===id);
   if(!p)return emptyState('Playlist not in this copy','Refresh your Spotify library to check for changes.','Spotify account','#/spotify-account');
-  const tracks=visibleTracks(p.tracks,store.getSettings()),key=reg(tracks,{name:p.title});
-  return header({cover:p.cover,coverHtml:p.cover?'':mosaic(tracks),kicker:'Spotify library copy',title:p.title,sub:`${esc(account.account.name)} · ${plural(tracks.length,'song')} · Updated ${esc(new Date(account.capturedAt).toLocaleDateString())}`})+(tracks.length?actions(key,`<button class="btn" data-act="save-list" data-key="${key}">${I.plus}Make editable copy</button><a class="btn" href="#/spotify-account">Refresh & account</a>`):'<div class="account-actions"><a class="btn" href="#/spotify-account">Refresh & account</a></div>')+(p.status==='unavailable'?'<p class="account-status">Spotify could not return this playlist on the last refresh. Any previous tracks have been kept.</p>':p.status==='partial'?'<p class="account-status">Song entries with incomplete details: '+p.unreadable+'. An existing copy of this collection is kept; otherwise, only readable songs are shown. Refresh from Spotify to try again.</p>':'')+trackRows(tracks,key);
+  const added=id==='likes'?[]:store.getSpotifyAdds(id).filter(t=>!p.tracks.some(x=>x.id===t.id));
+  const tracks=visibleTracks([...p.tracks,...added],store.getSettings()),key=reg(tracks,{name:p.title,spotifyPlaylistId:id==='likes'?'':id});
+  const own=id==='likes'?'':store.getPlaylistCover('sp:'+id),cover=own||p.cover;
+  return header({cover,coverHtml:cover?'':mosaic(tracks),kicker:'Spotify library copy',title:p.title,sub:`${esc(account.account.name)} · ${plural(tracks.length,'song')} · Updated ${esc(new Date(account.capturedAt).toLocaleDateString())}`})+(tracks.length?actions(key,`<button class="btn" data-act="save-list" data-key="${key}">${I.plus}Make editable copy</button>${id==='likes'?'':`<button class="btn icon-only" data-act="cover-pl" data-id="sp:${esc(id)}" aria-label="${own?'Change or remove cover photo':'Add a cover photo'}">${I.image}</button>`}<a class="btn" href="#/spotify-account">Refresh & account</a>`):'<div class="account-actions"><a class="btn" href="#/spotify-account">Refresh & account</a></div>')+(p.status==='unavailable'?'<p class="account-status">Spotify could not return this playlist on the last refresh. Any previous tracks have been kept.</p>':p.status==='partial'?'<p class="account-status">Song entries with incomplete details: '+p.unreadable+'. An existing copy of this collection is kept; otherwise, only readable songs are shown. Refresh from Spotify to try again.</p>':'')+(added.length?`<p class="settings-note">${plural(added.length,'song')} added in Spot+ ${added.length>1?'are':'is'} at the end. Spotify itself isn’t changed.</p>`:'')+trackRows(tracks,key);
 }
 function spotifyCard(p){const type=p.type||'playlist';return `<a class="card spotify-card" href="${type==='playlist'?'#/linked/'+p.id:'#/spotify/'+type+'/'+p.id}">${img(p.cover)}<div class="ctitle">${esc(p.title)}</div><div class="csub">Spotify · ${esc(p.category||'Shared link')}</div></a>`;}
 function artistCollections(a){const official=spotify.collections.find(p=>p.artist?.toLowerCase()===a.name.toLowerCase());return `<section><h2>Featuring ${esc(a.name)}</h2><div class="artist-collections"><a class="collection-tile" href="#/radio/${a.id}">${img(a.picture)}<div><b>${esc(a.name)} Radio</b><small>Spot+ mix · Powered by Deezer</small></div>${I.radio}</a>${official?`<a class="collection-tile" href="#/spotify/playlist/${official.id}">${img(official.cover||a.picture)}<div><b>${esc(official.title)}</b><small>Official Spotify playlist</small></div>${I.arrow}</a>`:`<a class="collection-tile" href="#/essentials/${a.id}">${img(a.picture)}<div><b>${esc(a.name)} essentials</b><small>Popular tracks · Deezer</small></div>${I.play}</a>`}</div><a class="link" href="https://open.spotify.com/search/${encodeURIComponent('This Is '+a.name)}" target="_blank" rel="noopener">Find more artist playlists on Spotify ${I.arrow}</a></section>`;}
