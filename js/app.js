@@ -31,6 +31,7 @@ import {coverFromFile} from './playlist-art.js';
 import * as spArtists from './spotify-artists.js';
 import * as rating from './rating.js';
 import * as snake from './snake.js';
+import * as share from './share-card.js';
 import {clipSource,hasLocalClip,prefetchClips} from './canvas-cache.js';
 import {Jam,jamLink,validJamCode} from './jam.js';
 import qrcode from './vendor/qrcode.js';
@@ -825,6 +826,7 @@ const routes = [
   [/^#\/artist\/(\d+)\/discography$/, viewDiscography],
   [/^#\/build\/(.{1,120})$/, viewBuild],
   [/^#\/sartist\/([A-Za-z0-9]{22})$/, viewSpotifyArtist],
+  [/^#\/song\/(\d{1,15})$/, viewSong],
   [/^#\/album\/(\d+)$/, viewAlbum],
   [/^#\/playlist\/(\d+)$/, viewPlaylist],
   [/^#\/library$/, viewLibrary],
@@ -1005,6 +1007,31 @@ async function pickMatch(t) {
   } catch (e) { closeSheet(); toast(e.message); }
 }
 
+// Share a song three ways: a Spot+ card (a story-sized picture), the song on Spotify, or a link that opens it in Spot+.
+function songShareSheet(t) {
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#1ed760';
+  const said = (r, what) => { if (r === 'copied') toast(`${what} copied`); else if (r === 'downloaded') toast('Card saved to your downloads'); };
+  openSheet({
+    head: sheetHead(t) + '<div class="sheet-note">Share this song</div>',
+    items: [
+      { icon: I.image, label: 'Share Spot+ card', sub: 'A picture for your story, with the cover and the Spot+ link', fn: async () => {
+        toast('Making your card…');
+        try { said(await share.shareCard(t, { accent }), 'Card'); } catch { toast('The card couldn’t be made. Try sharing the link instead.'); }
+      } },
+      { icon: I.library, label: 'Share Spotify link', sub: /^[A-Za-z0-9]{22}$/.test(t.spotifyId || '') ? 'Opens this song on Spotify' : 'Opens the song in Spotify’s search', fn: async () =>
+        said(await share.shareLink({ title: t.title, text: `${t.title} by ${t.artist}`, url: share.spotifyLink(t) }), 'Spotify link') },
+      { icon: I.share, label: 'Share Spot+ link', sub: 'Opens and plays it in Spot+', fn: async () =>
+        said(await share.shareLink({ title: t.title, text: `${t.title} by ${t.artist} on Spot+`, url: share.spotPlusLink(t) }), 'Spot+ link') },
+      { icon: I.edit, label: 'Copy Spotify link', fn: async () => { await navigator.clipboard?.writeText(share.spotifyLink(t)); toast('Spotify link copied'); } },
+    ],
+  });
+}
+// A shared Spot+ song link: show the song and play it with one tap.
+async function viewSong(id) {
+  const t = await api.trackById(id);
+  const k = reg([t], { name: t.title });
+  return header({ cover: t.coverXl || t.cover, kicker: 'Song', title: t.title, sub: `${esc(t.artist)}${t.album ? ' · ' + esc(t.album) : ''}` }) + actions(k, `<button class="btn" data-act="share-song" data-key="${k}">${I.share}Share</button>`) + trackRows([t], k);
+}
 function trackSheet(t, meta = {}) {
   const liked = store.isLiked(t.id), dl = store.isDownloaded(t.id);
   const src = player.current()?.id === t.id && player.state.source ? `Streaming via ${api.host(player.state.source.instance)}` : '';
@@ -1015,6 +1042,7 @@ function trackSheet(t, meta = {}) {
       { icon: I.queue, label: 'Add to queue', fn: () => { player.addToQueue(t); toast('Added to queue'); } },
       { icon: liked ? I.heartFill : I.heart, label: liked ? 'Remove from Liked Songs' : 'Add to Liked Songs', fn: () => toast(store.toggleLike(t) ? 'Added to Liked Songs' : 'Removed from Liked Songs') },
       { icon: I.plus, label: 'Add to playlist…', fn: () => playlistPicker([t]) },
+      !t.local && { icon: I.share, label: 'Share', fn: () => setTimeout(() => songShareSheet(t), 0) },
       /^[A-Za-z0-9]{22}$/.test(t.spotifyId||'') && {icon:I.arrow,label:'Open Spotify player',fn:()=>go('#/spotify/track/'+t.spotifyId)},
       t.artistId && { icon: I.radio, label: 'Start radio', fn: () => startRadio(t) },
       !t.local && { icon: dl ? I.check : I.download, label: dl ? 'Remove download' : 'Download for offline', fn: () => (dl ? player.removeDownload(t.id).then(() => toast('Download removed')) : downloadTracks([t])) },
@@ -1143,6 +1171,7 @@ async function handleAct(act, el) {
       break;
     }
     case 'rate': await askRating(); break;
+    case 'share-song': { const t = listOf(el.dataset.key)?.tracks?.[0]; if (t) songShareSheet(t); break; }
     case 'snake': openSnake(); break;
     case 'new-folder': {const name=await ask({title:'New folder',placeholder:'Folder name',ok:'Create'});if(name)go('#/folder/'+store.createFolder(name).id);break;}
     case 'library-menu': libraryMenu(el.dataset.id);break;

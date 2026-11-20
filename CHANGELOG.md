@@ -2,6 +2,12 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 2.0.4 — Share songs
+_2026-11-20_
+
+- Share from the ⋯ menu in the player (and on any song): a Spot+ card made for stories, with the album art, the song and the Spot+ logo; the song’s Spotify link; or a Spot+ link that opens it right in Spot+.
+- On a phone the card goes straight to the share sheet (Instagram, Messages, Discord…); on a computer it’s saved as a picture.
+
 ## 2.0.3 — Smooth Snake
 _2026-11-20_
 

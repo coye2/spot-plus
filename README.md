@@ -14,7 +14,7 @@
 ![License](https://img.shields.io/badge/license-all%20rights%20reserved-555)
 ![Installs](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fspot-plus-canvas.pwr97pnmkn.workers.dev%2Fstats&query=%24.installs&label=installs&color=1B5E46&cacheSeconds=300)
 ![Listening now](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fspot-plus-canvas.pwr97pnmkn.workers.dev%2Fstats&query=%24.listening&label=listening%20now&color=2fd395&cacheSeconds=300)
-![Tests](https://img.shields.io/badge/tests-157%20passing-1B5E46)
+![Tests](https://img.shields.io/badge/tests-321%20passing-1B5E46)
 
 <img src="docs/screenshots/overview.png" alt="Spot+ home, a Spotify playlist, Jam and Connect Spotify screens" width="100%">
 
@@ -42,7 +42,11 @@ See what changed in each update: **[Changelog](CHANGELOG.md)**
 | 👥 **Jam** | Listen together in sync on separate phones. Share a code or QR. No accounts, no servers, end-to-end encrypted. |
 | 🎙️ **Spot+ DJ** | Talk or type to request music. Optional live mode runs a small AI model and voice entirely on your device. |
 | 🎬 **Canvas loops** | Full-screen portrait video loops behind the player, like Spotify mobile. |
-| 🎨 **Themes** | Light, dark and automatic modes, 19 color themes, true-black AMOLED, and status-bar colors that match. |
+| 🎨 **Themes & backgrounds** | Light, dark and automatic modes, 33 color themes, true-black AMOLED, and your own background from Alpha Coders, Wallhaven, Openverse, a Pinterest pin or a Google Images link. |
+| 🎤 **Artist pages like Spotify’s** | Spotify photo, monthly listeners, popular songs with play counts, full discographies and related artists. |
+| ⚡ **Instant playback** | Full songs, no ads. The next song is ready before you reach it, so skips start in about a fifth of a second. |
+| 🐍 **Snake** | Spotify’s Snake on every device: the snake is made of your queue’s covers. |
+| 📤 **Share** | Share a song as a Spot+ story card, a Spotify link or a Spot+ link. |
 | 🔔 **Calm notifications** | New releases from artists you follow, a weekly recap and update alerts. Two a day at most, none at night. |
 | 📱 **Works everywhere** | One web app for iPhone, Android, Windows, macOS and Linux. Installs like a native app and works offline. |
 

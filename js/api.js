@@ -212,6 +212,8 @@ export async function artist(id) {
  * Playlists for a name or a kind of playlist ("gym", "sad songs", "2000s r&b"): several searches merged (the words as
  * typed, plus "playlist" and "mix"), duplicates removed, best title matches and biggest playlists first.
  */
+/** One song by its catalog ID (for shared Spot+ song links). */
+export async function trackById(id) { return normTrack(await jsonp(`/track/${id}`)); }
 export async function searchPlaylistsDeep(q, limit = 60) {
   const words = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
   const asks = [q, `${q} playlist`, `${q} mix`].map((x) => jsonp('/search/playlist', {q: x, limit: 50}).then(data, () => []));

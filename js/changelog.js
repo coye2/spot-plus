@@ -1,6 +1,10 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '2.0.4', date: '2026-11-20', title: 'Share songs', items: [
+    'Share from the ⋯ menu in the player (and on any song): a Spot+ card made for stories, with the album art, the song and the Spot+ logo; the song’s Spotify link; or a Spot+ link that opens it right in Spot+.',
+    'On a phone the card goes straight to the share sheet (Instagram, Messages, Discord…); on a computer it’s saved as a picture.',
+  ]},
   {version: '2.0.3', date: '2026-11-20', title: 'Smooth Snake', items: [
     'The snake glides between squares instead of jumping, keeping an even rhythm, and each bite pops in with a little bounce.',
     'The snake reads like your queue: the song playing now is the head, the next songs follow, and every song you eat joins the tail.',
