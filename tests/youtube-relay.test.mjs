@@ -177,8 +177,8 @@ test('/yta never hands over a link that stops after the first chunk: it checks t
   const {fetcher, seen} = clientAwareYouTube({total: 5000, cutOff: new Set(['VISIONOS'])});
   const r = await youtubeRelay(new Request('https://w.dev/yta?id=hhhhhhhhhhh', {headers: {Range: 'bytes=0-1'}}), {fetcher});
   assert.equal(r.status, 206);
-  // Wave 1 asks VISIONOS three times at once; all its links fail the end-of-file check, so wave 2 (ANDROID_VR) serves.
-  assert.deepEqual(seen.clients.slice(0, 3), ['VISIONOS', 'VISIONOS', 'VISIONOS']);
+  // Wave 1 asks VISIONOS twice at once; all its links fail the end-of-file check, so wave 2 (ANDROID_VR) serves.
+  assert.deepEqual(seen.clients.slice(0, 2), ['VISIONOS', 'VISIONOS']);
   assert.ok(seen.ranges.filter(([c]) => c === 'VISIONOS').every(([, , from]) => from === 4998), 'VISIONOS links only checked, never served');
   assert.equal(seen.ranges.at(-1)[0], 'ANDROID_VR');
 });

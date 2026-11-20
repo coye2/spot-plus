@@ -18,10 +18,12 @@ export const FORMATS = {
 // Two attempts: a short bot-check burst is outlasted by the second, and when YouTube has flagged the server for a
 // while, more attempts only made each refusal take 12-15 s (live, 2026-11-19); the app moves on instead.
 export const RETRY_WAITS = [0, 1200]; // kept for older callers
+// YouTube's refusals come in bursts that hit every request at that moment (live, 2026-11-19: seven parallel
+// lookups were refused together), so the waves are spread over about five seconds rather than fired at once.
 export const WAVES = [
-  {profile: 'visionos', lookups: 3},
-  {profile: 'android_vr', lookups: 2},
-  {profile: 'visionos', lookups: 2, wait: 600},
+  {profile: 'visionos', lookups: 2},
+  {profile: 'android_vr', lookups: 1, wait: 1200},
+  {profile: 'visionos', lookups: 2, wait: 2500},
 ];
 
 /** Runs the lookups at once; resolves with the first that found a stream (and cancels the rest), else the first failure. */
@@ -84,7 +86,6 @@ async function resolveLink(id, {fetcher, cache, waitUntil, fresh = false, fmt = 
   // YouTube refuses a share of lookups from cloud servers ("confirm you're not a bot"), seemingly at random per
   // request. Asking one at a time made a refusal cost seconds and still often fail; instead each wave asks several
   // times at once, each with its own visitor identity, and takes the first good link (the rest are cancelled).
-  // With ~50% refusals, three at once all fail about 1 time in 8; the later waves bring it to about 1 in 100.
   let used = 0;
   const upstream = fetcher;
   fetcher = (url, init) => {

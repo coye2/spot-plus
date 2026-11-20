@@ -354,7 +354,7 @@ function recoverMedia(mediaErr = null) {
     memoryEngine.forgetStream(api.streamKey(cur));
   }
   const relayFailed = failed?.kind === 'ytrelay';
-  if (!state.offline && !cur.local && failed && !failed.preview && errRetries < (relayFailed && store.getSettings().source !== 'auto' ? 4 : 2)) {
+  if (!state.offline && !cur.local && failed && !failed.preview && errRetries < (relayFailed ? (store.getSettings().source === 'auto' ? 1 : 4) : 2)) {
     errRetries++;
     // A relay stream that drops is usually YouTube refusing that one upload for a moment: try again from the
     // same spot, preferring another upload of the song, instead of giving up on the relay for this song.

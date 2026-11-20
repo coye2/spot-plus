@@ -2,6 +2,12 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.58 — YouTube Relay waits out refusals
+_2026-11-19_
+
+- YouTube refuses the Spot+ server in short bursts that hit every request at once, so asking many times in parallel didn’t help. The server now spreads its tries over about five seconds, which gets through most bursts.
+- In Automatic, if YouTube still says no, the song switches straight to the backup (already looked up) instead of trying YouTube a second time.
+
 ## 1.9.57 — YouTube Relay asks smarter, backup switches fast
 _2026-11-19_
 
