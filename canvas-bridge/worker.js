@@ -1,3 +1,4 @@
+import {images} from './images.js';
 import {monochromeAudio} from './monochrome.js';
 import {podcasts} from './podcasts.js';
 import {devProfile} from './dev-profile.js';
@@ -84,12 +85,13 @@ export async function handle(request, {fetcher=fetch,cache,waitUntil=()=>{},env}
   if (url.pathname === '/dev') return devProfile(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/match') return youtubeMatch(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/wallpapers') return wallpapers(request,{fetcher,cache,waitUntil});
+  if (url.pathname === '/images') return images(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/sc') return soundcloud(request,{env,fetcher,cache,waitUntil});
   if (url.pathname === '/yta') return youtubeRelay(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/mono') return monochromeAudio(request,{fetcher});
   if (url.pathname === '/stream') return youtubeStream(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/spotify-public') return spotifyPublic(request,{fetcher,cache,waitUntil});
-  if (url.pathname === '/health') return json({service:'Spot+ Canvas bridge',status:'ok',lyrics:true,spotifyPublic:true,match:true,wallpapers:true,sc:!!(env?.SC_CLIENT_ID&&env?.SC_CLIENT_SECRET),relay:true,relayIntegrity:'v3',mono:true,stream:true,stats:true,dev:true,podcasts:true});
+  if (url.pathname === '/health') return json({service:'Spot+ Canvas bridge',status:'ok',lyrics:true,spotifyPublic:true,match:true,wallpapers:true,sc:!!(env?.SC_CLIENT_ID&&env?.SC_CLIENT_SECRET),relay:true,relayIntegrity:'v3',mono:true,images:true,stream:true,stats:true,dev:true,podcasts:true});
   if (url.pathname === '/lyrics-search') return lyricsSearch(url,{fetcher,cache,waitUntil});
   if (url.pathname !== '/canvas') return json({error:'Not found'},404);
   const query = queryFor(url.searchParams);

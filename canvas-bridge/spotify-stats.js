@@ -19,6 +19,21 @@ export function artistCounters(entity) {
  const tracks=(entity.discography?.topTracks?.items||[]).map(({track})=>({id:String(track?.uri||'').split(':')[2],title:String(track?.name||'').slice(0,300),plays:count(track?.playcount),duration:Math.round((track?.duration?.totalMilliseconds||0)/1000)})).filter(t=>validId(t.id)&&t.plays!==null);
  return {id,name:String(entity.profile?.name||'').slice(0,200),monthlyListeners:count(entity.stats?.monthlyListeners),tracks,source:'https://open.spotify.com/artist/'+id,checkedAt:Date.now()};
 }
+const fold=v=>String(v||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^\p{L}\p{N}]+/gu,'');
+async function musicBrainzSpotify(deezerId,get){
+ const name=JSON.parse(await get('https://api.deezer.com/artist/'+deezerId,'application/json'))?.name;
+ if(!name)return '';
+ const found=JSON.parse(await get('https://musicbrainz.org/ws/2/artist?fmt=json&limit=5&query='+encodeURIComponent('artist:"'+name.replace(/"/g,'')+'"'),'application/json'));
+ const same=(found.artists||[]).filter(a=>fold(a.name)===fold(name)&&(a.score||0)>=90).slice(0,2);
+ for(const a of same){
+  const rels=JSON.parse(await get('https://musicbrainz.org/ws/2/artist/'+a.id+'?fmt=json&inc=url-rels','application/json')).relations||[];
+  // Deezer link on the same MusicBrainz artist confirms it's this artist; otherwise accept a single exact-name match.
+  const deezerMatch=rels.some(r=>/deezer\.com\/(?:[a-z]{2}\/)?artist\/(\d+)/.exec(r.url?.resource||'')?.[1]===String(deezerId));
+  const spotify=rels.map(r=>/open\.spotify\.com\/artist\/([A-Za-z0-9]{22})/.exec(r.url?.resource||'')?.[1]).filter(Boolean);
+  if(spotify.length===1&&(deezerMatch||same.length===1))return spotify[0];
+ }
+ return '';
+}
 export async function spotifyStats(request,{fetcher=fetch,cache,waitUntil=()=>{}}={}) {
  const params=new URL(request.url).searchParams;
  const artist=params.get('artistId'),track=params.get('trackId'),deezer=params.get('deezerArtistId');
@@ -33,7 +48,11 @@ export async function spotifyStats(request,{fetcher=fetch,cache,waitUntil=()=>{}
    const sparql=`SELECT ?spotify WHERE { ?entity wdt:P2722 "${deezer}"; wdt:P1902 ?spotify. } LIMIT 2`;
    const data=JSON.parse(await get('https://query.wikidata.org/sparql?format=json&query='+encodeURIComponent(sparql),'application/sparql-results+json'));
    const ids=[...new Set((data.results?.bindings||[]).map(x=>x.spotify?.value).filter(validId))];
-   if(ids.length!==1)return json({available:false,reason:'No unique Spotify artist mapping'},200,3600);id=ids[0];
+   id=ids.length===1?ids[0]:'';
+   // Smaller artists are often missing from Wikidata: MusicBrainz lists many of their Spotify pages. The name on
+   // the Spotify page must match Deezer's name, so a namesake is never used.
+   if(!id)id=await musicBrainzSpotify(deezer,get).catch(()=>'');
+   if(!id)return json({available:false,reason:'No unique Spotify artist mapping'},200,3600);
   }
   let counters;
   if(track){

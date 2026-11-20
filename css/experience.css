@@ -17,3 +17,20 @@ body.library-collapsed{--sidebar:72px}body.library-collapsed .library-heading{pa
 .np-src{cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pd{display:grid;gap:2px;padding:4px 8px 12px}.pd-row{display:flex;justify-content:space-between;gap:16px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}.pd-row span{color:var(--muted);flex:none}.pd-row b{font-weight:500;text-align:right;overflow-wrap:anywhere;min-width:0}
 
 .search-top{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}@media(min-width:768px){.search-top{grid-template-columns:minmax(260px,.9fr) minmax(0,1.4fr);gap:24px}}.top-result{display:flex;flex-direction:column;gap:6px;padding:18px;border-radius:10px;background:color-mix(in srgb,var(--text) 7%,transparent);text-align:left;color:var(--text);width:100%;border:0}.top-result:hover{background:color-mix(in srgb,var(--text) 11%,transparent)}.top-result .top-art{width:96px;height:96px;border-radius:6px;object-fit:cover;margin-bottom:8px}.top-result .top-art.round{border-radius:50%}.top-result b{font-size:26px;font-weight:700;line-height:1.15;overflow-wrap:anywhere}.top-result small{color:var(--muted);font-size:13px}
+
+/* Discography: chips filter the releases shown (Popular releases shows everything, newest first). */
+.discography[data-kind="album"] .card:not([data-kind="album"]),
+.discography[data-kind="single"] .card:not([data-kind="single"]),
+.discography[data-kind="compile"] .card:not([data-kind="compile"]) { display: none; }
+.disco-chips { display: flex; gap: 8px; overflow-x: auto; margin: 4px 0 12px; scrollbar-width: none; }
+.disco-chips .chip.on { background: var(--text, #fff); color: var(--bg, #000); }
+.discography-page h1 { margin: 12px 0 2px; }
+.bar-artist[data-act],.bar-title[data-act]{cursor:pointer}@media (min-width:768px){.bar-artist[data-act]:hover,.bar-title[data-act]:hover{text-decoration:underline;color:var(--text)}}
+@media (pointer: fine) {
+  .shelf, .chips, .disco-chips, .account-cards, .artist-collections, .quick-grid { -webkit-user-select: none; user-select: none; }
+  .shelf a, .shelf img, .account-cards a, .account-cards img { -webkit-user-drag: none; }
+}
+.drag-scrolling { cursor: grabbing; scroll-snap-type: none !important; scroll-behavior: auto !important; }
+.drag-scrolling * { pointer-events: none; }
+.tadded{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);margin-top:1px}.tadded img{width:14px;height:14px;border-radius:50%}
+.owner-pic{width:22px;height:22px;border-radius:50%;vertical-align:middle;margin-right:6px}.verified{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600}.verified svg{width:18px;height:18px;padding:2px;border-radius:50%;background:#4cb3ff;color:#fff}

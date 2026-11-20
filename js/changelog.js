@@ -1,6 +1,16 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.64', date: '2026-11-20', title: 'Spotify-accurate artists, deeper playlists, new backgrounds', items: [
+    'Artist pages now look and read like Spotify’s: Spotify’s photo, the exact monthly listener count, Spotify’s popular songs with play counts, Fans also like, Appears on, the artist’s playlists and their bio.',
+    'Full discographies: every release is shown (guardin has 124), with Popular releases, Albums, Singles and EPs, and Compilations, and a Show all page. Releases only on Spotify are added too.',
+    'Artists who aren’t matched to Spotify automatically can be linked once: ⋯ → Link their Spotify page.',
+    'Desktop: clicking the artist in the player opens their page (and the song title opens the album), even for songs from Spotify or YouTube.',
+    'Desktop: drag any row of cards sideways with the mouse. A drag no longer opens the card it started on.',
+    'Playlist search goes much deeper (dozens of playlists, closest matches when none has every word), and any search can become a playlist Spot+ builds for you.',
+    'Spotify playlists show who made them, with their photo. Blends and shared playlists show who added each song (sync your Spotify library again to get this).',
+    'Backgrounds: search also covers Wallhaven and Openverse, and you can add any picture from a Pinterest pin or a Google Images result by pasting its link. Those are kept under From your links.',
+  ]},
   {version: '1.9.63', date: '2026-11-20', title: 'Playlist photos, and adding to your Spotify playlists', items: [
     'Give any playlist your own cover photo: tap the photo button on a playlist (your own or a Spotify one you synced) and choose a picture. It’s cropped square and shown everywhere in your library.',
     'You can now add songs to the Spotify playlists you synced, not just to Spot+ playlists. They’re kept in Spot+ at the end of the playlist (Spotify itself isn’t changed) and stay through refreshes. Remove one from its ⋯ menu.',

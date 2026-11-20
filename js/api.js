@@ -107,7 +107,9 @@ const normAlbum = (a) => ({
   cover: a.cover_medium || a.cover || '', coverXl: a.cover_xl || a.cover_big || '',
   year: (a.release_date || '').slice(0, 4), released: a.release_date || '', type: a.record_type || 'album', count: a.nb_tracks || 0,
 });
-const normArtist = (a) => ({ id: a.id, name: a.name, picture: a.picture_medium || a.picture || '', pictureXl: a.picture_xl || a.picture_big || '', fans: a.nb_fan || 0 });
+// Deezer's "no photo" image has an empty image hash (…/images/artist//…): treat it as no photo, so Spotify's can be used.
+const realPic = (u) => (u && !/\/images\/artist\/\//.test(u) ? u : '');
+const normArtist = (a) => ({ id: a.id, name: a.name, picture: realPic(a.picture_medium || a.picture), pictureXl: realPic(a.picture_xl || a.picture_big), fans: a.nb_fan || 0 });
 const normPlaylist = (p) => ({
   id: p.id, title: p.title, cover: p.picture_medium || p.picture || '', coverXl: p.picture_xl || p.picture_big || '',
   count: p.nb_tracks || 0, by: p.user?.name || p.creator?.name || '', description: p.description || '',
@@ -181,10 +183,21 @@ export async function search(q) {
   };
 }
 
+async function allAlbums(id) {
+  const first = await jsonp(`/artist/${id}/albums`, { limit: 300 });
+  const items = [...(first?.data || [])];
+  for (let index = items.length; first?.total > index && index < 1200; index = items.length) {
+    const more = await jsonp(`/artist/${id}/albums`, { limit: 300, index }).catch(() => null);
+    if (!more?.data?.length) break;
+    items.push(...more.data);
+  }
+  return {data: items, total: first?.total || items.length};
+}
 export async function artist(id) {
   const [a, top, albums, related] = await Promise.allSettled([
     jsonp(`/artist/${id}`), jsonp(`/artist/${id}/top`, { limit: 20 }),
-    jsonp(`/artist/${id}/albums`, { limit: 60 }), jsonp(`/artist/${id}/related`, { limit: 14 }),
+    // The whole discography: prolific artists have well over 100 releases (guardin: 124, mostly singles).
+    allAlbums(id), jsonp(`/artist/${id}/related`, { limit: 20 }),
   ]);
   if (a.status === 'rejected') throw a.reason;
   return {
@@ -195,6 +208,58 @@ export async function artist(id) {
   };
 }
 
+/**
+ * Playlists for a name or a kind of playlist ("gym", "sad songs", "2000s r&b"): several searches merged (the words as
+ * typed, plus "playlist" and "mix"), duplicates removed, best title matches and biggest playlists first.
+ */
+export async function searchPlaylistsDeep(q, limit = 60) {
+  const words = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
+  const asks = [q, `${q} playlist`, `${q} mix`].map((x) => jsonp('/search/playlist', {q: x, limit: 50}).then(data, () => []));
+  const seen = new Set(), all = [];
+  for (const list of await Promise.all(asks)) for (const p of list) if (!seen.has(p.id) && p.nb_tracks >= 8) { seen.add(p.id); all.push(p); }
+  const score = (p) => { const t = String(p.title || '').toLowerCase(); const hit = words.filter((w) => t.includes(w)).length / Math.max(1, words.length);
+    return hit * 100 + Math.log10((p.fans || 0) + 10) * 6 + Math.min(p.nb_tracks || 0, 100) / 20 + (/^deezer|editor/i.test(p.user?.name || '') ? 8 : 0); };
+  return all.sort((a, b) => score(b) - score(a)).slice(0, limit).map(normPlaylist);
+}
+/** Builds a playlist for any name or vibe: the best playlists for it plus a song search, mixed and de-duplicated. */
+// Shorter forms of a request, most specific first: "sad 2000s emo" → "2000s emo", "sad emo", "sad 2000s", then single words.
+export function looserQueries(q) {
+  const w = String(q || '').toLowerCase().split(/\s+/).filter(Boolean).slice(0, 6), out = [];
+  const add = (x) => { if (x && !out.includes(x)) out.push(x); };
+  add(w.join(' '));
+  for (let n = w.length - 1; n >= 1; n--) {
+    const combos = [];
+    const pick = (start, acc) => { if (acc.length === n) { combos.push(acc.join(' ')); return; } for (let i = start; i < w.length; i++) pick(i + 1, [...acc, w[i]]); };
+    pick(0, []);
+    // Longer words say more than "sad" or "the".
+    combos.sort((a, b) => b.replace(/\s/g, '').length - a.replace(/\s/g, '').length).forEach(add);
+  }
+  return out.slice(0, 10);
+}
+export async function buildPlaylist(q, size = 60) {
+  // Deezer only finds playlists whose titles hold every word, so a request with no exact match is loosened.
+  let lists = [];
+  for (const form of looserQueries(q)) {
+    const found = await searchPlaylistsDeep(form, 4).catch(() => []);
+    for (const p of found) if (!lists.some((x) => x.id === p.id)) lists.push(p);
+    if (lists.length >= 3) break;
+  }
+  lists = lists.slice(0, 4);
+  const songs = await jsonp('/search/track', {q, limit: 50}).then(data, () => []);
+  const sources = await Promise.all(lists.map((p) => playlist(p.id).then((r) => r.tracks, () => [])));
+  sources.push(songs.map((t) => normTrack(t)));
+  const out = [], seen = new Set(), perArtist = new Map();
+  for (let i = 0; out.length < size && sources.some((s) => i < s.length); i++) {
+    for (const s of sources) {
+      const t = s[i]; if (!t) continue;
+      const key = (t.title + '|' + t.artist).toLowerCase(), a = String(t.artist).toLowerCase();
+      if (seen.has(key) || (perArtist.get(a) || 0) >= 4) continue;
+      seen.add(key); perArtist.set(a, (perArtist.get(a) || 0) + 1); out.push(t);
+      if (out.length >= size) break;
+    }
+  }
+  return {tracks: out, from: lists};
+}
 export async function searchPlaylists(q, limit = 12) { return data(await jsonp('/search/playlist', {q, limit})).map(normPlaylist); }
 
 export async function artistRadio(id) {

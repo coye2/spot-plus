@@ -6,7 +6,9 @@ const validId=v=>typeof v==='string'&&/^[A-Za-z0-9]{22}$/.test(v);
 function track(t){
   if(!t||!validId(t.spotifyId)||!text(t.title).trim()||!text(t.artist).trim())return null;
   const cover=spotifyCover(t.cover);
-  return {id:'spotify:'+t.spotifyId,spotifyId:t.spotifyId,provider:'spotify-import',title:text(t.title),artist:text(t.artist),album:text(t.album),cover,coverXl:cover,duration:Number.isFinite(t.duration)?Math.min(86400,Math.max(0,t.duration)):0,explicit:!!t.explicit,externalUrl:'https://open.spotify.com/track/'+t.spotifyId};
+  const artistIds=Array.isArray(t.artistIds)?t.artistIds.filter(validId).slice(0,10):[];
+  const addedBy=t.addedBy&&text(t.addedBy.name,120).trim()?{name:text(t.addedBy.name,120),id:/^[A-Za-z0-9._-]{1,64}$/.test(t.addedBy.id||'')?t.addedBy.id:'',avatar:spotifyCover(t.addedBy.avatar)}:null;
+  return {id:'spotify:'+t.spotifyId,spotifyId:t.spotifyId,provider:'spotify-import',title:text(t.title),artist:text(t.artist),album:text(t.album),cover,coverXl:cover,duration:Number.isFinite(t.duration)?Math.min(86400,Math.max(0,t.duration)):0,explicit:!!t.explicit,externalUrl:'https://open.spotify.com/track/'+t.spotifyId,...(artistIds.length?{artistIds}:{}),...(addedBy?{addedBy}:{})};
 }
 function entity(p,type){return {id:p.id,type,title:text(p.title)||'Spotify '+type,owner:text(p.owner),cover:spotifyCover(p.cover)};}
 function unreadableCount(value){

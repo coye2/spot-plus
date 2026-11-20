@@ -2,6 +2,18 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.64 — Spotify-accurate artists, deeper playlists, new backgrounds
+_2026-11-20_
+
+- Artist pages now look and read like Spotify’s: Spotify’s photo, the exact monthly listener count, Spotify’s popular songs with play counts, Fans also like, Appears on, the artist’s playlists and their bio.
+- Full discographies: every release is shown (guardin has 124), with Popular releases, Albums, Singles and EPs, and Compilations, and a Show all page. Releases only on Spotify are added too.
+- Artists who aren’t matched to Spotify automatically can be linked once: ⋯ → Link their Spotify page.
+- Desktop: clicking the artist in the player opens their page (and the song title opens the album), even for songs from Spotify or YouTube.
+- Desktop: drag any row of cards sideways with the mouse. A drag no longer opens the card it started on.
+- Playlist search goes much deeper (dozens of playlists, closest matches when none has every word), and any search can become a playlist Spot+ builds for you.
+- Spotify playlists show who made them, with their photo. Blends and shared playlists show who added each song (sync your Spotify library again to get this).
+- Backgrounds: search also covers Wallhaven and Openverse, and you can add any picture from a Pinterest pin or a Google Images result by pasting its link. Those are kept under From your links.
+
 ## 1.9.63 — Playlist photos, and adding to your Spotify playlists
 _2026-11-20_
 

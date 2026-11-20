@@ -28,6 +28,7 @@ import * as themes from './themes.js';
 import * as scene from './backgrounds.js';
 import * as photo from './profile-photo.js';
 import {coverFromFile} from './playlist-art.js';
+import * as spArtists from './spotify-artists.js';
 import {clipSource,hasLocalClip,prefetchClips} from './canvas-cache.js';
 import {Jam,jamLink,validJamCode} from './jam.js';
 import qrcode from './vendor/qrcode.js';
@@ -194,7 +195,7 @@ function trackRows(tracks, key, { numbered = false } = {}) {
     <div class="trow${cur === t.id ? ' playing' : ''}" data-list="${key}" data-i="${i}" data-id="${esc(t.id)}">
       ${numbered ? `<span class="tnum">${i + 1}</span>` : ''}${img(t.cover, 'tcover')}
       <div class="tmeta"><div class="ttitle">${t.explicit ? '<span class="e">E</span>' : ''}${esc(t.title)}</div>
-      <div class="tsub">${esc(t.artist)}${!numbered && t.album ? ' · ' + esc(t.album) : ''}</div><div class="tplays" data-counter="track" data-track-id="${esc(t.id)}" data-spotify-id="${esc(t.spotifyId||'')}" data-artist-id="${esc(t.artistId||'')}" data-title="${esc(t.title)}" data-duration="${t.duration||0}"></div></div>
+      <div class="tsub">${esc(t.artist)}${!numbered && t.album ? ' · ' + esc(t.album) : ''}</div>${t.addedBy?.name ? `<div class="tadded">${t.addedBy.avatar ? `<img src="${esc(safeImage(t.addedBy.avatar))}" alt="">` : ''}Added by ${esc(t.addedBy.name)}</div>` : ''}<div class="tplays" data-counter="track" data-track-id="${esc(t.id)}" data-spotify-id="${esc(t.spotifyId||'')}" data-artist-id="${esc(t.artistId||'')}" data-title="${esc(t.title)}" data-duration="${t.duration||0}"></div></div>
       <button class="sr-only" data-act="track-play" data-key="${key}" data-i="${i}" aria-label="Play ${esc(t.title)} by ${esc(t.artist)}">Play</button>
       <span class="talbum">${esc(t.album)}</span>
       ${store.isDownloaded(t.id) ? `<span class="dl-mark" title="Downloaded">${I.download}</span>` : ''}
@@ -203,7 +204,7 @@ function trackRows(tracks, key, { numbered = false } = {}) {
     </div>`).join('')}</div>`;
 }
 const albumCard = (a) => `<a class="card" href="#/album/${a.id}">${img(a.cover)}<div class="ctitle">${esc(a.title)}</div><div class="csub">${esc([a.year, a.artist].filter(Boolean).join(' · '))}</div></a>`;
-const artistCard = (a) => `<a class="card round" href="#/artist/${a.id}">${img(a.picture)}<div class="ctitle">${esc(a.name)}</div><div class="csub">Artist</div></a>`;
+const artistCard = (a) => { const pic = a.picture || spArtists.photoFor(a.id, a.name); return `<a class="card round" href="#/artist/${a.id}"${pic ? '' : ` data-needs-photo data-artist-id="${esc(a.id)}" data-name="${esc(a.name)}"`}>${img(pic)}<div class="ctitle">${esc(a.name)}</div><div class="csub">Artist</div></a>`; };
 const playlistCard = (p) => `<a class="card" href="#/playlist/${p.id}">${img(p.cover)}<div class="ctitle">${esc(p.title)}</div><div class="csub">${esc(p.by || plural(p.count, 'song'))}</div></a>`;
 const trackCard = (t, key, i) => `<button class="card" data-act="track-play" data-key="${key}" data-i="${i}" data-id="${esc(t.id)}" aria-label="Play ${esc(t.title)} by ${esc(t.artist)}">${img(t.cover)}<span class="card-play">${I.play}</span><div class="ctitle">${esc(t.title)}</div><div class="csub">${esc(t.artist)}</div></button>`;
 const shelf = (title, cards) => (cards.length ? `<section><h2>${esc(title)}</h2><div class="shelf">${cards.join('')}</div></section>` : '');
@@ -505,7 +506,7 @@ function renderSearchResults(box, raw, q) {
   const songs = d.tracks.length ? `<section data-search-section="${d.top ? 'songs-full' : 'songs'}"${d.top ? ' hidden' : ''}><h2>Songs</h2>${trackRows(d.tracks, k)}</section>` : '';
   const artists = `<div data-search-section="artists">${shelf('Artists', d.artists.map(artistCard))}</div>`;
   const albums = `<div data-search-section="albums">${shelf('Albums', d.albums.map(albumCard))}</div>`;
-  const playlists = `<div data-search-section="playlists">${shelf('Playlists', d.playlists.map(playlistCard))}</div>`;
+  const playlists = `<div data-search-section="playlists" data-q="${esc(q)}">${shelf('Playlists', [...matchingCollections(q).map(spotifyCard), ...d.playlists.map(playlistCard), buildCard(q)])}</div>`;
   const order = d.intent === 'songs' ? [songs, artists, albums, playlists] : d.intent === 'albums' ? [albums, songs, artists, playlists] : [artists, songs, albums, playlists];
   // Spotify-style head: the Top result beside the first few songs.
   const firstSongs = d.tracks.slice(0, 4);
@@ -514,7 +515,7 @@ function renderSearchResults(box, raw, q) {
       <div class="chips search-filters">${['All','Songs','Artists','Albums','Playlists'].map((name,i)=>`<button class="chip${i?'':' on'}" data-act="search-filter" data-filter="${name.toLowerCase()}" aria-pressed="${!i}">${name}</button>`).join('')}</div>
       ${q.toLowerCase()==='dj'?'<p><a class="btn primary" href="#/dj">Open Spot+ DJ</a></p>':''}
       <div id="lyricSlot"></div>${head}${order.join('')}`;
-  hydrateStatistics(box);
+  hydrateStatistics(box);spArtists.fillPhotos(box);
   // An artist as the Top result: their own popular songs go beside it, like Spotify (search results may have none).
   if (d.top?.kind === 'artist' && !firstSongs.some((t) => String(t.artistId) === String(d.top.item.id))) {
     const my = searchTok;
@@ -581,7 +582,8 @@ async function viewArtist(id) {
   d.top=visibleTracks(d.top,store.getSettings());
   const k = reg(d.top), a=d.artist, following=store.hasArtist(id);
   const releases=d.albums.slice(0,8).map((x,i)=>`<a class="release-row${i>=4?' more-row':''}" href="#/album/${x.id}">${img(x.cover,'release-cover')}<div><b>${esc(x.title)}</b><small>${i===0?'<span class="latest">Latest release</span> · ':''}${esc([x.year,x.type?x.type[0].toUpperCase()+x.type.slice(1):''].filter(Boolean).join(' · '))}</small></div></a>`).join('');
-  return `<div class="artist-page">
+  setTimeout(()=>enrichArtist(d),0);
+  return `<div class="artist-page" data-artist="${esc(a.id)}">
   <div class="artist-sticky"><span class="artist-sticky-bg" aria-hidden="true"></span><button class="artist-back" data-act="go-back" aria-label="Back">${I.back}</button><b class="artist-sticky-title" aria-hidden="true">${esc(a.name)}</b></div>
   <header class="artist-hero"><img src="${esc(safeImage(a.pictureXl||a.picture))}" alt="" fetchpriority="high" decoding="async"><div class="artist-hero-fade"></div><h1>${esc(a.name)}</h1></header>
   <p class="artist-listeners spotify-counter" data-counter="artist" data-artist-id="${esc(a.id)}">${fmtNum(a.fans)} fans</p>
@@ -593,11 +595,103 @@ async function viewArtist(id) {
     <button class="play-fab" data-act="play-all" data-key="${k}" aria-label="Play ${esc(a.name)}">${I.play}</button>
   </div>
   ${d.top.length?`<section class="artist-popular collapsible"><h2>Popular</h2>${trackRows(d.top.slice(0,10), k, {numbered:true})}${d.top.length>5?'<button class="see-more" data-act="expand-section">See more</button>':''}</section>`:''}
-  ${releases?`<section class="artist-releases collapsible"><h2>Popular releases</h2>${releases}${d.albums.length>4?'<button class="see-more" data-act="expand-section">See discography</button>':''}</section>`:''}
-  ${shelf('Fans also like', d.related.map(artistCard))}
+  ${releases?`<section class="artist-releases collapsible"><h2>Popular releases</h2>${releases}${d.albums.length>4?'<button class="see-more" data-act="expand-section">See more</button>':''}</section>`:''}
+  ${discographyShelf(a, d.albums)}
+  <div class="artist-related">${shelf('Fans also like', d.related.map(artistCard))}</div>
+  <div class="artist-extra"></div>
   ${artistCollections(a)}
   <section class="artist-about"><h2>About</h2><a class="about-card" href="#/radio/${a.id}" style="--about:url('${esc(safeImage(a.pictureXl||a.picture)).replace(/'/g,'')}')"><div><b class="spotify-counter" data-counter="artist" data-artist-id="${esc(a.id)}">${fmtNum(a.fans)} fans</b><span>Start ${esc(a.name)} Radio for an endless mix of their music and similar artists.</span></div></a></section>
   </div>`;
+}
+// Spotify's discography: Popular releases, Albums, Singles and EPs, Compilations — as a row on the artist page and
+// as a full page ("Show all") with every release.
+const RELEASE_KINDS=[['all','Popular releases'],['album','Albums'],['single','Singles and EPs'],['compile','Compilations']];
+const releaseKind=x=>x.type==='compile'?'compile':x.type==='album'?'album':'single';
+function uniqueReleases(list){const seen=new Set();return list.filter(x=>{const k=releaseKind(x)+'|'+String(x.title||'').toLowerCase().replace(/\s*[([](explicit|clean|deluxe edition)[)\]]/g,'').trim();if(seen.has(k))return false;seen.add(k);return true;});}
+const releaseCard=x=>`<a class="card" href="${x.spotify?'#/spotify/album/'+x.id:'#/album/'+x.id}" data-kind="${releaseKind(x)}">${img(x.cover)}<div class="ctitle">${esc(x.title)}</div><div class="csub">${esc([x.year,{album:'Album',single:x.type==='ep'?'EP':'Single',compile:'Compilation'}[releaseKind(x)]].filter(Boolean).join(' • '))}</div></a>`;
+function discographyShelf(a,albums){
+  const list=uniqueReleases(albums);if(!list.length)return '';
+  const kinds=RELEASE_KINDS.filter(([k])=>k==='all'||list.some(x=>releaseKind(x)===k));
+  return `<section class="discography" data-kind="all"><div class="sec-head"><h2>Discography</h2>${a.id?`<a class="link" href="#/artist/${a.id}/discography">Show all</a>`:''}</div><div class="chips disco-chips">${kinds.map(([k,label],i)=>`<button class="chip${i?'':' on'}" data-act="disco-kind" data-kind="${k}">${label}</button>`).join('')}</div><div class="shelf">${list.slice(0,40).map(releaseCard).join('')}</div></section>`;
+}
+// Spotify's own data on top of the Deezer page: Spotify photo, monthly listeners, Spotify's popular songs first,
+// releases Deezer is missing, Spotify's related artists, bio and the artist's playlists.
+async function enrichArtist(d){
+  const a=d.artist,page=()=>document.querySelector(`.artist-page[data-artist="${CSS.escape(String(a.id))}"]`);
+  spArtists.learnFromAccount(store.getSpotifyAccount());
+  const spId=await spArtists.spotifyIdFor(a);if(!spId||!page())return;
+  let sp;try{sp=await spArtists.spotifyArtist(spId);}catch{return;}
+  const root=page();if(!root)return;
+  root.dataset.spotify=spId;activeArtist={...activeArtist,spotifyId:spId};
+  if(sp.picture){const im=root.querySelector('.artist-hero img');if(im)im.src=safeImage(sp.header||sp.picture);}
+  if(sp.verified)root.querySelector('.artist-hero h1')?.insertAdjacentHTML('beforebegin','<div class="verified">'+(I.check||'')+'Verified Artist</div>');
+  if(sp.monthlyListeners)root.querySelectorAll('.spotify-counter[data-counter="artist"]').forEach(n=>{n.textContent=sp.monthlyListeners.toLocaleString()+' monthly listeners';n.dataset.spotifyArtistId=spId;});
+  // Popular: Spotify's order, then Deezer's to fill ten. Play counts come from Spotify.
+  const seen=new Set(),popular=[];
+  for(const t of sp.top){const k=spArtists.fold(t.title);if(seen.has(k))continue;seen.add(k);const dz=d.top.find(x=>spArtists.fold(x.title)===k);popular.push({...(dz||{}),id:dz?.id||'spotify:'+t.spotifyId,spotifyId:t.spotifyId,title:dz?.title||t.title,searchTitle:t.title,artist:t.artist||a.name,artistIds:t.artistIds,artistId:dz?.artistId||a.id,cover:dz?.cover||t.cover,coverXl:dz?.coverXl||t.cover,duration:dz?.duration||t.duration,explicit:t.explicit});}
+  for(const t of d.top){if(popular.length>=10)break;const k=spArtists.fold(t.title);if(!seen.has(k)){seen.add(k);popular.push(t);}}
+  const pop=root.querySelector('.artist-popular');
+  if(pop&&popular.length){const k=reg(visibleTracks(popular,store.getSettings()));pop.innerHTML=`<h2>Popular</h2>${trackRows(listOf(k).tracks.slice(0,10),k,{numbered:true})}${popular.length>5?'<button class="see-more" data-act="expand-section">See more</button>':''}`;root.querySelectorAll('[data-act=play-all],[data-act=shuffle-all]').forEach(b=>b.dataset.key=k);
+    const plays=new Map(sp.top.map(t=>[t.spotifyId,t.plays]));pop.querySelectorAll('.tplays[data-spotify-id]').forEach(n=>{const v=plays.get(n.dataset.spotifyId);n.removeAttribute('data-counter');n.textContent=v?v.toLocaleString():'';});}
+  // Discography: every Deezer release, plus Spotify releases Deezer doesn't have; Spotify's popular ones first.
+  const dz=uniqueReleases(d.albums),byTitle=new Map(dz.map(x=>[spArtists.fold(x.title),x]));
+  const spRel=[...sp.popular,...sp.albums,...sp.singles,...sp.compilations].map(r=>({id:r.id,title:r.title,cover:r.cover,year:String(r.year||''),type:r.type==='compilation'?'compile':r.type,spotify:true}));
+  const ordered=[],used=new Set();
+  for(const r of spRel){const m=byTitle.get(spArtists.fold(r.title));const x=m||r;const key=(m?'d':'s')+x.id;if(used.has(key))continue;used.add(key);ordered.push(x);}
+  for(const x of dz){if(!used.has('d'+x.id)){used.add('d'+x.id);ordered.push(x);}}
+  const disco=root.querySelector('.discography');
+  if(disco){const fresh=document.createElement('div');fresh.innerHTML=discographyShelf(a,ordered);disco.replaceWith(fresh.firstElementChild||fresh);}
+  if(sp.related.length){const rel=root.querySelector('.artist-related');if(rel)rel.innerHTML=shelf('Fans also like',sp.related.map(r=>`<a class="card round" href="#/sartist/${r.id}">${img(r.picture)}<div class="ctitle">${esc(r.name)}</div><div class="csub">Artist</div></a>`));}
+  const extra=root.querySelector('.artist-extra');
+  if(extra)extra.innerHTML=shelf('Appears on',sp.appearsOn.map(r=>`<a class="card" href="#/spotify/album/${r.id}">${img(r.cover)}<div class="ctitle">${esc(r.title)}</div><div class="csub">${esc(String(r.year||''))}</div></a>`))+shelf(`Featuring ${a.name}`,sp.playlists.map(p=>`<a class="card" href="#/linked/${p.id}">${img(p.cover)}<div class="ctitle">${esc(p.title)}</div><div class="csub">${esc(p.by||'Spotify')}</div></a>`));
+  const about=root.querySelector('.artist-about .about-card');
+  if(about&&(sp.bio||sp.monthlyListeners)){about.querySelector('div').innerHTML=`<b>${sp.monthlyListeners.toLocaleString()} monthly listeners</b>${sp.worldRank?`<span>#${sp.worldRank} in the world</span>`:''}<span>${esc(sp.bio||'')}</span>`;if(sp.picture)about.style.setProperty('--about',`url('${safeImage(sp.picture).replace(/'/g,'')}')`);}
+}
+// An artist from Spotify (a playlist, a related artist): open their Spot+ page, matched by name on Deezer.
+async function viewSpotifyArtist(spId){
+  const sp=await spArtists.spotifyArtist(spId);
+  const found=await api.searchArtists(sp.name,8).catch(()=>[]);
+  const same=found.filter(x=>spArtists.fold(x.name)===spArtists.fold(sp.name)).sort((x,y)=>(y.fans||0)-(x.fans||0))[0];
+  if(same){spArtists.learn(sp.name,spId,same.id);setTimeout(()=>location.replace('#/artist/'+same.id),0);return loadingHtml;}
+  const tracks=sp.top.map(t=>({id:'spotify:'+t.spotifyId,spotifyId:t.spotifyId,title:t.title,searchTitle:t.title,artist:t.artist||sp.name,artistIds:t.artistIds,cover:t.cover,coverXl:t.cover,duration:t.duration,explicit:t.explicit}));
+  const k=reg(visibleTracks(tracks,store.getSettings()));
+  return `<div class="artist-page"><header class="artist-hero"><img src="${esc(safeImage(sp.header||sp.picture))}" alt=""><div class="artist-hero-fade"></div><h1>${esc(sp.name)}</h1></header><p class="artist-listeners">${sp.monthlyListeners.toLocaleString()} monthly listeners</p>${actions(k)}<section class="artist-popular"><h2>Popular</h2>${trackRows(listOf(k).tracks,k,{numbered:true})}</section>${discographyShelf({id:''},[...sp.popular,...sp.albums,...sp.singles].map(r=>({...r,year:String(r.year||''),spotify:true})))}${shelf('Fans also like',sp.related.map(r=>`<a class="card round" href="#/sartist/${r.id}">${img(r.picture)}<div class="ctitle">${esc(r.name)}</div><div class="csub">Artist</div></a>`))}</div>`;
+}
+async function viewDiscography(id){
+  const d=await api.artist(id);const list=uniqueReleases(d.albums);
+  const kinds=RELEASE_KINDS.filter(([k])=>k==='all'||list.some(x=>releaseKind(x)===k));
+  return `<div class="discography-page discography" data-kind="all"><a class="link" href="#/artist/${id}">← ${esc(d.artist.name)}</a><h1>Discography</h1><p class="muted">${plural(list.length,'release')}</p><div class="chips disco-chips">${kinds.map(([k,label],i)=>`<button class="chip${i?'':' on'}" data-act="disco-kind" data-kind="${k}">${k==='all'?'All':label}</button>`).join('')}</div><div class="grid">${list.map(releaseCard).join('')}</div></div>`;
+}
+/** Opens the song's artist page; songs from Spotify or YouTube carry only a name, so it's looked up by name. */
+async function openArtistOf(t) {
+  if (t.artistId && /^\d+$/.test(String(t.artistId))) { go(`#/artist/${t.artistId}`); return; }
+  if (Array.isArray(t.artistIds) && /^[A-Za-z0-9]{22}$/.test(t.artistIds[0] || '')) { go(`#/sartist/${t.artistIds[0]}`); return; }
+  const name = String(t.artist || '').split(/,|\s+(?:feat\.?|ft\.?|x|&)\s+/i)[0].trim();
+  if (!name) return;
+  try {
+    const found = await api.searchArtists(name, 5);
+    const pick = found.find((a) => a.name.toLowerCase() === name.toLowerCase()) || found[0];
+    if (pick) go(`#/artist/${pick.id}`); else toast(`Couldn’t find ${name}’s page`);
+  } catch { toast(`Couldn’t find ${name}’s page`); }
+}
+// Playlist search: Spotify collections that match, then a deep Deezer search, and always a playlist Spot+ builds.
+const buildCard=q=>`<a class="card build-card" href="#/build/${encodeURIComponent(q)}"><div class="ph-cover grad">${I.shuffle}</div><div class="ctitle">${esc(q)}</div><div class="csub">Built by Spot+ for you</div></a>`;
+function matchingCollections(q){const w=String(q||'').toLowerCase().split(/\s+/).filter(x=>x.length>1);if(!w.length)return [];return spotify.collections.filter(c=>{const t=`${c.title} ${c.category||''} ${c.artist||''}`.toLowerCase();return w.every(x=>t.includes(x));}).slice(0,12);}
+async function deepPlaylists(box){
+  if(!box||box.dataset.deep)return;box.dataset.deep='1';const q=box.dataset.q||'';
+  const mine=store.getPlaylists().filter(p=>p.name.toLowerCase().includes(q.toLowerCase()));
+  box.innerHTML=`<section><h2>Playlists</h2>${loadingHtml}</section>`;
+  let found=await api.searchPlaylistsDeep(q).catch(()=>[]);
+  // No playlist has every word in its title: show the closest ones (fewer words), like Spotify does.
+  for(const form of api.looserQueries(q).slice(1)){if(found.length>=12)break;const more=await api.searchPlaylistsDeep(form,30).catch(()=>[]);for(const p of more)if(!found.some(x=>x.id===p.id))found.push(p);}
+  const cards=[buildCard(q),...mine.map(p=>`<a class="card" href="#/my/${p.id}">${store.getPlaylistCover(p.id)?img(store.getPlaylistCover(p.id)):mosaic(p.tracks)}<div class="ctitle">${esc(p.name)}</div><div class="csub">Your playlist</div></a>`),...matchingCollections(q).map(spotifyCard),...found.map(playlistCard)];
+  box.innerHTML=`<section><h2>Playlists</h2>${found.length?'':`<p class="muted">No playlists called “${esc(q)}” yet. Spot+ can build one for you.</p>`}<div class="grid">${cards.join('')}</div></section>`;
+}
+async function viewBuild(q){
+  q=decodeURIComponent(q);const r=await api.buildPlaylist(q);const tracks=visibleTracks(r.tracks,store.getSettings());
+  if(!tracks.length)return emptyState(`Nothing for “${q}” yet`,'Try other words: a mood, a genre, an artist or an era.','Search','#/search');
+  const key=reg(tracks,{name:q});
+  return header({coverHtml:mosaic(tracks),kicker:'Built by Spot+',title:q,sub:`${plural(tracks.length,'song')}${r.from.length?' · from '+r.from.slice(0,2).map(p=>esc(p.title)).join(', ')+' and a song search':''}`})+actions(key,`<button class="btn" data-act="save-list" data-key="${key}">${I.plus}Save as playlist</button>`)+trackRows(tracks,key);
 }
 async function viewAlbum(id) {
   const { album: a, tracks } = await api.album(id);
@@ -724,6 +818,9 @@ const routes = [
   [/^#\/?(home)?$/, viewHome],
   [/^#\/search(?:\/(.*))?$/, viewSearch],
   [/^#\/artist\/(\d+)$/, viewArtist],
+  [/^#\/artist\/(\d+)\/discography$/, viewDiscography],
+  [/^#\/build\/(.{1,120})$/, viewBuild],
+  [/^#\/sartist\/([A-Za-z0-9]{22})$/, viewSpotifyArtist],
   [/^#\/album\/(\d+)$/, viewAlbum],
   [/^#\/playlist\/(\d+)$/, viewPlaylist],
   [/^#\/library$/, viewLibrary],
@@ -783,7 +880,7 @@ async function route({ keepScroll = false } = {}) {
       lists.forEach((_, k) => { if (+k.slice(1) <= startSeq) lists.delete(k); });
       view.innerHTML = html;
       scene.mount(view, { onFocus: (focus) => { const cur = scene.normalizeScene(store.getSettings().scene); if (cur) store.setSettings({ scene: { ...cur, x: focus.x, y: focus.y } }); } });
-      hydrateStatistics(view);syncAvatars();if(view.querySelector('[data-live]'))refreshLive();if(view.querySelector('#devCredits'))refreshDev();if(location.hash==='#/rewind')hydrateRewind(view);
+      hydrateStatistics(view);spArtists.fillPhotos(view);syncAvatars();if(view.querySelector('[data-live]'))refreshLive();if(view.querySelector('#devCredits'))refreshDev();if(location.hash==='#/rewind')hydrateRewind(view);
       syncVoices();
       view.setAttribute('aria-busy','false');
       renderSidebar();
@@ -945,8 +1042,9 @@ async function handleAct(act, el) {
     case 'account-disconnect': if(await confirmBox('Remove this Spotify connection?', 'This removes the Spotify library copy from this device. Your local Spot+ music and Spotify account are kept.')){pendingAccount=null;store.clearSpotifyAccount();toast('Spotify copy removed from this device');}break;
     case 'theme-preset': {const t=themes.presets.find(x=>x.id===el.dataset.id);store.setSettings({themePreset:el.dataset.id,themeCustom:null,...(t?.mode?{themeMode:t.mode}:{})});route({keepScroll:true});break;}
     case 'go-back': if(history.length>1)history.back();else go('#/home');break;
+    case 'disco-kind': {const sec=el.closest('.discography');sec.dataset.kind=el.dataset.kind;sec.querySelectorAll('.disco-chips .chip').forEach(c=>c.classList.toggle('on',c===el));sec.querySelector('.shelf')?.scrollTo({left:0});break;}
     case 'expand-section': {const sec=el.closest('.collapsible');const open=!sec.classList.contains('expanded');sec.classList.toggle('expanded',open);el.textContent=open?'See less':(sec.classList.contains('artist-releases')?'See discography':'See more');break;}
-    case 'artist-more': {const a=activeArtist;if(!a)break;openSheet({head:`<div class="sheet-title">${esc(a.name)}</div>`,items:[{icon:I.radio,label:'Go to artist radio',fn:()=>go('#/radio/'+a.id)},{icon:I.play,label:'Play essentials',fn:()=>go('#/essentials/'+a.id)},{icon:I.share||I.arrow,label:'Share',fn:()=>{const url=location.origin+location.pathname+'#/artist/'+a.id;if(navigator.share)navigator.share({title:a.name,url}).catch(()=>{});else navigator.clipboard?.writeText(url).then(()=>toast('Link copied'));}},{icon:I.arrow,label:'Find on Spotify',fn:()=>window.open('https://open.spotify.com/search/'+encodeURIComponent(a.name)+'/artists','_blank','noopener')}]});break;}
+    case 'artist-more': {const a=activeArtist;if(!a)break;openSheet({head:`<div class="sheet-title">${esc(a.name)}</div>`,items:[{icon:I.library,label:a.spotifyId?'Change linked Spotify page':'Link their Spotify page',sub:'Paste the artist’s Spotify link once for monthly listeners and their full Spotify page',fn:async()=>{const text=await ask({title:`${a.name} on Spotify`,placeholder:'https://open.spotify.com/artist/…',ok:'Link'});const spId=spArtists.parseArtistLink(text);if(!spId){if(text)toast('That isn’t a Spotify artist link');return;}try{const sp=await spArtists.spotifyArtist(spId);spArtists.learn(sp.name,spId,a.id);spArtists.learn(a.name,spId,a.id);toast(`Linked to ${sp.name} on Spotify`);route({keepScroll:true});}catch{toast('That Spotify page couldn’t be read. Try again in a minute.');}}},{icon:I.radio,label:'Go to artist radio',fn:()=>go('#/radio/'+a.id)},{icon:I.play,label:'Play essentials',fn:()=>go('#/essentials/'+a.id)},{icon:I.share||I.arrow,label:'Share',fn:()=>{const url=location.origin+location.pathname+'#/artist/'+a.id;if(navigator.share)navigator.share({title:a.name,url}).catch(()=>{});else navigator.clipboard?.writeText(url).then(()=>toast('Link copied'));}},{icon:I.arrow,label:'Find on Spotify',fn:()=>window.open('https://open.spotify.com/search/'+encodeURIComponent(a.name)+'/artists','_blank','noopener')}]});break;}
     case 'theme-mode': store.setSettings({themeMode:el.dataset.mode});route({keepScroll:true});break;
     case 'theme-undo': if(themeUndo){store.setSettings(themeUndo);route({keepScroll:true});}break;
     case 'theme-remix': {const color=themes.presets[Math.floor(Math.random()*themes.presets.length)];store.setSettings({themePreset:color.id,themeCustom:null,cornerRadius:[0,8,16][Math.floor(Math.random()*3)]});route({keepScroll:true});break;}
@@ -977,7 +1075,7 @@ async function handleAct(act, el) {
     case 'follow-artist': if(activeArtist){const on=store.toggleArtist(activeArtist);el.textContent=on?'Following':'Follow';el.setAttribute('aria-pressed',String(on));toast(on?'Artist added to your library':'Artist removed from your library');}break;
     case 'save-album': if(activeAlbum){const on=store.toggleAlbum(activeAlbum);el.innerHTML=`${on?I.check:I.plus}<span>${on?'Saved':'Save album'}</span>`;el.setAttribute('aria-pressed',String(on));toast(on?'Album added to your library':'Album removed from your library');}break;
     case 'home-filter': $$('[data-act=home-filter]').forEach(b=>{b.classList.toggle('on',b===el);b.setAttribute('aria-pressed',String(b===el));});$$('[data-home-section=recent]').forEach(x=>x.hidden=el.dataset.filter==='music');break;
-    case 'search-filter': $$('[data-act=search-filter]').forEach(b=>{b.classList.toggle('on',b===el);b.setAttribute('aria-pressed',String(b===el));});$$('[data-search-section]').forEach(x=>{const f=el.dataset.filter,sec=x.dataset.searchSection;x.hidden=f==='all'?sec==='songs-full':!(sec===f||(f==='songs'&&sec==='songs-full'));});break;
+    case 'search-filter': if(el.dataset.filter==='playlists')deepPlaylists($('[data-search-section=playlists]'));$$('[data-act=search-filter]').forEach(b=>{b.classList.toggle('on',b===el);b.setAttribute('aria-pressed',String(b===el));});$$('[data-search-section]').forEach(x=>{const f=el.dataset.filter,sec=x.dataset.searchSection;x.hidden=f==='all'?sec==='songs-full':!(sec===f||(f==='songs'&&sec==='songs-full'));});break;
     case 'clear-searches': store.clearSearches();if($('#results'))$('#results').innerHTML=browseHome();break;
     case 'mute': if(player.el.volume>0){lastVolume=player.el.volume;player.setVolume(0);}else player.setVolume(lastVolume||.7);vol.value=player.el.volume*100;vol.style.setProperty('--p',vol.value+'%');el.setAttribute('aria-label',player.el.volume?'Mute':'Unmute');el.classList.toggle('on',!player.el.volume);break;
     case 'retry-playback': player.retry();break;
@@ -1130,7 +1228,15 @@ async function handleAct(act, el) {
     case 'canvas-cover': canvasPreference=false;setCanvasEnabled(false);setNPMode('art');break;
     case 'canvas-enable': canvasPreference=true;setCanvasEnabled(true);setNPMode('art',{retryCanvas:true});break;
     case 'np-queue': openNP('queue'); break;
-    case 'np-artist': { const t = player.current(); if (t?.artistId) go(`#/artist/${t.artistId}`); break; }
+    case 'np-artist': { const t = player.current(); if (t) await openArtistOf(t); break; }
+    // Desktop player bar: the artist name opens their page and the title opens the album, like Spotify. On phones
+    // the whole bar still opens Now Playing.
+    case 'bar-artist': case 'bar-title': {
+      const t = player.current();
+      if (!t || !matchMedia('(min-width: 768px)').matches) { handleAct('np-open', el); break; }
+      if (act === 'bar-title' && t.albumId) go(`#/album/${t.albumId}`); else await openArtistOf(t);
+      break;
+    }
     case 'q-jump': player.playIndex(+el.dataset.qi); break;
     case 'q-remove': player.removeAt(+el.dataset.qi); break;
     case 'q-clear': player.clearUpNext(); break;
@@ -1177,6 +1283,20 @@ async function handleAct(act, el) {
       // Update in place so the list keeps its scroll spot and live search results.
       scene.apply(store.getSettings());
       scene.markPicked(document, next);
+      break;
+    }
+    case 'bg-link': {
+      // Pinterest and Google have no public search for other apps: paste a pin or an image result instead.
+      const link = await ask({ title: 'Add a picture from a link', placeholder: 'Pinterest pin, Google Images result, or image link', ok: 'Use as background' });
+      if (!link) break;
+      try {
+        const item = await scene.pictureFromLink(link);
+        const next = scene.sceneFor('catalog', item.id, scene.normalizeScene(store.getSettings().scene));
+        store.setSettings({ scene: next });
+        scene.apply(store.getSettings());
+        toast(`${item.category} picture set as your background`);
+        route({ keepScroll: true });
+      } catch (e) { toast(e.message || 'That link couldn’t be used'); }
       break;
     }
     case 'bg-clear':
@@ -1885,11 +2005,15 @@ async function viewLinked(id){
     let data=null;try{data=await fetchPublic({playlist:id});}catch{ /* Bridge not updated yet: use Spotify's own player. */ }
     if(!data)return (await viewSpotifyCollection('playlist',id))+'<p class="settings-note">Showing Spotify’s player because the song list couldn’t load right now.</p>';
     const known=spotify.collections.find(c=>c.id===id);
-    p={id,name:data.name,cover:known?.cover||data.cover,tracks:data.tracks};
+    p={id,name:data.name,cover:known?.cover||data.cover,tracks:data.tracks,owner:data.owner,ownerId:data.ownerId,ownerAvatar:data.ownerAvatar,followers:data.followers};
+    spArtists.learnFromTracks(data.tracks);
   }
-  const tracks=await Promise.all(p.tracks.slice(0,100).map(async t=>{const a=await api.trackArtwork(t.artist.split(',')[0],t.title).catch(()=>null);return {id:'spotify:'+t.spotifyId,spotifyId:t.spotifyId,title:t.title,searchTitle:t.title,artist:t.artist,album:'',duration:t.duration,explicit:t.explicit,cover:a?.cover||'',coverXl:a?.coverXl||'',preview:a?.preview||''};}));
+  // Spotify's own album art when the page gave it; otherwise look it up.
+  const tracks=await Promise.all(p.tracks.slice(0,100).map(async t=>{const a=t.cover?null:await api.trackArtwork(t.artist.split(',')[0],t.title).catch(()=>null);return {id:'spotify:'+t.spotifyId,spotifyId:t.spotifyId,title:t.title,searchTitle:t.title,artist:t.artist,album:t.album||'',duration:t.duration,explicit:t.explicit,cover:t.cover||a?.cover||'',coverXl:t.cover||a?.coverXl||'',preview:a?.preview||'',...(t.artistIds?{artistIds:t.artistIds}:{}),...(t.addedBy?{addedBy:t.addedBy}:{})};}));
   const list=visibleTracks(tracks,store.getSettings()),k=reg(list);
-  return header({cover:p.cover||list[0]?.coverXl,kicker:'From your Spotify',title:p.name,sub:`${list.length} songs · Updates automatically`})+actions(k)+trackRows(list,k,{numbered:p.role==='onRepeat'||p.role==='topSongs'});
+  // Who made it, like Spotify: their photo and name (linking to their profile), then followers and length.
+  const by=p.owner?`${p.ownerAvatar?`<img class="owner-pic" src="${esc(safeImage(p.ownerAvatar))}" alt="">`:''}${p.ownerId?`<a href="https://open.spotify.com/user/${encodeURIComponent(p.ownerId)}" target="_blank" rel="noopener"><b>${esc(p.owner)}</b></a>`:`<b>${esc(p.owner)}</b>`}${contributors(list)}${p.followers?` · ${p.followers.toLocaleString()} saves`:''} · `:'';
+  return header({cover:p.cover||list[0]?.coverXl,kicker:p.owner&&p.owner!=='Spotify'?'Playlist':'From Spotify',title:p.name,sub:`${by}${list.length} songs`})+actions(k)+trackRows(list,k,{numbered:p.role==='onRepeat'||p.role==='topSongs'});
 }
 function viewSpotifyAccount(){
  const account=store.getSpotifyAccount();
@@ -1909,8 +2033,10 @@ function viewSpotifyAccountList(id){
   const added=id==='likes'?[]:store.getSpotifyAdds(id).filter(t=>!p.tracks.some(x=>x.id===t.id));
   const tracks=visibleTracks([...p.tracks,...added],store.getSettings()),key=reg(tracks,{name:p.title,spotifyPlaylistId:id==='likes'?'':id});
   const own=id==='likes'?'':store.getPlaylistCover('sp:'+id),cover=own||p.cover;
-  return header({cover,coverHtml:cover?'':mosaic(tracks),kicker:'Spotify library copy',title:p.title,sub:`${esc(account.account.name)} · ${plural(tracks.length,'song')} · Updated ${esc(new Date(account.capturedAt).toLocaleDateString())}`})+(tracks.length?actions(key,`<button class="btn" data-act="save-list" data-key="${key}">${I.plus}Make editable copy</button>${id==='likes'?'':`<button class="btn icon-only" data-act="cover-pl" data-id="sp:${esc(id)}" aria-label="${own?'Change or remove cover photo':'Add a cover photo'}">${I.image}</button>`}<a class="btn" href="#/spotify-account">Refresh & account</a>`):'<div class="account-actions"><a class="btn" href="#/spotify-account">Refresh & account</a></div>')+(p.status==='unavailable'?'<p class="account-status">Spotify could not return this playlist on the last refresh. Any previous tracks have been kept.</p>':p.status==='partial'?'<p class="account-status">Song entries with incomplete details: '+p.unreadable+'. An existing copy of this collection is kept; otherwise, only readable songs are shown. Refresh from Spotify to try again.</p>':'')+(added.length?`<p class="settings-note">${plural(added.length,'song')} added in Spot+ ${added.length>1?'are':'is'} at the end. Spotify itself isn’t changed.</p>`:'')+trackRows(tracks,key);
+  return header({cover,coverHtml:cover?'':mosaic(tracks),kicker:'Spotify library copy',title:p.title,sub:`${esc(p.owner||account.account.name)}${contributors(tracks)} · ${plural(tracks.length,'song')} · Updated ${esc(new Date(account.capturedAt).toLocaleDateString())}`})+(tracks.length?actions(key,`<button class="btn" data-act="save-list" data-key="${key}">${I.plus}Make editable copy</button>${id==='likes'?'':`<button class="btn icon-only" data-act="cover-pl" data-id="sp:${esc(id)}" aria-label="${own?'Change or remove cover photo':'Add a cover photo'}">${I.image}</button>`}<a class="btn" href="#/spotify-account">Refresh & account</a>`):'<div class="account-actions"><a class="btn" href="#/spotify-account">Refresh & account</a></div>')+(p.status==='unavailable'?'<p class="account-status">Spotify could not return this playlist on the last refresh. Any previous tracks have been kept.</p>':p.status==='partial'?'<p class="account-status">Song entries with incomplete details: '+p.unreadable+'. An existing copy of this collection is kept; otherwise, only readable songs are shown. Refresh from Spotify to try again.</p>':'')+(added.length?`<p class="settings-note">${plural(added.length,'song')} added in Spot+ ${added.length>1?'are':'is'} at the end. Spotify itself isn’t changed.</p>`:'')+trackRows(tracks,key);
 }
+// Blends and shared playlists: everyone who added songs, like Spotify's "You and Alex".
+function contributors(tracks){const names=[...new Set(tracks.map(t=>t.addedBy?.name).filter(Boolean))];return names.length>1?' · with '+esc(names.slice(0,4).join(', '))+(names.length>4?` and ${names.length-4} more`:''):'';}
 function spotifyCard(p){const type=p.type||'playlist';return `<a class="card spotify-card" href="${type==='playlist'?'#/linked/'+p.id:'#/spotify/'+type+'/'+p.id}">${img(p.cover)}<div class="ctitle">${esc(p.title)}</div><div class="csub">Spotify · ${esc(p.category||'Shared link')}</div></a>`;}
 function artistCollections(a){const official=spotify.collections.find(p=>p.artist?.toLowerCase()===a.name.toLowerCase());return `<section><h2>Featuring ${esc(a.name)}</h2><div class="artist-collections"><a class="collection-tile" href="#/radio/${a.id}">${img(a.picture)}<div><b>${esc(a.name)} Radio</b><small>Spot+ mix · Powered by Deezer</small></div>${I.radio}</a>${official?`<a class="collection-tile" href="#/spotify/playlist/${official.id}">${img(official.cover||a.picture)}<div><b>${esc(official.title)}</b><small>Official Spotify playlist</small></div>${I.arrow}</a>`:`<a class="collection-tile" href="#/essentials/${a.id}">${img(a.picture)}<div><b>${esc(a.name)} essentials</b><small>Popular tracks · Deezer</small></div>${I.play}</a>`}</div><a class="link" href="https://open.spotify.com/search/${encodeURIComponent('This Is '+a.name)}" target="_blank" rel="noopener">Find more artist playlists on Spotify ${I.arrow}</a></section>`;}
 async function viewRadio(id){const [d,radio]=await Promise.all([api.artist(id),api.artistRadio(id)]);const tracks=visibleTracks(radio,store.getSettings()),key=reg(tracks,{name:d.artist.name+' Radio'});return header({cover:d.artist.pictureXl||d.artist.picture,kicker:'Artist radio · Spot+',title:d.artist.name+' Radio',sub:`A mix from Deezer’s artist radio · ${plural(tracks.length,'song')}`})+actions(key,`<button class="btn" data-act="save-list" data-key="${key}">${I.plus}Save as playlist</button>`)+trackRows(tracks,key);}
@@ -2137,3 +2263,49 @@ document.addEventListener('pointerdown',event=>{const target=event.target.closes
 setTimeout(()=>dj.voice.warmVoice(),1200);
 
 bindPlayerDismiss(document.getElementById('np'),()=>closeNP());
+
+// Desktop: drag any sideways row (shelves, chips, collections) with the mouse, like Spotify. A drag never opens
+// the card it started on, and links/images inside rows can't be picked up as browser drags.
+(() => {
+  let drag = null, swallow = 0;
+  const scroller = (el) => {
+    for (let n = el instanceof Element ? el : null; n && n !== document.body; n = n.parentElement) {
+      if (n.scrollWidth > n.clientWidth + 4) { const o = getComputedStyle(n).overflowX; if (o === 'auto' || o === 'scroll') return n; }
+    }
+    return null;
+  };
+  document.addEventListener('dragstart', (e) => { if (scroller(e.target)) e.preventDefault(); });
+  document.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'mouse' || e.button !== 0 || e.target.closest('input,textarea,select,[contenteditable]')) return;
+    const box = scroller(e.target);
+    if (box) drag = {box, id: e.pointerId, x: e.clientX, left: box.scrollLeft, moved: false, last: e.clientX, t: performance.now(), v: 0};
+  });
+  document.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.clientX - drag.x;
+    if (!drag.moved) {
+      if (Math.abs(dx) < 6) return;
+      drag.moved = true;
+      drag.box.classList.add('drag-scrolling');
+      try { drag.box.setPointerCapture(e.pointerId); } catch { /* already released */ }
+    }
+    const now = performance.now();
+    drag.v = (drag.last - e.clientX) / Math.max(1, now - drag.t);
+    drag.last = e.clientX; drag.t = now;
+    drag.box.scrollLeft = drag.left - dx;
+    e.preventDefault();
+  });
+  const end = (e) => {
+    if (!drag || (e && e.pointerId !== drag.id)) return;
+    const {box, moved, v} = drag;
+    drag = null;
+    if (!moved) return;
+    swallow = performance.now() + 400;
+    // A little glide in the direction of the drag, then the row settles on a card edge again.
+    box.scrollBy({left: Math.max(-600, Math.min(600, v * 220)), behavior: 'smooth'});
+    setTimeout(() => box.classList.remove('drag-scrolling'), 360);
+  };
+  document.addEventListener('pointerup', end);
+  document.addEventListener('pointercancel', end);
+  window.addEventListener('click', (e) => { if (performance.now() < swallow) { e.preventDefault(); e.stopPropagation(); swallow = 0; } }, true);
+})();

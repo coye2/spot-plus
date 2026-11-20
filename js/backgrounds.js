@@ -19,7 +19,15 @@ export function normalizeScene(scene) {
 }
 
 /** A wallpaper found through the live Alpha Coders search; only safe image-host parts are kept. */
+// Pictures from Wallhaven, Openverse, or a Pinterest / Google Images / image link: they carry their own addresses.
+const OTHER = {wallhaven: 'Wallhaven', openverse: 'Openverse', pinterest: 'Pinterest', google: 'Google Images', link: 'Link'};
+const httpsOnly = (u) => { try { const x = new URL(u); return x.protocol === 'https:' ? x.href : ''; } catch { return ''; } };
 export function liveItem(x) {
+  if (x && Object.hasOwn(OTHER, x.src)) {
+    const full = httpsOnly(x.full), thumb = httpsOnly(x.thumb) || full;
+    if (!full || !/^(wh|ov|ln)-[\w-]{1,36}$/.test(String(x.id || ''))) return null;
+    return {id: String(x.id), src: x.src, full, thumb, name: String(x.name || 'Picture').slice(0, 140), category: String(x.category || OTHER[x.src]).slice(0, 60), w: Number(x.w) || 0, h: Number(x.h) || 0};
+  }
   if (!x || !/^\d{1,10}$/.test(String(x.id || '')) || !/^(images\d{0,2}|mfiles)$/.test(String(x.host || '')) || !/^\d{1,6}$/.test(String(x.folder || '')) || !/^(jpe?g|png|webp)$/.test(String(x.ext || ''))) return null;
   return {id: String(x.id), host: String(x.host), folder: String(x.folder), ext: String(x.ext), name: String(x.name || 'Wallpaper').slice(0, 140), category: String(x.category || 'Alpha Coders').slice(0, 60), w: Number(x.w) || 0, h: Number(x.h) || 0};
 }
@@ -57,6 +65,7 @@ export function deviceTier(viewport = readViewport()) {
 }
 
 export function wallpaperURLs(item) {
+  if (item?.full) return {full: item.full, fhd: item.full, preview: item.thumb || item.full};
   const base = `https://${item.host}.alphacoders.com/${item.folder}/`;
   return {
     full: `${base}${item.id}.${item.ext}`,
@@ -227,7 +236,7 @@ function syncStudio(scene) {
   const note = studio.querySelector('.bg-note');
   if (note) {
     const name = note.textContent.split('·')[0].trim() || 'No background';
-    note.textContent = `${name} · ${tier === '4k' ? '4K file, cropped to this device' : '1920 file, cropped to this phone'} · Alpha Coders and your uploads`;
+    note.textContent = `${name} · ${tier === '4k' ? '4K file, cropped to this device' : '1920 file, cropped to this phone'} · Alpha Coders, Wallhaven, Openverse, your links and uploads`;
   }
   const preview = studio.querySelector('#bgStage img');
   if (preview && scene?.kind === 'catalog') {
@@ -283,6 +292,26 @@ let savedGridScroll = 0;
 // The grid paints in batches as you scroll, so thousands of wallpapers never load at once.
 const BATCH = 48;
 export const WALLPAPER_ENDPOINT = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/wallpapers';
+export const IMAGES_ENDPOINT = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/images';
+/** One picture from a pasted Pinterest pin, Google Images result or image link, ready to use as a background. */
+export async function pictureFromLink(link) {
+  const r = await fetch(`${IMAGES_ENDPOINT}?link=${encodeURIComponent(link)}`, {credentials: 'omit'});
+  const data = await r.json().catch(() => null);
+  if (r.status === 404 && !data?.error) throw new Error('Adding pictures by link needs the latest Spot+ server.');
+  const item = liveItem(data?.items?.[0]);
+  if (!r.ok || !item) throw new Error(data?.error || 'That link couldn’t be used');
+  live.set(item.id, item);
+  try { localStorage.setItem(LINKS, JSON.stringify([item, ...savedLinks().filter((x) => x.id !== item.id)].slice(0, 60))); } catch { /* storage full */ }
+  return item;
+}
+// Pictures added by link are kept in their own group at the top of the list.
+const LINKS = 'spotplus.bgLinks';
+export function savedLinks() {
+  let list = [];
+  try { list = JSON.parse(localStorage.getItem(LINKS) || '[]').map(liveItem).filter(Boolean); } catch { list = []; }
+  for (const item of list) live.set(item.id, item);
+  return list;
+}
 const PHONE_ALL = '\u0000all-phone'; // L.key for a phone's "All": every category's phone wallpapers in turn
 const catalogIds = new Set(CATALOG.map(item => item.id));
 
@@ -296,7 +325,7 @@ function rows(items, scene, kind, esc) {
       <td class="bg-col-preview">${preview ? `<img class="bg-thumb" alt="${esc(item.name)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" src="${esc(preview)}" width="350" height="197">` : '<span class="bg-thumb bg-thumb-file"></span>'}</td>
       <td class="bg-col-name"><b>${esc(item.name)}</b><small>${esc(item.category || 'On this device')}</small></td>
       <td class="bg-col-res">${res}</td>
-      <td class="bg-col-source">${kind === 'upload' ? 'Upload' : 'Alpha Coders'}</td>
+      <td class="bg-col-source">${kind === 'upload' ? 'Upload' : OTHER[item.src] || 'Alpha Coders'}</td>
       <td class="bg-col-act">${on ? '<span class="bg-on">Active</span>' : '<span class="bg-set">Use</span>'}${remove}</td>
     </tr>`;
   }).join('');
@@ -360,7 +389,9 @@ export function page({category = '', settings = {}, uploads: saved = [], viewpor
   }).join('');
   const preview = stageURL(settings.scene, viewport);
   const body = tableBody(groups, scene, esc);
-  const mine = saved.length ? `<tbody class="bg-uploads-body"><tr class="bg-group"><th colspan="5">On this device (${saved.length})</th></tr>${rows(saved, scene, 'upload', esc)}</tbody>` : '';
+  const linked = savedLinks();
+  const mine = (saved.length ? `<tbody class="bg-uploads-body"><tr class="bg-group"><th colspan="5">On this device (${saved.length})</th></tr>${rows(saved, scene, 'upload', esc)}</tbody>` : '')
+    + (linked.length ? `<tbody class="bg-uploads-body bg-links-body"><tr class="bg-group"><th colspan="5">From your links (${linked.length})</th></tr>${rows(linked, scene, 'live', esc)}</tbody>` : '');
   const liveLabel = liveQueryFor(active, activeSearchQuery);
   const hasEmpty = !phone && !groups.length && !saved.length;
   return `<div class="bg-studio" data-device="${device}" data-category="${esc(nextSlug)}" data-scene-kind="${esc(scene?.kind || '')}" data-scene-id="${esc(scene?.id || '')}">
@@ -371,11 +402,12 @@ export function page({category = '', settings = {}, uploads: saved = [], viewpor
         ${preview ? `<img alt="" src="${esc(preview)}">` : '<span class="bg-stage-empty">Pick a wallpaper</span>'}
         <i class="bg-stage-app"></i><i class="bg-stage-library"></i><b>App and library</b>
       </button>
-      <p class="bg-note">${picked ? esc(picked.name) : 'No background'} · ${tier === '4k' ? '4K file, cropped to this device' : '1920 file, cropped to this phone'} · Alpha Coders and your uploads</p>
+      <p class="bg-note">${picked ? esc(picked.name) : 'No background'} · ${tier === '4k' ? '4K file, cropped to this device' : '1920 file, cropped to this phone'} · Alpha Coders, Wallhaven, Openverse, your links and uploads</p>
     </div>
     <div class="bg-search-bar">
-      <label class="bg-search"><input id="bgSearch" type="search" value="${esc(activeSearchQuery)}" placeholder="Search every Alpha Coders ${phone ? 'phone ' : ''}wallpaper" aria-label="Search wallpapers" enterkeyhint="search" autocomplete="off"></label>
+      <label class="bg-search"><input id="bgSearch" type="search" value="${esc(activeSearchQuery)}" placeholder="Search ${phone ? 'phone ' : ''}wallpapers: Alpha Coders, Wallhaven, Openverse" aria-label="Search wallpapers" enterkeyhint="search" autocomplete="off"></label>
       <button type="button" class="btn small bg-search-clear" id="bgSearchClear" data-act="bg-reset-search"${activeSearchQuery ? '' : ' hidden'}>Clear</button>
+      <button type="button" class="btn small" data-act="bg-link">From Pinterest or Google</button>
     </div>
     <div class="bg-status-row"><span id="bgStatus">${esc(phone ? 'Finding phone wallpapers…' : statusText(count, active, activeSearchQuery.trim()))}</span></div>
     <div class="chips bg-filters">${chips}</div>
@@ -494,7 +526,7 @@ export function mount(root, hooks) {
     if (device() === 'phone') {
       text = `${L.count.toLocaleString()} phone wallpaper${L.count === 1 ? '' : 's'}${trimmed ? ` for “${trimmed}”` : active ? ` in ${active.name}` : ''}`;
       if (L.busy) text += ' · loading…';
-    } else if (L.count) text += ` · +${L.count.toLocaleString()} from all of Alpha Coders`;
+    } else if (L.count) text += ` · +${L.count.toLocaleString()} from Alpha Coders, Wallhaven and Openverse`;
     else if (L.busy && L.q) text += ' · searching all of Alpha Coders…';
     if (statusEl) statusEl.textContent = text;
     if (moreEl) moreEl.textContent = shown < flat.length ? 'Scroll for more' : L.busy ? 'Loading more from Alpha Coders…' : L.failed ? 'Alpha Coders did not answer. Scroll to try again.' : L.q && L.more ? 'Scroll for more' : L.q && L.count ? 'That is everything Alpha Coders has for this.' : '';
@@ -520,16 +552,18 @@ export function mount(root, hooks) {
     const token = L.token, page = L.page + 1;
     try {
       const phone = device() === 'phone';
-      const r = await fetch(`${WALLPAPER_ENDPOINT}?q=${encodeURIComponent(L.q)}&page=${page}${phone ? '&device=phone' : ''}`, {credentials: 'omit'});
-      if (!r.ok) throw new Error('unavailable');
-      const data = await r.json();
+      // Alpha Coders plus Wallhaven and Openverse, side by side (one answering is enough).
+      const ask = (base) => fetch(`${base}?q=${encodeURIComponent(L.q)}&page=${page}${phone ? '&device=phone' : ''}`, {credentials: 'omit'}).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      const [ac, more] = await Promise.all([ask(WALLPAPER_ENDPOINT), L.key === PHONE_ALL ? null : ask(IMAGES_ENDPOINT)]);
+      if (!ac && !more) throw new Error('unavailable');
       if (token !== L.token) return;
-      const fresh = (data.items || []).map(liveItem).filter(item => item && !catalogIds.has(item.id) && !L.seen.has(item.id));
+      const data = {items: [...(ac?.items || []), ...(more?.items || [])], more: !!(ac?.more || more?.more)};
+      const fresh = data.items.map(liveItem).filter(item => item && !catalogIds.has(item.id) && !L.seen.has(item.id));
       for (const item of fresh) { L.seen.add(item.id); live.set(item.id, item); }
       L.page = page; L.more = !!data.more && page < 200;
       if (fresh.length) {
         liveBody.hidden = false;
-        if (liveHead) liveHead.textContent = !phone ? `More “${L.q}” from all of Alpha Coders` : L.key === PHONE_ALL ? 'Phone wallpapers from Alpha Coders' : `“${L.q}” phone wallpapers from Alpha Coders`;
+        if (liveHead) liveHead.textContent = !phone ? `More “${L.q}” from Alpha Coders, Wallhaven and Openverse` : L.key === PHONE_ALL ? 'Phone wallpapers from Alpha Coders' : `“${L.q}” phone wallpapers from Alpha Coders`;
         // Phone "All" runs through every category; label each one like the catalog's groups.
         if (L.key === PHONE_ALL && page === 1) liveBody.insertAdjacentHTML('beforeend', `<tr class="bg-group"><th colspan="5">${htmlEscape(L.q)}</th></tr>`);
         liveBody.insertAdjacentHTML('beforeend', rows(fresh, sceneNow(), 'live', htmlEscape));
