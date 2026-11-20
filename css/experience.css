@@ -34,3 +34,45 @@ body.library-collapsed{--sidebar:72px}body.library-collapsed .library-heading{pa
 .drag-scrolling * { pointer-events: none; }
 .tadded{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);margin-top:1px}.tadded img{width:14px;height:14px;border-radius:50%}
 .owner-pic{width:22px;height:22px;border-radius:50%;vertical-align:middle;margin-right:6px}.verified{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600}.verified svg{width:18px;height:18px;padding:2px;border-radius:50%;background:#4cb3ff;color:#fff}
+
+/* Spotify connect: two clear choices side by side on wide screens, and a numbered guide with check-offs. */
+.connect-choose { display: grid; gap: 16px; }
+@media (min-width: 1000px) { .connect-choose { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); align-items: start; } }
+.connect-choose > .box { margin: 0; padding: 20px; border-radius: 12px; background: color-mix(in srgb, var(--text) 5%, transparent); }
+.guide { list-style: none; margin: 16px 0 8px; padding: 0; display: grid; gap: 10px; }
+.guide-step { display: flex; gap: 14px; padding: 14px; border-radius: 10px; background: color-mix(in srgb, var(--text) 4%, transparent); transition: background .2s; }
+.guide-step.now { background: color-mix(in srgb, var(--accent) 14%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+.guide-step.done:not(.now) { opacity: .7; }
+.guide-check { flex: none; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px;
+  background: color-mix(in srgb, var(--text) 12%, transparent); color: var(--text); border: 0; cursor: pointer; }
+.guide-step.done .guide-check { background: var(--accent); color: #000; }
+.guide-body { min-width: 0; flex: 1; }
+.guide-body h3 { margin: 4px 0 6px; font-size: 16px; }
+.guide-body p { margin: 0 0 10px; color: var(--muted); line-height: 1.5; font-size: 14px; }
+.guide-body .account-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.guide-help { padding-left: 18px; line-height: 1.6; color: var(--muted); font-size: 14px; }
+.guide-help li { margin: 8px 0; }
+.guide-help .account-actions { display: inline-flex; gap: 6px; margin-left: 4px; }
+
+/* Rating: live counters in Settings and the 5-star dialog. */
+.community { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 6px 0 14px; }
+.community > div { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px; border-radius: 10px; background: color-mix(in srgb, var(--text) 6%, transparent); }
+.community b { font-size: 22px; line-height: 1.1; }
+.community span { font-size: 12px; color: var(--muted); }
+.stars { position: relative; display: inline-block; letter-spacing: 1px; color: color-mix(in srgb, var(--text) 22%, transparent); font-size: 14px; line-height: 1; }
+.stars-fill { position: absolute; inset: 0 auto 0 0; overflow: hidden; white-space: nowrap; color: #f5c518; }
+.rate-dialog { max-width: 340px; text-align: center; color: var(--text); background: var(--bg2, #121212); border-radius: 16px; padding: 24px 20px 18px; }
+.rate-dialog::backdrop { background: #000a; backdrop-filter: blur(4px); }
+.rate-dialog img { border-radius: 14px; }
+.rate-dialog h3 { margin: 12px 0 6px; font-size: 21px; }
+.rate-dialog p { color: var(--muted); font-size: 14px; line-height: 1.45; margin: 0 0 12px; }
+.rate-stars { display: flex; justify-content: center; gap: 4px; margin: 6px 0 12px; }
+.rate-stars button { font-size: 38px; line-height: 1; padding: 2px 4px; background: none; border: 0; color: color-mix(in srgb, var(--text) 25%, transparent); cursor: pointer; transition: transform .12s, color .12s; }
+.rate-stars button.on { color: #f5c518; }
+.rate-stars button:hover, .rate-stars button:focus-visible { transform: scale(1.15); }
+.rate-thanks { color: var(--text) !important; font-weight: 600; }
+.rate-actions { display: flex; justify-content: center; gap: 8px; }
+.community .stars { color: color-mix(in srgb, var(--text) 22%, transparent); font-size: 14px; }
+.community .stars-fill { color: #f5c518; font-size: inherit; }
+.community + .btn { margin-bottom: 12px; }
+.capability small { display: block; }

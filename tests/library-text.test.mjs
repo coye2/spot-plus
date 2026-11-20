@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {encodeLibraryText,decodeLibraryText,isLibraryText,LIBRARY_TEXT_PREFIX} from '../js/spotify-reader.js';
-import {setupHtml} from '../js/account-setup.js';
+import {setupHtml,markStep,stepProgress} from '../js/account-setup.js';
 
 const library={app:'spotplus-account',version:2,complete:true,account:{id:'user'},capturedAt:1,likes:Array.from({length:500},(_,i)=>({spotifyId:'a'.repeat(21)+(i%10),title:'Song '+i,artist:'Artist'})),playlists:[],albums:[],artists:[]};
 
@@ -38,7 +38,18 @@ test('iPhone setup uses the copy and paste handoff', () => {
   assert.match(html,/Copy for Spot\+/);
   assert.match(html,/data-act="account-install-helper"/);
   assert.match(html,/data-act="account-connect"/);
-  assert.equal((html.match(/step-number/g)||[]).length,2);
-  for(const device of ['android','computer']){const other=setupHtml(device);assert.equal((other.match(/step-number/g)||[]).length,2,device);assert.match(other,/data-act="account-connect"/);}
+  assert.equal((html.match(/class="guide-step/g)||[]).length,3);
+  for(const device of ['android','computer']){const other=setupHtml(device);assert.equal((other.match(/class="guide-step/g)||[]).length,3,device);assert.match(other,/data-act="account-connect"/);}
   assert.match(setupHtml('android'),/account-paste/);
+});
+
+test('Spotify connect guide: steps check off, and the next step stays open', () => {
+  const mem=new Map(),storage={getItem:k=>mem.get(k)??null,setItem:(k,v)=>mem.set(k,String(v))};
+  globalThis.localStorage=storage;
+  markStep('computer',1,true,storage);
+  assert.deepEqual(stepProgress('computer',storage),{1:true});
+  const html=setupHtml('computer');
+  assert.match(html,/guide-step done"/);
+  assert.match(html,/guide-step now"[\s\S]*Add the Spot\+ helper/);
+  assert.match(html,/Allow User Scripts/);
 });

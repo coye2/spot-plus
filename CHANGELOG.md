@@ -2,6 +2,16 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 2.0.0 — Spot+ 2.0
+_2026-11-20_
+
+- Instant playback: the next song is made ready in every relay region while you listen, so skips start in about a fifth of a second, and a tap asks every region at once instead of one by one.
+- Spotify, made simple: connect with two links in a minute, or bring your whole library with a clear three-step guide for iPhone, Android and computers, with check-offs and one-line fixes.
+- Artist pages that match Spotify: their photo, exact monthly listeners, popular songs with play counts, full discographies, related artists and bio.
+- Fourteen new themes: Aurora, Midnight Rose, Golden Hour, Nebula, Tidal, Matcha, Sakura Night, Espresso, Neon City and Arctic, plus Linen, Mint, Lavender and Sky in light mode.
+- Rate Spot+: a quick five-star rating that asks rarely, at a good moment, and never on your first days. The live rating sits beside the listener and install counters in Settings.
+- Polish everywhere: cover photos for playlists, adding songs to your Spotify playlists, deeper playlist search with playlists built for you, desktop drag-to-scroll rows, clickable artists in the player, and new background sources.
+
 ## 1.9.64 — Spotify-accurate artists, deeper playlists, new backgrounds
 _2026-11-20_
 

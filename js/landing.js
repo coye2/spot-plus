@@ -85,7 +85,7 @@ export function showLanding({qr = () => '', getPrompt = () => null, usedPrompt =
             <button class="lp-install" data-lp="install"><span class="lp-install-glow" aria-hidden="true"></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 3h2v9.2l3.3-3.3 1.4 1.4L12 16 6.3 10.3l1.4-1.4L11 12.2zM5 18h14v2H5z"/></svg><span class="lp-install-label">${esc(installLabel(plan))}</span></button>
             <button class="lp-web" data-lp="web">Continue in browser</button>
           </div>
-          <p class="lp-live" data-live-box hidden><i></i><b data-live="listening">0</b> listening right now · <b data-live="installs">0</b> installs</p>
+          <p class="lp-live" data-live-box hidden><i></i><b data-live="listening">0</b> listening right now · <b data-live="installs">0</b> installs · <b data-live="rating">–</b>★ rating</p>
           <p class="lp-fine">No app store, no download wait. Under 2 MB, works offline, updates itself.</p>
           <ul class="lp-feats"><li>🎧 Full player</li><li>📊 Rewind</li><li>👥 Jam</li><li>🎙️ AI DJ</li><li>🎨 19 themes</li></ul>
         </div>

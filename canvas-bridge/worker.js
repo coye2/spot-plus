@@ -77,7 +77,7 @@ const json = (data,status=200,maxAge=0) => new Response(JSON.stringify(data), {s
 export async function handle(request, {fetcher=fetch,cache,waitUntil=()=>{},env} = {}) {
   if (request.method === 'OPTIONS') return new Response(null,{status:204,headers:CORS});
   const url = new URL(request.url);
-  if (['/stats','/installs','/listening'].includes(url.pathname) && (request.method === 'GET' ? url.pathname === '/stats' : request.method === 'POST' && url.pathname !== '/stats'))
+  if (['/stats','/installs','/listening','/rate'].includes(url.pathname) && (request.method === 'GET' ? url.pathname === '/stats' : request.method === 'POST' && url.pathname !== '/stats'))
     return liveStats(request, env, async text => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('spotplus:' + text)))].slice(0, 8).map(b => b.toString(16).padStart(2, '0')).join(''));
   if (request.method !== 'GET' && !(['/yta','/mono'].includes(url.pathname) && request.method === 'HEAD')) return json({error:'Use GET'},405);
   if (url.pathname === '/spotify-stats') return spotifyStats(request,{fetcher,cache,waitUntil});

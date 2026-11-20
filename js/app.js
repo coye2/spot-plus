@@ -29,6 +29,7 @@ import * as scene from './backgrounds.js';
 import * as photo from './profile-photo.js';
 import {coverFromFile} from './playlist-art.js';
 import * as spArtists from './spotify-artists.js';
+import * as rating from './rating.js';
 import {clipSource,hasLocalClip,prefetchClips} from './canvas-cache.js';
 import {Jam,jamLink,validJamCode} from './jam.js';
 import qrcode from './vendor/qrcode.js';
@@ -36,7 +37,7 @@ import {shouldOnboard,showOnboarding} from './onboarding.js';
 import {shouldShowLanding,showLanding} from './landing.js';
 import {addLinks,syncLinks,loadLinks,cachedLinks,clearLinks,madeForYou,fetchPublic,rememberProfileAvatar} from './spotify-links.js';
 import {bindPlayerDismiss} from './player-gestures.js';
-import {COMPANION_INSTALL_URL,connectionDevice,setupHtml,spotifyConnectionURLs,helperInstallHtml,copyHelperInstallLink,spotifyProfileHtml} from './account-setup.js';
+import {COMPANION_INSTALL_URL,connectionDevice,setupHtml,spotifyConnectionURLs,helperInstallHtml,copyHelperInstallLink,spotifyProfileHtml,markStep} from './account-setup.js';
 let accountDevice=connectionDevice(navigator.userAgent,navigator.platform,navigator.maxTouchPoints);
 import {validateAccountSnapshot,isAccountMessage,ACCOUNT_FILE_LIMIT,accountReadNotice} from './spotify-account.js';
 import {decodeLibraryText,isLibraryText} from './spotify-reader.js';
@@ -806,10 +807,12 @@ async function viewSettings() {
   </section>
   <section class="box"><h2>DJ</h2>${toggle('djVoice','DJ voice','Choose your host in DJ preferences.')}<a class="btn small" href="#/dj">Open DJ</a><p class="settings-note">Turn on live conversation from the DJ screen (one-time 600 MB download).</p><button class="btn small" data-act="dj-live-remove">Remove DJ downloads</button></section>
   <details class="box settings-more"><summary>About, shortcuts and what’s supported</summary>
-  <section class="box"><h2>What’s supported</h2><div class="capability"><span>Music discovery<small>Deezer public catalog</small></span><span>Available</span></div><div class="capability"><span>Audio playback<small>JioSaavn, HiFi, Audius, Piped, Invidious, Deezer, or local files</small></span><span>Source dependent</span></div><div class="capability"><span>Spotify stats & profile<small>Updates by itself once connected</small></span><span>${spotifyAccount||cachedLinks()?'Connected':'Not connected'}</span></div><div class="capability"><span>Jam<small>Listen together in real time</small></span><span>Spot+ Jam</span></div><div class="capability"><span>Spotify Connect & Blend</span><span class="unavailable">Not supported</span></div><div class="capability"><span>DJ</span><span>Spot+ DJ</span></div><div class="capability"><span>Podcasts & audiobooks</span><span>Available</span></div><p class="settings-note">Spot+ is independent of Spotify. It reads your public Spotify playlists and profile; Spotify’s own audio and Premium features aren’t included.</p></section>
+  <section class="box"><h2>What’s supported</h2><div class="capability"><span>Music discovery<small>Deezer public catalog</small></span><span>Available</span></div><div class="capability"><span>Audio playback<small>Full songs through Spot+ YouTube Relay, Monochrome backup, or your own files</small></span><span>Available</span></div><div class="capability"><span>Spotify stats & profile<small>Updates by itself once connected</small></span><span>${spotifyAccount||cachedLinks()?'Connected':'Not connected'}</span></div><div class="capability"><span>Jam<small>Listen together in real time</small></span><span>Spot+ Jam</span></div><div class="capability"><span>Spotify Connect & Blend</span><span class="unavailable">Not supported</span></div><div class="capability"><span>DJ</span><span>Spot+ DJ</span></div><div class="capability"><span>Podcasts & audiobooks</span><span>Available</span></div><p class="settings-note">Spot+ is independent of Spotify. It reads your public Spotify playlists and profile; Spotify’s own audio and Premium features aren’t included.</p></section>
   <section class="box"><h2>Keyboard shortcuts</h2><p class="settings-note">Space: play/pause · Alt + Right/Left: next/previous · Ctrl/⌘ + K: search · Escape: close overlay. Use Tab and arrow keys for controls.</p></section>
   <section class="box"><h2>About Spot+</h2>
-    <p class="muted">Song info comes from Deezer, audio streams from JioSaavn, HiFi/Monochrome, Audius, Piped, and Invidious servers, and lyrics come from LRCLIB. Everything runs on your device.</p>
+    <div class="community" data-live-box hidden><div><b data-live="listening">0</b><span>listening now</span></div><div><b data-live="installs">0</b><span>installs</span></div><div><span data-live="rating-stars">${rating.starsHtml(0)}</span><b data-live="rating">–</b><span data-live="rating-count">rating</span></div></div>
+    <button class="btn small" data-act="rate">${rating.myRating()?`You rated ${'★'.repeat(rating.myRating())} · Change`:'★ Rate Spot+'}</button>
+    <p class="muted">Full songs play through Spot+ YouTube Relay, with Monochrome as the backup. The catalog comes from Deezer, artist stats from Spotify’s public pages, and lyrics from LRCLIB. Your library stays on your device.</p>
   </section></details>`;
 }
 
@@ -1089,6 +1092,7 @@ async function handleAct(act, el) {
     case 'dj-suggestion': await dj.start(el.dataset.prompt);break;
     case 'dj-host': await dj.voice.preview(el.dataset.host);syncDJVoice();break;
     case 'search-clear': clearTimeout(searchTimer);$('#globalQ').value='';$('#globalClear').hidden=true;if($('#q')){$('#q').value='';$('#searchClear').hidden=true;runSearch('');}else go('#/search');(matchMedia('(min-width:768px)').matches?$('#globalQ'):$('#q'))?.focus();break;
+    case 'connect-step': {const on=el.getAttribute('aria-pressed')!=='true';markStep(el.dataset.device,el.dataset.step,on);if($('#accountSetup'))$('#accountSetup').innerHTML=setupHtml(el.dataset.device);break;}
     case 'account-device': accountDevice=el.dataset.device;if($('#helperSetup'))$('#helperSetup').innerHTML=helperInstallHtml(accountDevice);else $('#accountSetup').innerHTML=setupHtml(accountDevice);break;
     case 'dj-live-remove': dj.disableLive();await dj.liveVoice.removeDownloads();await dj.localModel.removeModel();toast('DJ downloads removed. Your music is kept.');break;
     case 'dj-edit': dj.stop();$('#djPrompt').value=dj.voice.state.transcript;$('#djPrompt').focus();break;
@@ -1137,6 +1141,7 @@ async function handleAct(act, el) {
       openSheet({head:'<div class="sheet-title">Cover photo</div>',items:[{icon:I.image,label:'Choose a new photo',fn:choose},{icon:I.trash,label:'Remove cover photo',fn:()=>{store.setPlaylistCover(coverKey,null);toast('Cover photo removed');route({keepScroll:true});}}]});
       break;
     }
+    case 'rate': await askRating(); break;
     case 'new-folder': {const name=await ask({title:'New folder',placeholder:'Folder name',ok:'Create'});if(name)go('#/folder/'+store.createFolder(name).id);break;}
     case 'library-menu': libraryMenu(el.dataset.id);break;
     case 'folder-move': folderPicker(el.dataset.id);break;
@@ -2020,8 +2025,11 @@ function viewSpotifyAccount(){
  return `<div class="connect-heading"><span class="account-badge">Your music, together</span><h1>${account||cachedLinks()?'Your Spotify':'Connect Spotify'}</h1><p>${account?'Your profile and music, saved on this device.':'Your top music, profile and Rewind, kept up to date for you.'}</p></div>
   ${account?`<section class="box"><div class="kicker">Library saved on this device</div>${spotifyProfileHtml(account.account)}<p class="muted">Last read from Spotify: ${esc(new Date(account.capturedAt).toLocaleString())}</p><div class="account-stats">${[['Liked songs',account.likes.length],['Playlists',account.playlists.length],['Albums',account.albums.length],['Artists',account.artists.length]].map(([label,n])=>`<div class="account-stat"><b>${n}</b><span>${label}</span></div>`).join('')}</div><div class="account-actions"><a class="btn primary" href="#/spotify-account/likes">${I.heartFill}Spotify Liked Songs</a><button class="btn" data-act="account-connect">Refresh from Spotify</button>${accountDevice==='iphone'?'<button class="btn" data-act="account-paste">Paste from Spotify</button>':''}<button class="btn" data-act="account-disconnect">Remove connection</button></div><p class="settings-note">This is your last saved library copy. Refresh while Spotify is open to get changes. Edits in Spot+ stay in Spot+.</p>${accountReadNotice(account)?`<p class="account-status">${esc(accountReadNotice(account))}</p>`:''}${account.skipped?`<p class="settings-note">${account.skipped} unsupported or unavailable items were skipped. The companion currently reads music tracks.</p>`:''}</section>`:''}
 
+ <div class="connect-choose">
  ${linksSetupHtml()}
- <details class="connection-help helper-optional"><summary>More ways to connect (optional)</summary><p class="settings-note">Most people don’t need these. They copy your Liked Songs and saved playlists too.</p><details class="connection-help" ${account?'open':''}><summary>Browser helper — best on a computer</summary><div id="accountSetup">${setupHtml(accountDevice)}</div></details><details class="connection-help"><summary>Spotify data download — one-time copy</summary><p class="settings-note">Request <b>Account data</b> on <a href="https://www.spotify.com/account/privacy/" target="_blank" rel="noopener">Spotify’s privacy page</a>. When Spotify emails the ZIP, choose it here.</p><button class="btn" data-act="spotify-import">${I.import}Choose Spotify ZIP</button></details></details>
+ <section class="box connect-full"><span class="account-badge">Liked Songs & every playlist</span><h2>${account?'Keep your library in sync':'Bring your whole library'}</h2><p class="settings-note">A small free helper reads your Spotify library on Spotify’s website and hands it to Spot+. Three steps, about five minutes, once. We picked your device; switch if needed.</p><div id="accountSetup">${setupHtml(accountDevice)}</div></section>
+ </div>
+ <details class="connection-help"><summary>No helper? Use Spotify’s data download</summary><p class="settings-note">Request <b>Account data</b> on <a href="https://www.spotify.com/account/privacy/" target="_blank" rel="noopener">Spotify’s privacy page</a>. When Spotify emails the ZIP (a few days), choose it here.</p><button class="btn" data-act="spotify-import">${I.import}Choose Spotify ZIP</button></details>
   ${account?.playlists.length?`<section><h2>Your Spotify playlists</h2><div class="account-cards">${account.playlists.map(p=>`<a class="card" href="#/spotify-account/playlist/${p.id}">${img(p.cover)}<div class="ctitle">${esc(p.title)}</div><div class="csub">${p.status==='unavailable'&&!p.tracks.length?'Tracks unavailable':p.tracks.length+' songs'}${p.status==='unavailable'&&p.tracks.length?' · Saved copy':p.status==='partial'?' · Incomplete read':''}</div></a>`).join('')}</div></section>`:''}
 
  `;
@@ -2248,7 +2256,24 @@ live.countInstall({standalone:isStandalone()});
 window.addEventListener('appinstalled',()=>live.countInstall({standalone:true}));
 const beat=()=>live.heartbeat(player.isPlaying());
 player.on('state',beat);setInterval(beat,95000);addEventListener('pagehide',()=>live.heartbeat(false));
-async function refreshLive(){const data=await live.stats();if(!data)return;$$('[data-live="listening"]').forEach(el=>{el.textContent=live.formatCount(data.listening);el.closest('[data-live-box]')?.removeAttribute('hidden');});$$('[data-live="installs"]').forEach(el=>{el.textContent=live.formatCount(data.installs);el.closest('[data-live-box]')?.removeAttribute('hidden');});}
+function showRating(r){if(!r)return;$$('[data-live="rating"]').forEach(el=>{el.textContent=r.count?r.average.toFixed(1):'–';el.closest('[data-live-box]')?.removeAttribute('hidden');});$$('[data-live="rating-stars"]').forEach(el=>{el.innerHTML=rating.starsHtml(r.average||0);});$$('[data-live="rating-count"]').forEach(el=>{el.textContent=r.count?`${r.count.toLocaleString('en-US')} rating${r.count===1?'':'s'}`:'no ratings yet';});}
+async function askRating(current=rating.myRating()){
+  const answer=await rating.openDialog({current});
+  if(typeof answer==='number'){const r=await rating.submit(answer);showRating(r);$$('[data-act="rate"]').forEach(b=>{b.textContent=`You rated ${'★'.repeat(answer)} · Change`;});}
+  else rating.noteAsked(answer);
+}
+// Ask now and then, at a natural moment: a new song has just started, nothing else is open, and only after
+// Spot+ has been used for a few days (see rating.shouldAsk). At most once per visit.
+rating.noteUse();
+let ratingAsked=false,ratingTrack='';
+player.on('state',()=>{
+  const t=player.current();if(!t||t.id===ratingTrack||!player.isPlaying())return;ratingTrack=t.id;
+  const plays=Object.values(store.getPlays()).reduce((n,v)=>n+(Number(v?.n)||0),0);
+  if(!rating.shouldAsk({plays,shownThisVisit:ratingAsked}))return;
+  ratingAsked=true;
+  setTimeout(()=>{if(!sheet.hidden||npOpen||document.querySelector('dialog[open]')||!player.isPlaying()){ratingAsked=false;return;}rating.noteAsked('shown');askRating();},6000);
+});
+async function refreshLive(){const data=await live.stats();if(!data)return;showRating(data.rating);$$('[data-live="listening"]').forEach(el=>{el.textContent=live.formatCount(data.listening);el.closest('[data-live-box]')?.removeAttribute('hidden');});$$('[data-live="installs"]').forEach(el=>{el.textContent=live.formatCount(data.installs);el.closest('[data-live-box]')?.removeAttribute('hidden');});}
 setInterval(()=>{if(!document.hidden&&$('[data-live]'))refreshLive();},30000);
 /* ---------------- What's new ---------------- */
 function whatsNew(releases){

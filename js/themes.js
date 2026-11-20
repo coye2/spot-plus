@@ -8,6 +8,16 @@ export const presets=[
  {id:'ember',name:'Ember',note:'Copper',accent:'#803e28',surface:'#120c09',raised:'#291b13'},
  {id:'orchid',name:'Night Orchid',note:'Muted violet',accent:'#604080',surface:'#0f0b15',raised:'#21172d'},
  {id:'cobalt',name:'After Hours',note:'Deep cobalt',accent:'#2b4589',surface:'#080d19',raised:'#17233d'},
+ {id:'aurora',name:'Aurora',note:'Northern lights',accent:'#2f8f7a',surface:'#06100f',raised:'#0f2523'},
+ {id:'midnight-rose',name:'Midnight Rose',note:'Velvet red',accent:'#9a3550',surface:'#120709',raised:'#2a1218'},
+ {id:'sunset',name:'Golden Hour',note:'Warm amber',accent:'#b36b1f',surface:'#120c05',raised:'#2a1d0e'},
+ {id:'nebula',name:'Nebula',note:'Cosmic purple',accent:'#7a4fd0',surface:'#0b0816',raised:'#1c1533'},
+ {id:'lagoon-night',name:'Tidal',note:'Deep teal',accent:'#1f7a8c',surface:'#051012',raised:'#0d2429'},
+ {id:'matcha',name:'Matcha',note:'Soft green tea',accent:'#6e8f3a',surface:'#0b0e06',raised:'#1b2210'},
+ {id:'sakura',name:'Sakura Night',note:'Cherry blossom',accent:'#c0587e',surface:'#12080d',raised:'#2a1520'},
+ {id:'espresso',name:'Espresso',note:'Coffee & cream',accent:'#8c6a4a',surface:'#0e0a07',raised:'#221a13'},
+ {id:'neon',name:'Neon City',note:'Electric magenta',accent:'#c02fa8',surface:'#0c0610',raised:'#211029'},
+ {id:'arctic',name:'Arctic',note:'Ice white',accent:'#7fa6bf',surface:'#070b0e',raised:'#141d24'},
  {id:'m3-violet',name:'Dynamic Violet',note:'Material',seed:'#6750a4',material:true},
  {id:'m3-ocean',name:'Ocean',note:'Material',seed:'#0061a4',material:true},
  {id:'m3-lagoon',name:'Lagoon',note:'Material',seed:'#006a6a',material:true},
@@ -21,6 +31,10 @@ export const presets=[
  {id:'paper',name:'Paper',note:'Light · warm',seed:'#8a6e4b',material:true,mode:'light'},
  {id:'snow',name:'Snow',note:'Light · cool',seed:'#4f6f8f',material:true,mode:'light'},
  {id:'blossom',name:'Blossom',note:'Light · pink',seed:'#b04a7a',material:true,mode:'light'},
+ {id:'linen',name:'Linen',note:'Light · sand',seed:'#9a7b4f',material:true,mode:'light'},
+ {id:'mint',name:'Mint',note:'Light · fresh',seed:'#2e8b6a',material:true,mode:'light'},
+ {id:'lavender',name:'Lavender',note:'Light · lilac',seed:'#7b5ea7',material:true,mode:'light'},
+ {id:'sky',name:'Sky',note:'Light · blue',seed:'#3d7ab8',material:true,mode:'light'},
 ];
 export const MODES=['dark','light','system','clear'];
 export const validHex=x=>typeof x==='string'&&/^#[0-9a-f]{6}$/i.test(x);

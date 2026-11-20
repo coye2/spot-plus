@@ -8,6 +8,8 @@ export function spotifyProfileHtml(account) {
  const name=account.name||account.id,avatar=spotifyCover(account.avatar),link=spotifyProfileURL(account.id);
  return '<div class="spotify-profile"><div class="spotify-profile-photo" aria-hidden="true"><span>'+escapeHtml([...name][0]?.toUpperCase()||'S')+'</span>'+(avatar?'<img src="'+escapeHtml(avatar)+'" alt="" width="88" height="88" loading="lazy" decoding="async" referrerpolicy="no-referrer">':'')+'</div><div class="spotify-profile-details"><div class="kicker">Your Spotify profile</div><h2>'+escapeHtml(name)+'</h2><p class="muted">'+escapeHtml(account.id)+'</p>'+(link?'<a class="link" href="'+escapeHtml(link)+'" target="_blank" rel="noopener noreferrer">View on Spotify ↗</a>':'')+'</div></div>';
 }
+const USERSCRIPTS_APP_URL='https://apps.apple.com/app/userscripts/id1463298887';
+const USERSCRIPTS_APP=USERSCRIPTS_APP_URL;
 const deviceInfo={
  iphone:{browser:'Safari',manager:'Userscripts',url:'https://github.com/quoid/userscripts#installation'},
  android:{browser:'Firefox',manager:'Tampermonkey',url:'https://www.tampermonkey.net/index.php?browser=firefox'},
@@ -51,25 +53,37 @@ export function spotifyConnectionURLs(origin,nonce,syncKey='') {
  const login=new URL('https://accounts.spotify.com/login');login.searchParams.set('continue',browser.href);
  return {browser:browser.href,login:login.href};
 }
+// One guide per device: three steps, each with one main button, a plain sentence of what to expect, and a check-off
+// so you can see where you are. Your progress is kept on this device.
+const STEPS_KEY='spotplus.connectSteps';
+export function stepProgress(device,storage=globalThis.localStorage){try{return JSON.parse(storage?.getItem(STEPS_KEY)||'{}')[device]||{};}catch{return {};}}
+export function markStep(device,step,on,storage=globalThis.localStorage){try{const all=JSON.parse(storage?.getItem(STEPS_KEY)||'{}');all[device]={...(all[device]||{}),[step]:!!on};storage?.setItem(STEPS_KEY,JSON.stringify(all));}catch{/* storage blocked */}}
+const GUIDES={
+ iphone:[
+  {title:'Get the free Userscripts app',body:'It lets Safari run the small Spot+ helper on Spotify’s website. Then open <b>Settings → Apps → Safari → Extensions → Userscripts</b>, turn it on and choose <b>Allow</b> for every website.',button:'<a class="btn primary" href="'+USERSCRIPTS_APP_URL+'" target="_blank" rel="noopener">Get Userscripts</a>'},
+  {title:'Add the Spot+ helper',body:'Tap the button: the helper opens in Safari as a page of code. That’s expected. Tap <b>ᴀA</b> (or the puzzle piece) in the address bar → <b>Userscripts</b> → <b>Install</b>.',button:'<button class="btn primary" data-act="account-install-helper">Open the helper in Safari</button>'},
+  {title:'Open Spotify and copy your library',body:'Sign in on Spotify’s website in Safari. A green Spot+ panel appears: tap <b>Copy for Spot+</b>, come back here and tap <b>Paste from Spotify</b>.',button:'<button class="btn primary" data-act="account-connect">Open Spotify</button><button class="btn" data-act="account-paste">Paste from Spotify</button>'},
+ ],
+ android:[
+  {title:'Install Firefox and Tampermonkey',body:'Chrome on Android can’t run add-ons, so use <b>Firefox</b>. In Firefox, add the free <b>Tampermonkey</b> extension.',button:'<a class="btn primary" href="https://www.tampermonkey.net/index.php?browser=firefox" target="_blank" rel="noopener">Get Tampermonkey for Firefox</a>'},
+  {title:'Add the Spot+ helper',body:'Open this page in Firefox and tap the button. Tampermonkey shows an install page: tap <b>Install</b>.',button:'<a class="btn primary" href="'+COMPANION_INSTALL_URL+'" target="_blank" rel="noopener">Add the helper</a>'},
+  {title:'Open Spotify and sign in',body:'Sign in on Spotify’s website in Firefox. The Spot+ panel reads your library and sends it back here by itself. If the Spotify app opens instead, tap <b>Copy for Spot+</b> on the website and paste here.',button:'<button class="btn primary" data-act="account-connect">Open Spotify</button><button class="btn" data-act="account-paste">Paste from Spotify</button>'},
+ ],
+ computer:[
+  {title:'Add Tampermonkey to your browser',body:'It’s free and works in Chrome, Edge and Firefox. <b>Chrome or Edge:</b> afterwards open the extension’s <b>Details</b> and turn on <b>Allow User Scripts</b>.',button:'<a class="btn primary" href="https://www.tampermonkey.net/" target="_blank" rel="noopener">Get Tampermonkey</a>'},
+  {title:'Add the Spot+ helper',body:'Click the button. Tampermonkey opens an install page: click <b>Install</b>. Only code showing? Use <b>Copy link</b> and paste it into Tampermonkey → Dashboard → Utilities → Import from URL.',button:'<a class="btn primary" href="'+COMPANION_INSTALL_URL+'" target="_blank" rel="noopener">Add the helper</a><button class="btn" data-act="account-helper-copy">Copy link</button><input class="connection-link" id="helperInstallLink" readonly hidden value="'+COMPANION_INSTALL_URL+'">'},
+  {title:'Open Spotify and sign in',body:'Sign in on Spotify’s website in the same browser. The Spot+ panel reads your Liked Songs and playlists and sends them back here by itself.',button:'<button class="btn primary" data-act="account-connect">Open Spotify</button>'},
+ ],
+};
 export function setupHtml(selected){
- const device=validDevice(selected),info=deviceInfo[device];
- if(device==='iphone')return deviceChoices(device)+iphoneSetupHtml();
- const android=device==='android';
- // Same two steps as iPhone: install once, then one tap to connect.
- return deviceChoices(device)+'<div class="connect-steps">'+
- '<section class="connect-step"><span class="step-number">1</span><div><h2>Install the helper (once)</h2><p>'+(android?'Use <b>Firefox</b> on Android and add the free Tampermonkey extension.':'Add the free Tampermonkey extension to Chrome, Edge or Firefox.')+'</p><div class="account-actions"><a class="btn" href="'+info.url+'" target="_blank" rel="noopener">Get Tampermonkey</a><a class="btn primary" href="'+COMPANION_INSTALL_URL+'" target="_blank" rel="noopener">Install helper</a></div><p>Tampermonkey opens an install page. Tap <b>Install</b>.</p></div></section>'+
- '<section class="connect-step"><span class="step-number">2</span><div><h2>Connect Spotify</h2><p>Sign in on Spotify’s website. The Spot+ panel reads your library and sends it back here by itself.</p><div class="account-actions"><button class="btn primary" data-act="account-connect">Open Spotify</button>'+(android?'<button class="btn" data-act="account-paste">Paste from Spotify</button>':'')+'</div><p class="connection-feedback" id="accountConnectionStatus" role="status">'+(android?'If the Spotify app opens instead, paste the copied link into Firefox’s address bar.':'Only music details are copied. Your login stays on Spotify.')+'</p></div></section></div>'+
- '<details class="connection-help"><summary>Troubleshooting</summary><p>No Spot+ panel on Spotify? Make sure the Spot+ script is enabled in Tampermonkey'+(android?'':'. In Chrome or Edge, also turn on <b>Allow User Scripts</b> in Tampermonkey’s extension details')+', then reload Spotify. Panel there but nothing read? Open Your Library and click <b>Read library</b>.</p><p>Library didn’t come back? Use <b>Copy for Spot+</b> in the panel, then <b>Paste from Spotify</b> here, or <b>Save library file</b> and:</p><div class="account-actions"><button class="btn" data-act="account-paste">Paste from Spotify</button><button class="btn" data-act="account-file">Import library file</button></div><p><a href="#/spotify-account/helper">Other ways to install the helper</a> · <a href="#/spotify">Import a Spotify data export</a></p></details>'+
- '<p class="connection-note">Helper '+COMPANION_VERSION+' · Experimental. Copies music metadata when you refresh; it never changes your Spotify account.</p>';
-}
-// iPhone: two steps. Install opens real Safari (extensions don't run inside the Home
-// Screen app). Connect opens Spotify; the library comes back by message in Safari or
-// by one-tap clipboard paste in the Home Screen app.
-const USERSCRIPTS_APP='https://apps.apple.com/app/userscripts/id1463298887';
-function iphoneSetupHtml(){
- return '<div class="connect-steps">'+
- '<section class="connect-step"><span class="step-number">1</span><div><h2>Install the helper (once)</h2><p>Get the free Userscripts app, then turn it on: Settings → Apps → Safari → Extensions → Userscripts → <b>Allow</b> for all websites.</p><div class="account-actions"><a class="btn" href="'+USERSCRIPTS_APP+'" target="_blank" rel="noopener">Get Userscripts</a><button class="btn primary" data-act="account-install-helper">Install helper</button></div><p>On the page that opens, tap <b>ᴀA</b> → <b>Userscripts</b> → <b>Install</b>.</p></div></section>'+
- '<section class="connect-step"><span class="step-number">2</span><div><h2>Connect Spotify</h2><p>Sign in on Spotify. When the Spot+ panel is ready, tap <b>Copy for Spot+</b> and come back here.</p><div class="account-actions"><button class="btn primary" data-act="account-connect">Open Spotify</button><button class="btn" data-act="account-paste">Paste from Spotify</button></div><p class="connection-feedback" id="accountConnectionStatus" role="status">Only music details are copied. Your login stays on Spotify.</p></div></section></div>'+
- '<details class="connection-help"><summary>Troubleshooting</summary><p>No Spot+ panel on Spotify? Check that Userscripts is allowed on open.spotify.com and reload. Panel there but nothing read? Open Your Library and tap <b>Read library</b>.</p><p>Paste not working? Choose <b>Save library file</b> on Spotify instead, then:</p><button class="btn" data-act="account-file">Import library file</button><p><a href="#/spotify-account/helper">Other ways to install the helper</a> · <a href="#/spotify">Import a Spotify data export</a></p></details>'+
- '<p class="connection-note">Helper '+COMPANION_VERSION+' · Experimental. Copies music metadata when you refresh; it never changes your Spotify account.</p>';
+ const device=validDevice(selected),done=stepProgress(device),steps=GUIDES[device];
+ const next=steps.findIndex((_,i)=>!done[i+1]);
+ return deviceChoices(device)+'<ol class="guide">'+steps.map((st,i)=>{const n=i+1,ok=!!done[n],now=i===(next<0?steps.length-1:next);
+  return '<li class="guide-step'+(ok?' done':'')+(now?' now':'')+'"><button class="guide-check" data-act="connect-step" data-device="'+device+'" data-step="'+n+'" aria-pressed="'+ok+'" aria-label="'+(ok?'Mark step '+n+' as not done':'Mark step '+n+' as done')+'">'+(ok?'✓':n)+'</button><div class="guide-body"><h3>'+st.title+'</h3>'+(ok&&!now?'':'<p>'+st.body+'</p><div class="account-actions">'+st.button+'</div>')+'</div></li>';}).join('')+'</ol>'+
+ '<p class="connection-feedback" id="accountConnectionStatus" role="status"><span id="helperCopyStatus"></span>Only music details are copied. Your login stays on Spotify, and Spot+ never changes your account.</p>'+
+ '<details class="connection-help"><summary>Something not working?</summary><ul class="guide-help">'+
+ '<li><b>No Spot+ panel on Spotify?</b> '+(device==='iphone'?'In Safari tap ᴀA → Userscripts and make sure it’s on for open.spotify.com, then reload.':device==='android'?'Make sure you’re in Firefox and the script is on in Tampermonkey, then reload.':'Make sure the script is on in Tampermonkey (and Allow User Scripts in Chrome/Edge), then reload.')+' The helper can’t run inside the Spotify app, only on the website.</li>'+
+ '<li><b>Panel there but nothing read?</b> Open Your Library on the website and press <b>Read library</b>.</li>'+
+ '<li><b>Library didn’t come back?</b> Press <b>Copy for Spot+</b> in the panel and paste here, or <b>Save library file</b> and import it: <span class="account-actions"><button class="btn small" data-act="account-paste">Paste from Spotify</button><button class="btn small" data-act="account-file">Import library file</button></span></li>'+
+ '<li><b>Updating?</b> Add the helper again the same way; the panel shows <b>Helper '+COMPANION_VERSION+'</b> when you have the latest.</li></ul></details>';
 }

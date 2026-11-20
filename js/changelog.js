@@ -1,6 +1,14 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '2.0.0', date: '2026-11-20', title: 'Spot+ 2.0', items: [
+    'Instant playback: the next song is made ready in every relay region while you listen, so skips start in about a fifth of a second, and a tap asks every region at once instead of one by one.',
+    'Spotify, made simple: connect with two links in a minute, or bring your whole library with a clear three-step guide for iPhone, Android and computers, with check-offs and one-line fixes.',
+    'Artist pages that match Spotify: their photo, exact monthly listeners, popular songs with play counts, full discographies, related artists and bio.',
+    'Fourteen new themes: Aurora, Midnight Rose, Golden Hour, Nebula, Tidal, Matcha, Sakura Night, Espresso, Neon City and Arctic, plus Linen, Mint, Lavender and Sky in light mode.',
+    'Rate Spot+: a quick five-star rating that asks rarely, at a good moment, and never on your first days. The live rating sits beside the listener and install counters in Settings.',
+    'Polish everywhere: cover photos for playlists, adding songs to your Spotify playlists, deeper playlist search with playlists built for you, desktop drag-to-scroll rows, clickable artists in the player, and new background sources.',
+  ]},
   {version: '1.9.64', date: '2026-11-20', title: 'Spotify-accurate artists, deeper playlists, new backgrounds', items: [
     'Artist pages now look and read like Spotify’s: Spotify’s photo, the exact monthly listener count, Spotify’s popular songs with play counts, Fans also like, Appears on, the artist’s playlists and their bio.',
     'Full discographies: every release is shown (guardin has 124), with Popular releases, Albums, Singles and EPs, and Compilations, and a Show all page. Releases only on Spotify are added too.',
