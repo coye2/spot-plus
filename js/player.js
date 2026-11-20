@@ -166,12 +166,15 @@ function watchStall() {
   const ms = (state.source?.fast || state.source?.alternatives?.length)
     ? Math.max(2500, Math.min(budgetMs, adaptiveMs + 1500))
     : Math.max(budgetMs, adaptiveMs);
+  // The relay may try up to four uploads of the song before the first byte (each refusal takes about two
+  // seconds), so its first start gets longer before it counts as stuck.
+  const wait = state.source?.kind === 'ytrelay' && (audio.currentTime || 0) <= 0.35 ? Math.max(ms, 12000) : ms;
   stallTimer = setTimeout(() => {
     stallTimer = null;
     if (generation !== token || !pendingPlay || !isRealSrc()) return;
     if ((audio.readyState || 0) >= 2 && (audio.currentTime || 0) > 0.35) { clearStall(); return; }
     failAttempt(ticket);
-  }, ms);
+  }, wait);
   stallTimer.unref?.();
 }
 

@@ -462,7 +462,9 @@ export async function relayStream(track, signal, matches) {
   const fmt = relayFormat();
   const pick = matches.find((m) => m?.id === id) || {};
   const region = relayRegion();
-  return {url: `${region}/yta?id=${id}&fmt=${fmt}`, relayRegion: region, mime: fmt.includes('opus') ? 'audio/webm' : 'audio/mp4',
+  // The worker tries these other uploads itself when YouTube refuses this one, within the same request.
+  const alt = [...all.filter((v) => v !== id && !avoided(v)), ...all.filter((v) => v !== id && avoided(v))].slice(0, 3);
+  return {url: `${region}/yta?id=${id}&fmt=${fmt}${alt.length ? '&alt=' + alt.join(',') : ''}`, relayRegion: region, mime: fmt.includes('opus') ? 'audio/webm' : 'audio/mp4',
     bitrate: RELAY_BITRATE[fmt] || 128000, kind: 'ytrelay', engineLabel: 'Spot+ YouTube Relay', instance: RELAY_BASE,
     videoId: id, candidates: all.slice(0, 6), catalogId: id, title: pick.title, channel: pick.channel || pick.author, why: pick.why || '',
     duration: pick.duration || track.duration, alternatives: []};

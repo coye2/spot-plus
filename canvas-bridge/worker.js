@@ -119,7 +119,7 @@ const SECURITY_HEADERS = {
   'X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'no-referrer',
   'Content-Security-Policy':"default-src 'none'; frame-ancestors 'none'",'Cross-Origin-Resource-Policy':'cross-origin',
   'Strict-Transport-Security':'max-age=63072000; includeSubDomains','Permissions-Policy':'interest-cohort=()',
-  'Access-Control-Expose-Headers':'Content-Range, Content-Length, Accept-Ranges, X-Spotplus-Source, X-Spotplus-Duration, X-Spotplus-Itag',
+  'Access-Control-Expose-Headers':'Content-Range, Content-Length, Accept-Ranges, X-Spotplus-Source, X-Spotplus-Duration, X-Spotplus-Itag, X-Spotplus-Video',
 };
 const RATE = {limit:120, windowMs:60000}, hits = new Map();
 // Audio streaming makes many small range requests, so the relay has its own, higher limit.

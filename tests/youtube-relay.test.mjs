@@ -221,3 +221,41 @@ test('/yta asks several times at once, each with its own identity, and serves th
   assert.equal(r.status, 206);
   assert.equal(new Set(asked.slice(0, 3)).size, 3, 'three different identities in the first wave');
 });
+
+test('/yta tries the other uploads in the same request when YouTube refuses the first, and keeps the rest of the song on the one that played', async () => {
+  const base = fakeYouTube();
+  const asked = [];
+  const fetcher = async (url, init = {}) => {
+    const u = String(url);
+    if (u.includes('/youtubei/v1/player')) {
+      const id = JSON.parse(init.body).videoId; asked.push(id);
+      if (id !== 'kkkkkkkkkk2') return new Response(JSON.stringify({playabilityStatus: {status: 'LOGIN_REQUIRED', reason: 'Sign in to confirm you’re not a bot'}}));
+    }
+    return base.fetcher(url, init);
+  };
+  const r = await youtubeRelay(new Request('https://w.dev/yta?id=kkkkkkkkkk0&alt=kkkkkkkkkk1,kkkkkkkkkk2', {headers: {Range: 'bytes=0-4'}}), {fetcher});
+  assert.equal(r.status, 206);
+  assert.equal(r.headers.get('X-Spotplus-Video'), 'kkkkkkkkkk2');
+  assert.equal(await r.text(), 'AUDIO');
+  assert.ok(asked.includes('kkkkkkkkkk0') && asked.includes('kkkkkkkkkk1'));
+  // The rest of the song (a later range) comes from the upload that played, never the first one.
+  asked.length = 0;
+  const rest = await youtubeRelay(new Request('https://w.dev/yta?id=kkkkkkkkkk0&alt=kkkkkkkkkk1,kkkkkkkkkk2', {headers: {Range: 'bytes=5-9'}}), {fetcher});
+  assert.equal(rest.status, 206);
+  assert.equal(rest.headers.get('X-Spotplus-Video'), 'kkkkkkkkkk2');
+  assert.ok(!asked.includes('kkkkkkkkkk0'));
+  await rest.arrayBuffer();
+});
+
+test('/yta never switches upload partway through a song it has no record of', async () => {
+  const asked = [];
+  const fetcher = async (url, init = {}) => {
+    const u = String(url);
+    if (u.includes('visitor_id')) return new Response(JSON.stringify({responseContext: {visitorData: 'v'}}));
+    if (u.includes('/youtubei/v1/player')) { asked.push(JSON.parse(init.body).videoId); return new Response(JSON.stringify({playabilityStatus: {status: 'LOGIN_REQUIRED', reason: 'bot'}})); }
+    throw new Error('unexpected ' + u);
+  };
+  const r = await youtubeRelay(new Request('https://w.dev/yta?id=mmmmmmmmmm0&alt=mmmmmmmmmm1', {headers: {Range: 'bytes=100-200'}}), {fetcher});
+  assert.equal(r.status, 502);
+  assert.deepEqual([...new Set(asked)], ['mmmmmmmmmm0']);
+});

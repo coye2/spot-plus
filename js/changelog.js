@@ -1,6 +1,10 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.61', date: '2026-11-19', title: 'The relay tries other uploads before the backup', items: [
+    'YouTube refuses some uploads of a song from a server while letting others through (measured live: Levitating’s official upload was refused everywhere, but two of its other uploads played from Europe). The relay server now tries up to three other uploads of the song itself, in the same request, before Spot+ falls back to Monochrome.',
+    'The rest of a song always comes from the same upload that started playing, so it never jumps or glitches mid-song.',
+  ]},
   {version: '1.9.60', date: '2026-11-19', title: 'YouTube Relay goes through Europe first', items: [
     'Measured live: YouTube let 8 of 10 songs through from Spot+’s European server, against 2 of 10 from the US ones. Songs now ask Europe first, then the other regions, and each phone learns which region works best for it.',
   ]},

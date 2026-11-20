@@ -50,6 +50,23 @@ export const RESOLVE_BUDGET = 24;
 const memo = new Map(); // video id -> {url, mime, expires} for this worker instance
 const MAX_MEMO = 400;
 
+export const MAX_ALTS = 3;
+const ALT_SPEND_LIMIT = 30;
+// Which upload played for a song (first id -> the upload used), so the rest of the song comes from the same file.
+const picks = new Map();
+const pickKey = (id) => `https://relay.internal/pick/v1/${id}`;
+async function rememberedPick(id, cache) {
+  const hit = picks.get(id);
+  if (hit && hit.expires > Date.now()) return hit.vid;
+  const shared = await cache?.match(pickKey(id)).then((r) => r?.text()).catch(() => '');
+  return /^[\w-]{11}$/.test(shared || '') ? shared : '';
+}
+function rememberPick(id, vid, cache, waitUntil) {
+  picks.set(id, {vid, expires: Date.now() + 3 * 3600e3});
+  if (picks.size > MAX_MEMO) picks.delete(picks.keys().next().value);
+  if (cache) waitUntil(cache.put(pickKey(id), new Response(vid, {headers: {'Cache-Control': 'max-age=10800'}})).catch(() => {}));
+}
+
 const fail = (status, error) => new Response(JSON.stringify({error}), {status, headers: {'Content-Type': 'application/json', 'Cache-Control': 'no-store'}});
 
 function expiresOf(link) {
@@ -155,11 +172,28 @@ export async function youtubeRelay(request, {fetcher = fetch, cache, waitUntil =
   const want = parseRequestRange(request.headers.get('Range'));
   if (!want) return unsatisfiable();
 
-  let link, first, firstSpan, selected, lastStatus = 0, reason = 'Upstream audio unavailable';
+  // Other uploads of the same song (alt=id,id). YouTube's bot check refuses some uploads from a server while
+  // letting others through (live, 2026-11-19, relay-eu: two of five Levitating uploads played, the other three
+  // were refused), so the worker tries them itself instead of the app falling back to Monochrome.
+  const alts = [...new Set((url.searchParams.get('alt') || '').split(',').map((v) => v.trim())
+    .filter((v) => /^[\w-]{11}$/.test(v) && v !== id))].slice(0, MAX_ALTS);
+  // Once an upload played for this song, later range requests (seeking, the rest of the song) must use the same
+  // file: a different upload has different bytes. A continuation never switches upload.
+  const picked = alts.length ? await rememberedPick(id, cache) : '';
+  const resuming = want.start > 0 || want.suffix !== undefined;
+  const tries = resuming ? [picked || id] : [...new Set([picked || id, id, ...alts])];
+  let spent = 0;
+  const counted = (u, init) => { spent++; return fetcher(u, init); };
+
+  let link, first, firstSpan, selected, lastStatus = 0, reason = 'Upstream audio unavailable', vid = id;
+  outer: for (const [n, candidate] of tries.entries()) {
+    // Leave room in Cloudflare's 50-subrequest allowance for the audio slices.
+    if (n > 0 && spent > ALT_SPEND_LIMIT) break;
+    vid = candidate;
   for (const fresh of [false, true]) {
     if (request.signal?.aborted) return fail(499, 'Playback request cancelled');
     try {
-      link = await resolveLink(id, {fetcher, cache, waitUntil, fresh, fmt, signal: request.signal});
+      link = await resolveLink(vid, {fetcher: counted, cache, waitUntil, fresh, fmt, signal: request.signal});
       let totalHint = Number(link.length) || 0;
       if (want.suffix !== undefined && !totalHint) {
         // Suffix ranges are uncommon but valid; discover the length using one byte.
@@ -173,20 +207,24 @@ export async function youtubeRelay(request, {fetcher = fetch, cache, waitUntil =
         : (totalHint ? resolveRequestRange(want, totalHint) : {start: want.start, end: want.end});
       if (!selected) return unsatisfiable(totalHint);
       const firstEnd = Math.min(selected.end ?? (selected.start + SLICE - 1), selected.start + SLICE - 1);
-      first = await mediaRequest(link.url, selected.start, firstEnd, undefined, fetcher);
+      first = await mediaRequest(link.url, selected.start, firstEnd, undefined, counted);
       lastStatus = first.status;
       firstSpan = validateUpstreamRange(first, selected.start, firstEnd, totalHint);
-      if (firstSpan && first.body) break;
+      if (firstSpan && first.body) break outer;
       reason = 'Unverified upstream range (' + first.status + ')';
       await discard(first);
       first = null;
-      memo.delete(fmt + ':' + id);
-      await cache?.delete(linkKey(id, fmt)).catch(() => {});
+      memo.delete(fmt + ':' + vid);
+      await cache?.delete(linkKey(vid, fmt)).catch(() => {});
     } catch (error) {
       reason = String(error?.message || error).slice(0, 120);
       first = null;
+      // YouTube refused this upload: with other uploads to try, move on rather than asking again for this one.
+      if (tries.length > 1) continue outer;
     }
   }
+  }
+  if (first && firstSpan && alts.length && vid !== picked) rememberPick(id, vid, cache, waitUntil);
   if (!first || !firstSpan) return fail(502, 'YouTube relay failed: ' + reason + (lastStatus ? ' (' + lastStatus + ')' : ''));
 
   const total = firstSpan.total;
@@ -201,6 +239,7 @@ export async function youtubeRelay(request, {fetcher = fetch, cache, waitUntil =
     'Cache-Control': 'no-store',
     'X-Spotplus-Source': 'youtube-relay',
     'X-Spotplus-Itag': String(link.itag || 0),
+    'X-Spotplus-Video': vid,
   });
   if (link.duration > 0) headers.set('X-Spotplus-Duration', String(link.duration));
   headers.set('Content-Length', String(expected));
@@ -224,9 +263,9 @@ export async function youtubeRelay(request, {fetcher = fetch, cache, waitUntil =
         if (!span && !renewed) {
           renewed = true;
           await discard(part);
-          memo.delete(fmt + ':' + id);
-          await cache?.delete(linkKey(id, fmt)).catch(() => {});
-          const newer = await resolveLink(id, {fetcher, cache, waitUntil, fresh: true, fmt});
+          memo.delete(fmt + ':' + vid);
+          await cache?.delete(linkKey(vid, fmt)).catch(() => {});
+          const newer = await resolveLink(vid, {fetcher, cache, waitUntil, fresh: true, fmt});
           // A new itag or file length would splice two different encodings and corrupt the song.
           if (newer.mime !== link.mime ||
               (link.itag && newer.itag && link.itag !== newer.itag) ||

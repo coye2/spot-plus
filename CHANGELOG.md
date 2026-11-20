@@ -2,6 +2,12 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.61 — The relay tries other uploads before the backup
+_2026-11-19_
+
+- YouTube refuses some uploads of a song from a server while letting others through (measured live: Levitating’s official upload was refused everywhere, but two of its other uploads played from Europe). The relay server now tries up to three other uploads of the song itself, in the same request, before Spot+ falls back to Monochrome.
+- The rest of a song always comes from the same upload that started playing, so it never jumps or glitches mid-song.
+
 ## 1.9.60 — YouTube Relay goes through Europe first
 _2026-11-19_
 
