@@ -405,9 +405,23 @@ export const RELAY_REGIONS = ['https://spot-plus-canvas.pwr97pnmkn.workers.dev',
 const regionRest = new Map();
 export function restRelayRegion(base, ms = 90e3) { if (base) regionRest.set(base, Date.now() + ms); }
 const regionResting = (base) => (regionRest.get(base) || 0) > Date.now();
+// Only regions whose server answers its health check are used (the main one always is). Checked in the background
+// once per session; a region that isn't deployed is never tried.
+const regionsUp = new Set([RELAY_REGIONS[0]]);
+let regionsChecked = false;
+function checkRelayRegions() {
+  if (regionsChecked || typeof fetch !== 'function') return;
+  regionsChecked = true;
+  for (const base of RELAY_REGIONS.slice(1)) {
+    const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 6000);
+    fetch(base + '/health', {credentials: 'omit', signal: ctl.signal}).then((r) => r.ok && r.json()).then((h) => { if (h?.relay) regionsUp.add(base); }).catch(() => {}).finally(() => clearTimeout(t));
+  }
+}
+export const relayRegionsUp = () => RELAY_REGIONS.filter((b) => regionsUp.has(b));
 function relayRegion() {
-  const awake = RELAY_REGIONS.filter((b) => !regionResting(b));
-  return awake[0] || [...RELAY_REGIONS].sort((a, b) => (regionRest.get(a) || 0) - (regionRest.get(b) || 0))[0];
+  checkRelayRegions();
+  const awake = RELAY_REGIONS.filter((b) => regionsUp.has(b) && !regionResting(b));
+  return awake[0] || relayRegionsUp().sort((a, b) => (regionRest.get(a) || 0) - (regionRest.get(b) || 0))[0];
 }
 // Uploads YouTube just refused are tried last for a few minutes, so a retry lands on another upload.
 const relayAvoid = new Map();

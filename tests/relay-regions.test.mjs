@@ -10,7 +10,10 @@ const matches = [
 const track = {id: 't1', title: 'Song', artist: 'Artist', duration: 200};
 
 test('relay: a refused region rests and the next try goes through another region', async () => {
+  globalThis.fetch = async () => new Response(JSON.stringify({relay: true}));
   const {relayStream, restRelayRegion, RELAY_REGIONS} = await import('../js/api.js');
+  await relayStream(track, undefined, matches); // starts the region health checks
+  await new Promise((ok) => setTimeout(ok, 20));
   const first = await relayStream(track, undefined, matches);
   assert.equal(first.relayRegion, RELAY_REGIONS[0]);
   assert.ok(first.url.startsWith(RELAY_REGIONS[0] + '/yta?'));
@@ -20,4 +23,9 @@ test('relay: a refused region rests and the next try goes through another region
   restRelayRegion(second.relayRegion);
   assert.equal((await relayStream(track, undefined, matches)).relayRegion, RELAY_REGIONS[2]);
   assert.equal(first.instance, second.instance, 'one relay as far as source fallback is concerned');
+});
+
+test('relay: a region that is not deployed is never tried', async () => {
+  const {relayRegionsUp, RELAY_REGIONS} = await import('../js/api.js');
+  assert.ok(relayRegionsUp().includes(RELAY_REGIONS[0]));
 });

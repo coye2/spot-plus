@@ -2,6 +2,7 @@
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
   {version: '1.9.59', date: '2026-11-19', title: 'Spot+ YouTube Relay in three regions', items: [
+    'Only relay regions that are actually running are used, so a missing one never costs a try.',
     'YouTube refuses servers in bursts, one address at a time. Spot+ now has relay servers in three regions; when one is refused, the song is asked again through another (each only takes about two seconds to give up), so far more songs come from YouTube instead of the backup.',
   ]},
   {version: '1.9.58', date: '2026-11-19', title: 'YouTube Relay waits out refusals', items: [

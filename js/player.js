@@ -354,14 +354,14 @@ function recoverMedia(mediaErr = null) {
     memoryEngine.forgetStream(api.streamKey(cur));
   }
   const relayFailed = failed?.kind === 'ytrelay';
-  if (!state.offline && !cur.local && failed && !failed.preview && errRetries < (relayFailed ? (store.getSettings().source === 'auto' ? 3 : 6) : 2)) {
+  if (!state.offline && !cur.local && failed && !failed.preview && errRetries < (relayFailed ? (store.getSettings().source === 'auto' ? api.relayRegionsUp().length : 6) : 2)) {
     errRetries++;
     // A relay stream that drops is usually YouTube refusing that one upload for a moment: try again from the
     // same spot, preferring another upload of the song, instead of giving up on the relay for this song.
     const retryRelay = relayFailed;
     // Rest the region that was refused (the next try goes through another one); once every region has been
     // tried for this song, also move on to another upload.
-    if (retryRelay) { api.restRelayRegion(failed.relayRegion); if (errRetries >= api.RELAY_REGIONS.length) api.avoidRelayVideo(failed.videoId); memoryEngine.forgetStream(api.streamKey(cur)); }
+    if (retryRelay) { api.restRelayRegion(failed.relayRegion); if (errRetries >= api.relayRegionsUp().length) api.avoidRelayVideo(failed.videoId); memoryEngine.forgetStream(api.streamKey(cur)); }
     else if (failed.instance) skipList.push(failed.instance);
     telemetry.endRecovery(recStart, true);
     // Asking YouTube again for an upload it just refused: give the refusal a moment to clear first.

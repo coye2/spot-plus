@@ -11,7 +11,7 @@ const track = {id: 't1', title: 'Song', artist: 'Artist', duration: 200};
 
 test('relay: the song plays from the top upload with no separate check request (one YouTube lookup, not two)', async () => {
   let asked = 0;
-  globalThis.fetch = async () => { asked++; return new Response('', {status: 206}); };
+  globalThis.fetch = async (url) => { if (String(url).includes('/yta')) asked++; return new Response('{}', {status: 200}); };
   const {relayStream} = await import('../js/api.js');
   const stream = await relayStream(track, undefined, matches);
   assert.equal(asked, 0);
