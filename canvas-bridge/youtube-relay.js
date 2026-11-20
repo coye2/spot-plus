@@ -3,7 +3,7 @@
 // cannot play them directly. The worker asks for the link and fetches the audio in the same request, then
 // streams it to the app's own <audio> element: no YouTube player, no ads, and no extra tap.
 // Unofficial: this depends on YouTube's internal player API and can break when YouTube changes it.
-import {innertubeStream, ensureVisitor, AUDIO_ITAGS} from './youtube-stream.js';
+import {innertubeStream, freshVisitor, AUDIO_ITAGS} from './youtube-stream.js';
 import {parseRequestRange, validateUpstreamRange, resolveRequestRange} from './relay-integrity.js';
 
 // Like Spotube's quality setting: Opus 160 kbps where the browser plays it, AAC 128 kbps for iPhone/Safari,
@@ -17,7 +17,30 @@ export const FORMATS = {
 
 // Two attempts: a short bot-check burst is outlasted by the second, and when YouTube has flagged the server for a
 // while, more attempts only made each refusal take 12-15 s (live, 2026-11-19); the app moves on instead.
-export const RETRY_WAITS = [0, 1200];
+export const RETRY_WAITS = [0, 1200]; // kept for older callers
+export const WAVES = [
+  {profile: 'visionos', lookups: 3},
+  {profile: 'android_vr', lookups: 2},
+  {profile: 'visionos', lookups: 2, wait: 600},
+];
+
+/** Runs the lookups at once; resolves with the first that found a stream (and cancels the rest), else the first failure. */
+function firstGood(jobs, signal) {
+  return new Promise((resolve) => {
+    const ctl = new AbortController();
+    const stop = () => ctl.abort();
+    signal?.addEventListener?.('abort', stop, {once: true});
+    let left = jobs.length, failure = null;
+    const done = (value) => { signal?.removeEventListener?.('abort', stop); resolve(value); };
+    for (const job of jobs) {
+      Promise.resolve().then(() => job(ctl.signal)).then((r) => {
+        if (r?.stream?.url && !ctl.signal.aborted) { ctl.abort(); done(r); return; }
+        failure ||= r;
+        if (--left === 0) done(failure || {error: 'No audio'});
+      }, (e) => { failure ||= {error: String(e?.message || e)}; if (--left === 0) done(failure); });
+    }
+  });
+}
 // Cloudflare's free plan allows 50 subrequests per request. Finding a link may use at most this many, so
 // the audio slices that follow always fit (a long track needs about one per 4 MB).
 export const RESOLVE_BUDGET = 24;
@@ -58,23 +81,26 @@ async function resolveLink(id, {fetcher, cache, waitUntil, fresh = false, fmt = 
     const shared = await cache.match(linkKey(id, fmt)).then((r) => r?.json()).catch(() => null);
     if (shared?.url && shared.expires - Date.now() > 10 * 60e3) { memo.set(`${fmt}:${id}`, shared); return shared; }
   }
-  // AAC (m4a) first: every iPhone plays it in a plain <audio> element. YouTube sometimes answers
-  // "confirm you're not a bot" for a session; a fresh session usually gets through, so try up to 3 times.
-  // The check comes in bursts of a few seconds, so the retries are spread out to outlast one.
-  let result = null, used = 0;
+  // YouTube refuses a share of lookups from cloud servers ("confirm you're not a bot"), seemingly at random per
+  // request. Asking one at a time made a refusal cost seconds and still often fail; instead each wave asks several
+  // times at once, each with its own visitor identity, and takes the first good link (the rest are cancelled).
+  // With ~50% refusals, three at once all fail about 1 time in 8; the later waves bring it to about 1 in 100.
+  let used = 0;
   const upstream = fetcher;
   fetcher = (url, init) => {
     if (++used > RESOLVE_BUDGET) return Promise.reject(new Error('Too many YouTube lookups for one song'));
     return upstream(url, init);
   };
-  for (const [attempt, wait] of RETRY_WAITS.entries()) {
+  let result = null;
+  for (const [index, wave] of WAVES.entries()) {
     if (signal?.aborted) throw new Error('Playback request cancelled');
-    if (attempt) {
-      await new Promise((ok) => setTimeout(ok, wait));
-      if (signal?.aborted) throw new Error('Playback request cancelled');
-      await ensureVisitor(fetcher, {force: true, signal}).catch(() => {});
-    }
-    result = await innertubeStream(id, {fetcher, signal, preferAac: fmt !== 'opus', order: FORMATS[fmt], validate: (stream) => servesWholeFile(stream, fetcher, signal)});
+    if (wave.wait) await new Promise((ok) => setTimeout(ok, wave.wait));
+    result = await firstGood(Array.from({length: wave.lookups}, (_, n) => async (waveSignal) => {
+      // The first lookup of the first wave uses the shared identity (no extra request); the others bring their own.
+      const visitor = index === 0 && n === 0 ? undefined : await freshVisitor(fetcher, {signal: waveSignal});
+      return innertubeStream(id, {fetcher, signal: waveSignal, visitor, retryLogin: false, profiles: [wave.profile],
+        preferAac: fmt !== 'opus', order: FORMATS[fmt], validate: (stream) => servesWholeFile(stream, fetcher, waveSignal)});
+    }), signal);
     if (result?.stream?.url) break;
   }
   const stream = result?.stream;

@@ -715,10 +715,30 @@ function decodeHifiManifest(data) {
   }
   return null;
 }
+// Monochrome searches, kept 30 minutes: the backup is looked up while YouTube is still being asked (and for the
+// next song ahead of time), so switching to it when YouTube says no doesn't wait for a slow search.
+const monoSearches = new Map();
+function monoSearch(url) {
+  const hit = monoSearches.get(url);
+  if (hit && Date.now() - hit.at < 30 * 60e3) return hit.job;
+  const job = fetchJSON(url, 8000).catch((e) => { monoSearches.delete(url); throw e; });
+  monoSearches.set(url, {at: Date.now(), job});
+  if (monoSearches.size > 60) monoSearches.delete(monoSearches.keys().next().value);
+  return job;
+}
+const monoSearchURL = (base, track) => (monoProxy ? `${RELAY_BASE.replace(/\/yta$/, '')}/mono?q=${encodeURIComponent(query(track))}` : `${base}/search/tracks?q=${encodeURIComponent(query(track))}`);
+/** Starts looking the song up on the backup (Monochrome) in the background. Cheap: one small search. */
+export function prefetchBackup(track) {
+  if (!track || track.local || !monoProxy) return;
+  monoSearch(monoSearchURL(MONO_BASE, track)).catch(() => {});
+}
 async function monochromeStream(base, track, signal, ms = 2200) {
   // Monochrome's own search can't be read by browsers (no CORS header); the Spot+ server relays it.
-  const searchURL = monoProxy ? `${RELAY_BASE.replace(/\/yta$/, '')}/mono?q=${encodeURIComponent(query(track))}` : `${base}/search/tracks?q=${encodeURIComponent(query(track))}`;
-  const data = await fetchJSON(searchURL, Math.max(ms, 4500), signal);
+  const searched = monoSearch(monoSearchURL(base, track));
+  const data = await Promise.race([searched, new Promise((_, no) => {
+    const t = setTimeout(() => no(new Error('Monochrome search timed out')), Math.max(ms, 6000));
+    signal?.addEventListener?.('abort', () => { clearTimeout(t); no(signal.reason || new Error('Aborted')); }, {once: true});
+  })]);
   const rows = Array.isArray(data?.tracks) ? data.tracks : [];
   const wantInstrumental = /\binstrumental\b/i.test(`${track.title} ${track.artist}`);
   const items = rows.filter((row) => row && row.playable !== false && row.id && (wantInstrumental || !/\binstrumental\b/i.test(row.title || ''))).map((row) => ({

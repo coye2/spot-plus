@@ -354,7 +354,7 @@ function recoverMedia(mediaErr = null) {
     memoryEngine.forgetStream(api.streamKey(cur));
   }
   const relayFailed = failed?.kind === 'ytrelay';
-  if (!state.offline && !cur.local && failed && !failed.preview && errRetries < (relayFailed ? 4 : 2)) {
+  if (!state.offline && !cur.local && failed && !failed.preview && errRetries < (relayFailed && store.getSettings().source !== 'auto' ? 4 : 2)) {
     errRetries++;
     // A relay stream that drops is usually YouTube refusing that one upload for a moment: try again from the
     // same spot, preferring another upload of the song, instead of giving up on the relay for this song.
@@ -654,6 +654,8 @@ globalThis.document?.addEventListener?.('visibilitychange', () => { if (globalTh
 async function load(opts = {}) {
   const t = current();
   if (!t) return;
+  // Look the song up on the backup while YouTube is being asked, so a refusal switches over without waiting.
+  if (store.getSettings().source === 'auto') api.prefetchBackup(t);
   const my = ++token;
   activeGen = my;
   startupSwaps = 0;
@@ -993,6 +995,8 @@ function prefetch() {
   const netProfile = bufferEngine.profile(navigator.connection);
   const upcoming = predictUpcoming({ queue: state.queue, index: state.index, repeat: state.repeat });
   const next = upcoming[0]?.track || null;
+  // The next song's backup lookup too, so a refusal at the start of it switches over at once.
+  if (next && !next.local && store.getSettings().source === 'auto') api.prefetchBackup(next);
   if (store.getSettings().preloadNext === false || !netProfile.preloadStageA || !next || !isPlaying() || state.loading) {
     nextBuffer.clear();
     return;

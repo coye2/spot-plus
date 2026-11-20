@@ -1,6 +1,10 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.57', date: '2026-11-19', title: 'YouTube Relay asks smarter, backup switches fast', items: [
+    'The Spot+ server now asks YouTube several times at once for every song, each time as a different visitor, and uses the first answer that works. Refusals that used to cost seconds (or the song) now rarely matter.',
+    'The backup source is looked up while YouTube is being asked, and for the next song ahead of time, so when YouTube says no the song switches over in about a second instead of a long wait.',
+  ]},
   {version: '1.9.56', date: '2026-11-19', title: 'Far fewer skipped songs', items: [
     'When YouTube refuses a song, Spot+ now keeps trying (up to four times, rotating between uploads and pausing a moment before asking again) instead of giving up after two quick tries. Then HiFi / Monochrome takes over before a song is ever skipped.',
   ]},

@@ -131,7 +131,10 @@ test('long tracks are streamed as byte-identical bounded pieces, even beyond mul
   assert.equal(response.status, 206);
   assert.equal(played.byteLength, total);
   assert.deepEqual(played, m.audio);
-  assert.deepEqual(m.calls, [[total - 2, total - 1], [0, SLICE - 1],
+  // Parallel lookups may each check the end of the file once; after that, the audio slices in order.
+  const probes = m.calls.filter(([a, b]) => a === total - 2 && b === total - 1).length;
+  assert.ok(probes >= 1 && probes <= 3, String(probes));
+  assert.deepEqual(m.calls.slice(probes - 1), [[total - 2, total - 1], [0, SLICE - 1],
     [SLICE, SLICE + NEXT_SLICE - 1], [SLICE + NEXT_SLICE, total - 1]]);
 });
 

@@ -2,6 +2,12 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.57 — YouTube Relay asks smarter, backup switches fast
+_2026-11-19_
+
+- The Spot+ server now asks YouTube several times at once for every song, each time as a different visitor, and uses the first answer that works. Refusals that used to cost seconds (or the song) now rarely matter.
+- The backup source is looked up while YouTube is being asked, and for the next song ahead of time, so when YouTube says no the song switches over in about a second instead of a long wait.
+
 ## 1.9.56 — Far fewer skipped songs
 _2026-11-19_
 

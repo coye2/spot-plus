@@ -45,7 +45,7 @@ test('/yta gets a fresh link once when YouTube refuses the old one', async () =>
   const r = await youtubeRelay(new Request('https://w.dev/yta?id=bbbbbbbbbbb'), {fetcher});
   assert.equal(r.status, 206);
   assert.equal(calls.media.length, 2);
-  assert.match(calls.media[1].url, /n=2/, 'second try uses a newly requested link');
+  assert.notEqual(calls.media[1].url, calls.media[0].url, 'second try uses a newly requested link');
 });
 
 test('/yta rejects bad ids and bad ranges', async () => {
@@ -177,8 +177,9 @@ test('/yta never hands over a link that stops after the first chunk: it checks t
   const {fetcher, seen} = clientAwareYouTube({total: 5000, cutOff: new Set(['VISIONOS'])});
   const r = await youtubeRelay(new Request('https://w.dev/yta?id=hhhhhhhhhhh', {headers: {Range: 'bytes=0-1'}}), {fetcher});
   assert.equal(r.status, 206);
-  assert.deepEqual(seen.clients, ['VISIONOS', 'ANDROID_VR']);
-  assert.deepEqual(seen.ranges[0], ['VISIONOS', '1', 4998, 4999]); // the end-of-file check that failed
+  // Wave 1 asks VISIONOS three times at once; all its links fail the end-of-file check, so wave 2 (ANDROID_VR) serves.
+  assert.deepEqual(seen.clients.slice(0, 3), ['VISIONOS', 'VISIONOS', 'VISIONOS']);
+  assert.ok(seen.ranges.filter(([c]) => c === 'VISIONOS').every(([, , from]) => from === 4998), 'VISIONOS links only checked, never served');
   assert.equal(seen.ranges.at(-1)[0], 'ANDROID_VR');
 });
 
@@ -192,5 +193,31 @@ test('/yta keeps a song whole when YouTube refuses one slice mid-song: fresh lin
   await Promise.all(waits);
   assert.equal(body.length, total);
   assert.deepEqual(body, audio);
-  assert.equal(seen.clients.length, 2); // the original link, then one fresh one for the refused slice
+  // The original lookup wave, then one fresh wave for the refused slice (each wave asks several times at once).
+  assert.ok(seen.clients.length >= 2 && seen.clients.length <= 6, String(seen.clients.length));
+});
+
+test('/yta asks several times at once, each with its own identity, and serves the first good answer', async () => {
+  let visitors = 0;
+  const asked = [];
+  const fetcher = async (url, init = {}) => {
+    const u = String(url);
+    if (u.includes('visitor_id')) { visitors++; return new Response(JSON.stringify({responseContext: {visitorData: 'v' + visitors}})); }
+    if (u.includes('/youtubei/v1/player')) {
+      const id = JSON.parse(init.body).context.client.visitorData;
+      asked.push(id);
+      // Only the third identity gets through YouTube's bot check.
+      if (asked.length !== 3) return new Response(JSON.stringify({playabilityStatus: {status: 'LOGIN_REQUIRED', reason: 'bot'}}));
+      return new Response(JSON.stringify({playabilityStatus: {status: 'OK'}, streamingData: {adaptiveFormats: [{itag: 140, mimeType: 'audio/mp4', bitrate: 1, contentLength: '5000', url: 'https://rr1.googlevideo.com/videoplayback?expire=9999999999&who=' + id}]}}));
+    }
+    if (u.includes('googlevideo.com')) {
+      const [, from, to] = /bytes=(\d+)-(\d+)/.exec(init.headers.Range);
+      const end = Math.min(Number(to), 4999), n = end - Number(from) + 1;
+      return new Response(new Uint8Array(n), {status: 206, headers: {'Content-Range': `bytes ${from}-${end}/5000`, 'Content-Length': String(n)}});
+    }
+    throw new Error('unexpected ' + u);
+  };
+  const r = await youtubeRelay(new Request('https://w.dev/yta?id=parallel111', {headers: {Range: 'bytes=0-1'}}), {fetcher});
+  assert.equal(r.status, 206);
+  assert.equal(new Set(asked.slice(0, 3)).size, 3, 'three different identities in the first wave');
 });

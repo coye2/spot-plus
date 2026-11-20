@@ -44,9 +44,9 @@ export const AUDIO_ITAGS = {aac: 140, opus: 251, opus70: 250, opus50: 249, aacLo
 let visitorData = '';
 let visitorFetched = 0;
 
-function clientContext(profile = 'visionos') {
+function clientContext(profile = 'visionos', visitor = visitorData) {
   const client = {...(PROFILES[profile] || PROFILES.visionos).client, hl: 'en', gl: 'US'};
-  if (visitorData) client.visitorData = visitorData;
+  if (visitor) client.visitorData = visitor;
   return {client};
 }
 
@@ -118,8 +118,24 @@ export function shapeStream(format, videoId, engine = 'bridge', alternatives = [
 
 // validate(stream) -> true when the link really serves the whole file; a link that fails it is skipped
 // and the next client is tried.
-export async function innertubeStream(videoId, {fetcher, preferAac, order = null, validate = null, profiles = PROFILE_ORDER, signal}) {
-  await ensureVisitor(fetcher, {signal});
+/** A new YouTube visitor identity of its own (not shared), for a parallel lookup. '' if YouTube didn't give one. */
+export async function freshVisitor(fetcher = fetch, {signal} = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3000);
+  try {
+    const response = await fetcher(VISITOR, {method: 'POST', signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
+      headers: {'Content-Type': 'application/json', 'User-Agent': VISIONOS_UA},
+      body: JSON.stringify({context: {client: {clientName: 'VISIONOS', clientVersion: VISIONOS_VERSION}}})});
+    if (!response.ok) return '';
+    return (await response.json())?.responseContext?.visitorData || '';
+  } catch { return ''; } finally { clearTimeout(timer); }
+}
+
+// visitor: use this visitor identity instead of the shared one (parallel lookups each bring their own).
+// retryLogin: on a bot check, fetch a new shared identity and ask again (off for parallel lookups).
+export async function innertubeStream(videoId, {fetcher, preferAac, order = null, validate = null, profiles = PROFILE_ORDER, signal, visitor, retryLogin = true}) {
+  if (visitor === undefined) await ensureVisitor(fetcher, {signal});
+  const vd = () => (visitor === undefined ? visitorData : visitor);
   const attempt = async (profile) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 7000);
@@ -135,10 +151,10 @@ export async function innertubeStream(videoId, {fetcher, preferAac, order = null
           'X-YouTube-Client-Version': client.clientVersion,
           'Origin': 'https://www.youtube.com',
           'Accept-Language': 'en-US,en;q=0.9',
-          ...(visitorData ? {'X-Goog-Visitor-Id': visitorData} : {}),
+          ...(vd() ? {'X-Goog-Visitor-Id': vd()} : {}),
         },
         body: JSON.stringify({
-          context: clientContext(profile),
+          context: clientContext(profile, vd()),
           videoId,
           contentCheckOk: true,
           racyCheckOk: true,
@@ -173,7 +189,7 @@ export async function innertubeStream(videoId, {fetcher, preferAac, order = null
   for (const profile of profiles.filter(name => PROFILES[name])) {
     if (signal?.aborted) return {error: 'Playback request cancelled'};
     let result = await attempt(profile);
-    if (result.login) {
+    if (result.login && retryLogin) {
       await ensureVisitor(fetcher, {force: true, signal});
       result = await attempt(profile);
     }
