@@ -1,6 +1,11 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '2.0.1', date: '2026-11-20', title: 'Snake, for everyone', items: [
+    'Play Snake from Up next: the snake is made of your songs’ covers. The head is the song playing now, every bite is the next song in your queue, and the snake grows one cover at a time.',
+    'Works on every device: swipe or use the buttons on a phone, arrow keys or WASD on a computer, space to pause. It speeds up as you grow and remembers your best score.',
+    'When the game ends you see the songs you ate, and one tap plays them as a queue.',
+  ]},
   {version: '2.0.0', date: '2026-11-20', title: 'Spot+ 2.0', items: [
     'Instant playback: the next song is made ready in every relay region while you listen, so skips start in about a fifth of a second, and a tap asks every region at once instead of one by one.',
     'Spotify, made simple: connect with two links in a minute, or bring your whole library with a clear three-step guide for iPhone, Android and computers, with check-offs and one-line fixes.',

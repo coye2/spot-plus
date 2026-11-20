@@ -1,0 +1,205 @@
+// Snake, Spotify style: the snake is made of your songs' covers. The head is the song playing now, every bite is
+// the next song in your queue, and the snake grows one cover at a time. Swipe, use the arrows or the d-pad.
+// When the game ends you see the songs you ate and can play them as a queue.
+
+const BEST = 'spotplus.snakeBest';
+const DIRS = {up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0]};
+const OPPOSITE = {up: 'down', down: 'up', left: 'right', right: 'left'};
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+
+/** Pure game state, so the rules can be tested without a screen. */
+export function createGame({cols = 15, rows = 15, songs = [], random = Math.random} = {}) {
+  const mid = Math.floor(rows / 2);
+  const g = {cols, rows, songs, random, dir: 'right', queued: [], over: false, won: false, eaten: 0,
+    snake: [{x: 3, y: mid, song: 0}, {x: 2, y: mid, song: -1}, {x: 1, y: mid, song: -1}], next: 1, food: null};
+  placeFood(g);
+  return g;
+}
+function placeFood(g) {
+  const taken = new Set(g.snake.map((s) => s.x + ',' + s.y)), free = [];
+  for (let y = 0; y < g.rows; y++) for (let x = 0; x < g.cols; x++) if (!taken.has(x + ',' + y)) free.push({x, y});
+  if (!free.length) { g.food = null; g.over = g.won = true; return; }
+  g.food = {...free[Math.floor(g.random() * free.length)], song: g.songs.length ? g.next % g.songs.length : -1};
+}
+/** Queue a turn (up to two ahead, so quick double swipes both count). Reversing into yourself is ignored. */
+export function turn(g, dir) {
+  if (!DIRS[dir]) return;
+  const last = g.queued.at(-1) || g.dir;
+  if (dir === last || dir === OPPOSITE[last] || g.queued.length >= 2) return;
+  g.queued.push(dir);
+}
+/** One move. Returns 'ate', 'over' or 'moved'. */
+export function step(g) {
+  if (g.over) return 'over';
+  if (g.queued.length) g.dir = g.queued.shift();
+  const [dx, dy] = DIRS[g.dir], head = g.snake[0];
+  const x = head.x + dx, y = head.y + dy;
+  const eating = g.food && x === g.food.x && y === g.food.y;
+  // The tail moves away this turn unless the snake grows, so the head may take its place.
+  const body = eating ? g.snake : g.snake.slice(0, -1);
+  if (x < 0 || y < 0 || x >= g.cols || y >= g.rows || body.some((s) => s.x === x && s.y === y)) { g.over = true; return 'over'; }
+  // Covers move along the body: the new head shows the newest song, older songs trail behind.
+  const covers = g.snake.map((s) => s.song);
+  g.snake.unshift({x, y, song: covers[0]});
+  if (eating) {
+    g.eaten++;
+    g.snake[0].song = g.food.song;
+    for (let i = 1; i < g.snake.length; i++) g.snake[i].song = covers[i - 1];
+    g.next++;
+    placeFood(g);
+    return 'ate';
+  }
+  g.snake.pop();
+  for (let i = 1; i < g.snake.length; i++) g.snake[i].song = covers[i - 1];
+  return 'moved';
+}
+/** Gets quicker as the snake grows: 170 ms per move at the start, down to 75. */
+export const speed = (eaten) => Math.max(75, 170 - eaten * 4);
+
+/** Opens the game full screen. songs: [{title, artist, cover}], first is the song playing now. */
+export function open({songs = [], onPlay, accent = '#1ed760'} = {}) {
+  const list = songs.filter((s) => s && s.title).slice(0, 300);
+  const d = document.createElement('dialog');
+  d.className = 'snake';
+  d.innerHTML = `<div class="snake-top"><button class="snake-x" aria-label="Close Snake">✕</button><div class="snake-score"><b>0</b><span>songs eaten</span></div><div class="snake-best">Best <b>${Number(localStorage.getItem(BEST)) || 0}</b></div></div>
+    <div class="snake-board"><canvas aria-label="Snake game board"></canvas><div class="snake-overlay"></div></div>
+    <div class="snake-now"><img alt=""><div><b></b><span></span></div></div>
+    <div class="snake-pad" aria-label="Direction buttons"><button data-d="up" aria-label="Up">▲</button><button data-d="left" aria-label="Left">◀</button><button data-d="down" aria-label="Down">▼</button><button data-d="right" aria-label="Right">▶</button></div>`;
+  document.body.append(d);
+  const canvas = d.querySelector('canvas'), ctx = canvas.getContext('2d'), overlay = d.querySelector('.snake-overlay');
+  const images = new Map();
+  const imageFor = (i) => {
+    const song = list[i];
+    if (!song?.cover) return null;
+    if (!images.has(i)) { const im = new Image(); im.decoding = 'async'; im.src = song.cover; images.set(i, im); }
+    const im = images.get(i);
+    return im.complete && im.naturalWidth ? im : null;
+  };
+  list.slice(0, 12).forEach((_, i) => imageFor(i));
+
+  let g, timer = 0, last = 0, running = false, raf = 0, cell = 20;
+  const best = () => Number(localStorage.getItem(BEST)) || 0;
+  const size = () => {
+    const box = d.querySelector('.snake-board').getBoundingClientRect();
+    const side = Math.floor(Math.min(box.width, box.height));
+    cell = Math.floor(side / 15);
+    const px = cell * 15, ratio = Math.min(3, devicePixelRatio || 1);
+    canvas.width = px * ratio; canvas.height = px * ratio;
+    canvas.style.width = canvas.style.height = px + 'px';
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    draw();
+  };
+  const tile = (x, y, songIndex, scale = 1, glow = false) => {
+    const pad = cell * (1 - scale) / 2 + 1, s = cell * scale - 2, r = Math.max(3, cell * 0.18);
+    const px = x * cell + pad, py = y * cell + pad;
+    ctx.save();
+    ctx.beginPath(); ctx.roundRect(px, py, s, s, r); ctx.clip();
+    const im = songIndex >= 0 ? imageFor(songIndex) : null;
+    if (im) ctx.drawImage(im, px, py, s, s);
+    else { ctx.fillStyle = accent; ctx.fillRect(px, py, s, s); }
+    ctx.restore();
+    if (glow) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.roundRect(px, py, s, s, r); ctx.stroke(); }
+  };
+  function draw(now = performance.now()) {
+    if (!g) return;
+    const px = cell * 15;
+    ctx.clearRect(0, 0, px, px);
+    // Checkerboard floor.
+    for (let y = 0; y < 15; y++) for (let x = 0; x < 15; x++) { ctx.fillStyle = (x + y) % 2 ? '#ffffff08' : '#ffffff03'; ctx.fillRect(x * cell, y * cell, cell, cell); }
+    if (g.food) tile(g.food.x, g.food.y, g.food.song, 0.78 + Math.sin(now / 180) * 0.08, true);
+    for (let i = g.snake.length - 1; i >= 0; i--) { const s = g.snake[i]; tile(s.x, s.y, s.song, i === 0 ? 1 : 0.92); }
+    // Eyes on the head, looking where it's going.
+    const h = g.snake[0], [dx, dy] = DIRS[g.dir], cx = h.x * cell + cell / 2, cy = h.y * cell + cell / 2;
+    for (const side of [-1, 1]) {
+      const ex = cx + dx * cell * 0.18 + dy * side * cell * 0.2, ey = cy + dy * cell * 0.18 - dx * side * cell * 0.2;
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ex, ey, cell * 0.12, 0, 7); ctx.fill();
+      ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(ex + dx * cell * 0.04, ey + dy * cell * 0.04, cell * 0.06, 0, 7); ctx.fill();
+    }
+  }
+  const showSong = (i) => {
+    const song = list[i], row = d.querySelector('.snake-now');
+    if (!song) { row.hidden = true; return; }
+    row.hidden = false;
+    row.querySelector('img').src = song.cover || '';
+    row.querySelector('b').textContent = song.title;
+    row.querySelector('span').textContent = song.artist || '';
+  };
+  const loop = (now) => {
+    raf = requestAnimationFrame(loop);
+    if (running && now - last >= speed(g.eaten)) {
+      last = now;
+      const r = step(g);
+      if (r === 'ate') {
+        d.querySelector('.snake-score b').textContent = g.eaten;
+        showSong(g.snake[0].song);
+        imageFor((g.next + 2) % Math.max(1, list.length));
+        navigator.vibrate?.(12);
+      }
+      if (r === 'over') end();
+    }
+    draw(now);
+  };
+  const start = () => {
+    g = createGame({songs: list});
+    if (globalThis.__snakeTest) globalThis.__snakeGame = g;
+    d.querySelector('.snake-score b').textContent = '0';
+    showSong(0);
+    overlay.hidden = true;
+    running = true; last = performance.now();
+  };
+  const end = () => {
+    running = false;
+    navigator.vibrate?.([30, 40, 30]);
+    const record = g.eaten > best();
+    if (record) { try { localStorage.setItem(BEST, String(g.eaten)); } catch { /* storage blocked */ } d.querySelector('.snake-best b').textContent = g.eaten; }
+    const ate = [...new Set(g.snake.map((s) => s.song).filter((i) => i >= 0))].reverse().map((i) => list[i]).filter(Boolean);
+    overlay.hidden = false;
+    overlay.innerHTML = `<h2>${g.won ? 'You filled the board!' : record ? 'New best!' : 'Game over'}</h2><p>You ate ${g.eaten} song${g.eaten === 1 ? '' : 's'}.</p>
+      ${ate.length > 1 ? `<div class="snake-ate">${ate.slice(0, 12).map((s) => `<img src="${esc(s.cover || '')}" alt="${esc(s.title)}" title="${esc(s.title)} · ${esc(s.artist)}">`).join('')}</div>` : ''}
+      <div class="snake-buttons"><button class="btn primary" data-a="again">Play again</button>${ate.length > 1 && onPlay ? '<button class="btn" data-a="play">Play these songs</button>' : ''}</div>`;
+    overlay.querySelector('[data-a="again"]').onclick = start;
+    const play = overlay.querySelector('[data-a="play"]');
+    if (play) play.onclick = () => { onPlay(ate); close(); };
+  };
+  const intro = () => {
+    g = createGame({songs: list});
+    showSong(0);
+    overlay.hidden = false;
+    overlay.innerHTML = `<h2>Snake</h2><p>Eat the next song in your queue to grow. Don’t hit the walls or yourself.</p><p class="snake-hint">${matchMedia('(pointer: coarse)').matches ? 'Swipe or use the buttons to turn.' : 'Use the arrow keys or WASD. Space pauses.'}</p><div class="snake-buttons"><button class="btn primary" data-a="go">Start</button></div>`;
+    overlay.querySelector('[data-a="go"]').onclick = start;
+  };
+  const pause = () => {
+    if (!running || !g || g.over) return;
+    running = false; overlay.hidden = false;
+    overlay.innerHTML = `<h2>Paused</h2><div class="snake-buttons"><button class="btn primary" data-a="go">Keep going</button></div>`;
+    overlay.querySelector('[data-a="go"]').onclick = () => { overlay.hidden = true; running = true; last = performance.now(); };
+  };
+  const keys = {ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', w: 'up', s: 'down', a: 'left', d: 'right', W: 'up', S: 'down', A: 'left', D: 'right'};
+  const onKey = (e) => {
+    if (keys[e.key]) { e.preventDefault(); if (!running && g && !g.over && overlay.hidden === false && overlay.querySelector('[data-a="go"]')) overlay.querySelector('[data-a="go"]').click(); if (g) turn(g, keys[e.key]); }
+    else if (e.key === ' ') { e.preventDefault(); running ? pause() : overlay.querySelector('[data-a="go"],[data-a="again"]')?.click(); }
+  };
+  let touch = null;
+  const board = d.querySelector('.snake-board');
+  board.addEventListener('touchstart', (e) => { touch = {x: e.touches[0].clientX, y: e.touches[0].clientY}; }, {passive: true});
+  board.addEventListener('touchmove', (e) => {
+    if (!touch || !g) return;
+    e.preventDefault();
+    const dx = e.touches[0].clientX - touch.x, dy = e.touches[0].clientY - touch.y;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 18) return;
+    turn(g, Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+    touch = {x: e.touches[0].clientX, y: e.touches[0].clientY};
+  }, {passive: false});
+  d.querySelectorAll('.snake-pad button').forEach((b) => b.addEventListener('pointerdown', (e) => { e.preventDefault(); if (g) turn(g, b.dataset.d); }));
+  const onHide = () => { if (document.hidden) pause(); };
+  const close = () => { cancelAnimationFrame(raf); clearTimeout(timer); removeEventListener('keydown', onKey); removeEventListener('resize', size); document.removeEventListener('visibilitychange', onHide); d.close(); d.remove(); };
+  d.querySelector('.snake-x').onclick = close;
+  d.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
+  addEventListener('keydown', onKey);
+  addEventListener('resize', size);
+  document.addEventListener('visibilitychange', onHide);
+  d.showModal();
+  intro();
+  requestAnimationFrame(() => { size(); raf = requestAnimationFrame(loop); });
+  return close;
+}

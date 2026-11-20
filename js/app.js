@@ -30,6 +30,7 @@ import * as photo from './profile-photo.js';
 import {coverFromFile} from './playlist-art.js';
 import * as spArtists from './spotify-artists.js';
 import * as rating from './rating.js';
+import * as snake from './snake.js';
 import {clipSource,hasLocalClip,prefetchClips} from './canvas-cache.js';
 import {Jam,jamLink,validJamCode} from './jam.js';
 import qrcode from './vendor/qrcode.js';
@@ -1142,6 +1143,7 @@ async function handleAct(act, el) {
       break;
     }
     case 'rate': await askRating(); break;
+    case 'snake': openSnake(); break;
     case 'new-folder': {const name=await ask({title:'New folder',placeholder:'Folder name',ok:'Create'});if(name)go('#/folder/'+store.createFolder(name).id);break;}
     case 'library-menu': libraryMenu(el.dataset.id);break;
     case 'folder-move': folderPicker(el.dataset.id);break;
@@ -1566,7 +1568,7 @@ function renderQueue() {
   if(signature===queueSignature&&$('#npQueue').childElementCount)return;
   queueSignature=signature;
   $('#npQueue').innerHTML = `<div class="q-head">Now playing</div>${queue[index] ? qRow(queue[index], index, true) : ''}
-    <div class="q-head">Up next ${up.length ? '<button class="link" data-act="q-clear">Clear</button>' : ''}</div>
+    <div class="q-head">Up next <span class="q-head-actions"><button class="link snake-link" data-act="snake">🐍 Play Snake</button>${up.length ? '<button class="link" data-act="q-clear">Clear</button>' : ''}</span></div>
     ${up.length ? up.map((t, j) => qRow(t, index + 1 + j, false)).join('') : '<p class="muted pad">Nothing queued.</p>'}`;
 }
 
@@ -2257,6 +2259,16 @@ window.addEventListener('appinstalled',()=>live.countInstall({standalone:true}))
 const beat=()=>live.heartbeat(player.isPlaying());
 player.on('state',beat);setInterval(beat,95000);addEventListener('pagehide',()=>live.heartbeat(false));
 function showRating(r){if(!r)return;$$('[data-live="rating"]').forEach(el=>{el.textContent=r.count?r.average.toFixed(1):'–';el.closest('[data-live-box]')?.removeAttribute('hidden');});$$('[data-live="rating-stars"]').forEach(el=>{el.innerHTML=rating.starsHtml(r.average||0);});$$('[data-live="rating-count"]').forEach(el=>{el.textContent=r.count?`${r.count.toLocaleString('en-US')} rating${r.count===1?'':'s'}`:'no ratings yet';});}
+// Snake: the song playing now is the head, then your queue; topped up with Liked Songs and recent plays so
+// there's always plenty to eat.
+function openSnake(){
+  const {queue,index}=player.state,seen=new Set(),songs=[];
+  const add=t=>{if(t&&t.title&&!seen.has(t.id)&&(t.cover||t.coverXl)){seen.add(t.id);songs.push({...t,cover:t.cover||t.coverXl});}};
+  queue.slice(Math.max(0,index),index+250).forEach(add);
+  if(songs.length<40)[...store.getLikes(),...store.getRecent().filter(x=>x?.type!=="album"&&x?.title)].slice(0,200).forEach(add);
+  if(songs.length<3){toast('Play a playlist first: Snake is made of its songs');return;}
+  snake.open({songs,accent:getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#1ed760',onPlay:list=>{player.playList(list,0);toast(`Playing the ${list.length} songs you ate`);}});
+}
 async function askRating(current=rating.myRating()){
   const answer=await rating.openDialog({current});
   if(typeof answer==='number'){const r=await rating.submit(answer);showRating(r);$$('[data-act="rate"]').forEach(b=>{b.textContent=`You rated ${'★'.repeat(answer)} · Change`;});}

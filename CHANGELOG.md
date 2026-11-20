@@ -2,6 +2,13 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 2.0.1 — Snake, for everyone
+_2026-11-20_
+
+- Play Snake from Up next: the snake is made of your songs’ covers. The head is the song playing now, every bite is the next song in your queue, and the snake grows one cover at a time.
+- Works on every device: swipe or use the buttons on a phone, arrow keys or WASD on a computer, space to pause. It speeds up as you grow and remembers your best score.
+- When the game ends you see the songs you ate, and one tap plays them as a queue.
+
 ## 2.0.0 — Spot+ 2.0
 _2026-11-20_
 
