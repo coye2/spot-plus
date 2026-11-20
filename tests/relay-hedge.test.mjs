@@ -11,7 +11,8 @@ const track = {id: 't1', title: 'Song', artist: 'Artist', duration: 200};
 
 test('relay: the song plays from the top upload with no separate check request (one YouTube lookup, not two)', async () => {
   let asked = 0;
-  globalThis.fetch = async (url) => { if (String(url).includes('/yta')) asked++; return new Response('{}', {status: 200}); };
+  // Only the hedge to another region may ask (HEAD); nothing checks the region the song plays from.
+  globalThis.fetch = async (url, init = {}) => { if (String(url).includes('/yta') && init.method !== 'HEAD') asked++; return new Response('{}', {status: 502}); };
   const {relayStream} = await import('../js/api.js');
   const stream = await relayStream(track, undefined, matches);
   assert.equal(asked, 0);

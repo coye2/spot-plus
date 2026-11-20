@@ -168,7 +168,8 @@ function watchStall() {
     : Math.max(budgetMs, adaptiveMs);
   // The relay may try up to four uploads of the song before the first byte (each refusal takes about two
   // seconds), so its first start gets longer before it counts as stuck.
-  const wait = state.source?.kind === 'ytrelay' && (audio.currentTime || 0) <= 0.35 ? Math.max(ms, 12000) : ms;
+  // A region that already had the song ready (warmed) should answer at once, so it gets less time.
+  const wait = state.source?.kind === 'ytrelay' && (audio.currentTime || 0) <= 0.35 ? (state.source.warm ? 5000 : Math.max(ms, 12000)) : ms;
   stallTimer = setTimeout(() => {
     stallTimer = null;
     if (generation !== token || !pendingPlay || !isRealSrc()) return;
@@ -357,14 +358,17 @@ function recoverMedia(mediaErr = null) {
     memoryEngine.forgetStream(api.streamKey(cur));
   }
   const relayFailed = failed?.kind === 'ytrelay';
-  if (!state.offline && !cur.local && failed && !failed.preview && errRetries < (relayFailed ? (store.getSettings().source === 'auto' ? api.relayRegionsUp().length : 6) : 2)) {
+  // Automatic: when every region has just refused the song (all asked at once, each with every upload), more
+  // relay tries would only add seconds of silence, so the backup plays it now.
+  const refusedEverywhere = relayFailed && store.getSettings().source === 'auto' && api.relayRefusedEverywhere?.(cur.id);
+  if (!state.offline && !cur.local && failed && !failed.preview && !refusedEverywhere && errRetries < (relayFailed ? (store.getSettings().source === 'auto' ? api.relayRegionsUp().length : 6) : 2)) {
     errRetries++;
     // A relay stream that drops is usually YouTube refusing that one upload for a moment: try again from the
     // same spot, preferring another upload of the song, instead of giving up on the relay for this song.
     const retryRelay = relayFailed;
     // Rest the region that was refused (the next try goes through another one); once every region has been
     // tried for this song, also move on to another upload.
-    if (retryRelay) { api.restRelayRegion(failed.relayRegion); api.noteRelayRegion(failed.relayRegion, false); if (errRetries >= api.relayRegionsUp().length) api.avoidRelayVideo(failed.videoId); memoryEngine.forgetStream(api.streamKey(cur)); }
+    if (retryRelay) { api.refuseRelayRegion?.(cur.id, failed.relayRegion); api.restRelayRegion(failed.relayRegion, 15e3); api.noteRelayRegion(failed.relayRegion, false); if (errRetries >= api.relayRegionsUp().length) api.avoidRelayVideo(failed.videoId); memoryEngine.forgetStream(api.streamKey(cur)); }
     else if (failed.instance) skipList.push(failed.instance);
     telemetry.endRecovery(recStart, true);
     // Asking YouTube again for an upload it just refused: give the refusal a moment to clear first.
@@ -1021,7 +1025,9 @@ function prefetch() {
       }
 
       // Stage A: resolve candidate sources for next track (and subsequent track on fast connections).
-      const source = await (api.prewarm(next) || api.resolve(next));
+      let source = await (api.prewarm(next) || api.resolve(next));
+      // Relay: find a region that already has the next song before buffering it, so it starts instantly.
+      if (source?.kind === 'ytrelay') source = await api.warmRelaySource(next, source);
       if (netProfile.maxPreloadAhead >= 2 && upcoming[1]?.track && !skipTracker.isRapidSkipping()) {
         api.prewarm(upcoming[1].track);
       }
@@ -1038,6 +1044,16 @@ function prefetch() {
   }, delay);
   prefetchTimer.unref?.();
 }
+
+// Cold start on the relay: while the first region is still asking YouTube, other regions are asked too. When one of
+// those has the song first and nothing has played yet, switch to it at once instead of waiting for the slow one.
+api.onRelayReady?.((trackId, region) => {
+  const cur = current(), src = state.source;
+  if (!cur || String(cur.id) !== String(trackId) || src?.kind !== 'ytrelay' || src.relayRegion === region) return;
+  if (!pendingPlay || userPaused || (audio.currentTime || 0) > 0.05 || (audio.readyState || 0) >= 3) return;
+  const path = src.url.slice(src.url.indexOf('/yta'));
+  playAssigned({...src, url: region + path, relayRegion: region, warm: true});
+});
 
 // Boot YouTube's player in the background as soon as a likely song's video is known.
 // While a song plays, the next likely one is cued in the hidden player instead.

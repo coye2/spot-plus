@@ -1,6 +1,12 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.62', date: '2026-11-20', title: 'Instant playback', items: [
+    'The next song is made ready in every relay region while the current one plays, and plays from the first region that has it: songs after the first now start in about 0.2 seconds (measured: Blinding Lights and Pilula went from 8 seconds to 0.2).',
+    'Tapping a song asks all the relay regions at once and plays from whichever answers first, instead of trying them one after another (a refusal used to cost 2 to 4 seconds per region). Measured cold taps: mostly 0.5 to 2 seconds.',
+    'Automatic no longer lets Monochrome start a song before YouTube Relay has had its chance. When every region refuses a song, the backup starts right away instead of after 15 to 20 seconds of retries.',
+    'A refusal is remembered for that song and region only, so one blocked song no longer sidelines a region for the songs after it.',
+  ]},
   {version: '1.9.61', date: '2026-11-19', title: 'The relay tries other uploads before the backup', items: [
     'YouTube refuses some uploads of a song from a server while letting others through (measured live: Levitating’s official upload was refused everywhere, but two of its other uploads played from Europe). The relay server now tries up to three other uploads of the song itself, in the same request, before Spot+ falls back to Monochrome.',
     'The rest of a song always comes from the same upload that started playing, so it never jumps or glitches mid-song.',

@@ -2,6 +2,14 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.62 — Instant playback
+_2026-11-20_
+
+- The next song is made ready in every relay region while the current one plays, and plays from the first region that has it: songs after the first now start in about 0.2 seconds (measured: Blinding Lights and Pilula went from 8 seconds to 0.2).
+- Tapping a song asks all the relay regions at once and plays from whichever answers first, instead of trying them one after another (a refusal used to cost 2 to 4 seconds per region). Measured cold taps: mostly 0.5 to 2 seconds.
+- Automatic no longer lets Monochrome start a song before YouTube Relay has had its chance. When every region refuses a song, the backup starts right away instead of after 15 to 20 seconds of retries.
+- A refusal is remembered for that song and region only, so one blocked song no longer sidelines a region for the songs after it.
+
 ## 1.9.61 — The relay tries other uploads before the backup
 _2026-11-19_
 

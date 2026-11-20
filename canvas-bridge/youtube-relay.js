@@ -61,10 +61,10 @@ async function rememberedPick(id, cache) {
   const shared = await cache?.match(pickKey(id)).then((r) => r?.text()).catch(() => '');
   return /^[\w-]{11}$/.test(shared || '') ? shared : '';
 }
-function rememberPick(id, vid, cache, waitUntil) {
+async function rememberPick(id, vid, cache) {
   picks.set(id, {vid, expires: Date.now() + 3 * 3600e3});
   if (picks.size > MAX_MEMO) picks.delete(picks.keys().next().value);
-  if (cache) waitUntil(cache.put(pickKey(id), new Response(vid, {headers: {'Cache-Control': 'max-age=10800'}})).catch(() => {}));
+  if (cache) await cache.put(pickKey(id), new Response(vid, {headers: {'Cache-Control': 'max-age=10800'}})).catch(() => {});
 }
 
 const fail = (status, error) => new Response(JSON.stringify({error}), {status, headers: {'Content-Type': 'application/json', 'Cache-Control': 'no-store'}});
@@ -129,7 +129,10 @@ async function resolveLink(id, {fetcher, cache, waitUntil, fresh = false, fmt = 
   memo.set(`${fmt}:${id}`, entry);
   if (memo.size > MAX_MEMO) memo.delete(memo.keys().next().value);
   const life = Math.floor((entry.expires - Date.now()) / 1000) - 900;
-  if (cache && life > 60) waitUntil(cache.put(linkKey(id, fmt), new Response(JSON.stringify(entry), {headers: {'Cache-Control': `max-age=${life}`}})).catch(() => {}));
+  // Stored before answering: the app asks several regions at once (HEAD) and then plays from the first that had the
+  // song, and that request often lands on another copy of the worker. Saving after answering (waitUntil) let it
+  // start its own YouTube lookup instead (live: a 4 s wait after a region had already answered in 0.4 s).
+  if (cache && life > 60) await cache.put(linkKey(id, fmt), new Response(JSON.stringify(entry), {headers: {'Cache-Control': `max-age=${life}`}})).catch(() => {});
   return entry;
 }
 
@@ -224,7 +227,7 @@ export async function youtubeRelay(request, {fetcher = fetch, cache, waitUntil =
     }
   }
   }
-  if (first && firstSpan && alts.length && vid !== picked) rememberPick(id, vid, cache, waitUntil);
+  if (first && firstSpan && alts.length && vid !== picked) await rememberPick(id, vid, cache);
   if (!first || !firstSpan) return fail(502, 'YouTube relay failed: ' + reason + (lastStatus ? ' (' + lastStatus + ')' : ''));
 
   const total = firstSpan.total;

@@ -421,16 +421,19 @@ const regionOdds = (base) => { const r = regionScore[base] || {ok: 0, fail: 0}; 
 const regionRest = new Map();
 export function restRelayRegion(base, ms = 90e3) { if (base) regionRest.set(base, Date.now() + ms); }
 const regionResting = (base) => (regionRest.get(base) || 0) > Date.now();
-// Only regions whose server answers its health check are used (the main one always is). Checked in the background
-// once per session; a region that isn't deployed is never tried.
-const regionsUp = new Set([MAIN_REGION]);
+// All regions are deployed, so all are used from the first tap (waiting for health checks made the first song of a
+// session go through the main server alone). A region whose server answers that it has no relay (or isn't there)
+// is dropped; a check that couldn't connect (offline, waking up) changes nothing.
+const regionsUp = new Set(RELAY_REGIONS);
 let regionsChecked = false;
 function checkRelayRegions() {
   if (regionsChecked || typeof fetch !== 'function') return;
   regionsChecked = true;
   for (const base of RELAY_REGIONS.filter((b) => b !== MAIN_REGION)) {
     const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 6000);
-    fetch(base + '/health', {credentials: 'omit', signal: ctl.signal}).then((r) => r.ok && r.json()).then((h) => { if (h?.relay) regionsUp.add(base); }).catch(() => {}).finally(() => clearTimeout(t));
+    fetch(base + '/health', {credentials: 'omit', signal: ctl.signal})
+      .then(async (r) => { const h = r.ok ? await r.json().catch(() => null) : null; if (h?.relay) regionsUp.add(base); else regionsUp.delete(base); })
+      .catch(() => {}).finally(() => clearTimeout(t));
   }
 }
 export const relayRegionsUp = () => RELAY_REGIONS.filter((b) => regionsUp.has(b));
@@ -446,10 +449,89 @@ export function avoidRelayVideo(id) { if (id) relayAvoid.set(id, Date.now() + 5 
 /** True when every upload of these matches was refused lately: the next try reuses one, so wait a moment first. */
 export function relayAllAvoided(matches) { const ids = (matches || []).map((m) => m?.id).filter(Boolean); return ids.length > 0 && ids.every(avoided); }
 const avoided = (id) => (relayAvoid.get(id) || 0) > Date.now();
+// Every upload found for a song, kept for the session: a retry often only has the one remembered upload, and the
+// relay needs the others to fall back on.
+const relayCands = new Map();
+// Which region last served a song (warmed ahead of time or by a hedge): the song plays from there with its link
+// already resolved, so the first byte comes in well under a second instead of a fresh YouTube lookup.
+const relayWarm = new Map();
+const relayWarming = new Map();
+const WARM_MS = 20 * 60e3;
+// YouTube refuses a song in one region while the same region plays others (live: Levitating's official upload was
+// refused everywhere while other songs played), so a refusal is remembered for that song and region only.
+const relayRefused = new Map(); // track id -> Map(region -> until)
+export function refuseRelayRegion(trackId, region, ms = 5 * 60e3) {
+  if (!trackId || !region) return;
+  const m = relayRefused.get(trackId) || new Map();
+  m.set(region, Date.now() + ms);
+  relayRefused.set(trackId, m);
+  if (relayRefused.size > 300) relayRefused.delete(relayRefused.keys().next().value);
+}
+const refusedFor = (trackId, region) => (relayRefused.get(trackId)?.get(region) || 0) > Date.now();
+/** True when every region refused this song just now (each tried with all its uploads) and none is still asking. */
+export const relayRefusedEverywhere = (trackId) => !!trackId && !relayWarming.has(trackId) && relayRegionsUp().every((b) => refusedFor(trackId, b));
+/** Regions to ask for this song, best first: awake, and not refused for it lately. */
+function regionsFor(trackId) {
+  return relayRegionsUp().filter((b) => !regionResting(b) && !refusedFor(trackId, b)).sort((a, b) => regionOdds(b) - regionOdds(a));
+}
+const relayReadyListeners = new Set();
+/** Called with (trackId, region) when a region is found to have a song ready. */
+export const onRelayReady = (fn) => { relayReadyListeners.add(fn); return () => relayReadyListeners.delete(fn); };
+const relayUrl = (region, id, alt, fmt) => `${region}/yta?id=${id}&fmt=${fmt}${alt.length ? '&alt=' + alt.join(',') : ''}`;
+function warmRegion(trackId) {
+  const w = relayWarm.get(trackId);
+  return w && w.until > Date.now() && regionsUp.has(w.region) && !regionResting(w.region) ? w.region : '';
+}
+/**
+ * Asks the relay in a few regions at once (HEAD: the worker resolves the link and checks the first bytes, then
+ * keeps the link) and remembers the first region that has the song. Resolves with that region, or '' if none did.
+ */
+function probeRegions(trackId, regions, path, signal) {
+  if (!regions.length || typeof fetch !== 'function') return Promise.resolve('');
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 12000);
+  const stop = () => ctl.abort();
+  signal?.addEventListener?.('abort', stop, {once: true});
+  let left = regions.length;
+  const job = new Promise((resolve) => {
+    for (const region of regions) {
+      fetch(region + path, {method: 'HEAD', headers: {Range: 'bytes=0-1'}, credentials: 'omit', signal: ctl.signal})
+        .then((r) => {
+          if (r.status !== 206 && r.status !== 200) throw new Error('refused');
+          relayWarm.set(trackId, {region, until: Date.now() + WARM_MS});
+          noteRelayRegion(region, true);
+          resolve(region);
+          for (const fn of relayReadyListeners) { try { fn(trackId, region); } catch { /* listener */ } }
+        })
+        .catch(() => { if (!ctl.signal.aborted) { refuseRelayRegion(trackId, region); noteRelayRegion(region, false); } })
+        .finally(() => { if (--left === 0) resolve(''); });
+    }
+  }).finally(() => { clearTimeout(timer); signal?.removeEventListener?.('abort', stop); relayWarming.delete(trackId); });
+  relayWarming.set(trackId, job);
+  return job;
+}
+/**
+ * Before the next song is buffered: find a region that has it ready and point the stream there, so the song
+ * starts the moment it's reached. Changes the stream object in place (cached copies see the new region).
+ */
+export async function warmRelaySource(track, source, {regions = 3, signal} = {}) {
+  if (source?.kind !== 'ytrelay' || !track?.id) return source;
+  const ready = warmRegion(track.id);
+  const region = ready || await (relayWarming.get(track.id) || probeRegions(track.id, regionsFor(track.id).slice(0, regions),
+    source.url.slice(source.url.indexOf('/yta')), signal));
+  if (region && region !== source.relayRegion) {
+    source.url = region + source.url.slice(source.url.indexOf('/yta'));
+    source.relayRegion = region;
+    source.warm = true;
+  }
+  return source;
+}
 export async function relayStream(track, signal, matches) {
   if (relayOff > Date.now()) throw new Error('Relay is off');
   if (signal?.aborted) throw signal.reason || new Error('Aborted');
-  const all = uniq((matches || []).map((m) => m?.id).filter((id) => /^[\w-]{11}$/.test(id || '')));
+  let all = uniq((matches || []).map((m) => m?.id).filter((id) => /^[\w-]{11}$/.test(id || '')));
+  const known = track?.id ? relayCands.get(track.id) : null;
+  if (known) all = uniq([...all, ...known]);
+  if (track?.id && all.length) { relayCands.set(track.id, all.slice(0, 8)); if (relayCands.size > 300) relayCands.delete(relayCands.keys().next().value); }
   // Uploads not refused lately first; when all were, the one refused longest ago (YouTube's refusals are per
   // lookup, so the same upload often plays a few seconds later).
   const id = [...all.filter((v) => !avoided(v)), ...all.filter(avoided).sort((a, b) => relayAvoid.get(a) - relayAvoid.get(b))][0];
@@ -461,10 +543,18 @@ export async function relayStream(track, signal, matches) {
   // full-song sources after three.
   const fmt = relayFormat();
   const pick = matches.find((m) => m?.id === id) || {};
-  const region = relayRegion();
   // The worker tries these other uploads itself when YouTube refuses this one, within the same request.
   const alt = [...all.filter((v) => v !== id && !avoided(v)), ...all.filter((v) => v !== id && avoided(v))].slice(0, 3);
-  return {url: `${region}/yta?id=${id}&fmt=${fmt}${alt.length ? '&alt=' + alt.join(',') : ''}`, relayRegion: region, mime: fmt.includes('opus') ? 'audio/webm' : 'audio/mp4',
+  const warm = track?.id ? warmRegion(track.id) : '';
+  const region = warm || (track?.id && regionsFor(track.id)[0]) || relayRegion();
+  // Cold start: while this region is asked, the other regions are asked too (HEAD, one YouTube lookup each, so
+  // no address is asked more than once for the song). The first region that has it takes over at once (the player
+  // listens through onRelayReady), so a refusal no longer costs two to four seconds per region in turn.
+  if (!warm && track?.id && !relayWarming.has(track.id)) {
+    const hedge = regionsFor(track.id).filter((b) => b !== region);
+    if (hedge.length) probeRegions(track.id, hedge, relayUrl('', id, alt, fmt)).catch(() => {});
+  }
+  return {url: relayUrl(region, id, alt, fmt), relayRegion: region, warm: !!warm, mime: fmt.includes('opus') ? 'audio/webm' : 'audio/mp4',
     bitrate: RELAY_BITRATE[fmt] || 128000, kind: 'ytrelay', engineLabel: 'Spot+ YouTube Relay', instance: RELAY_BASE,
     videoId: id, candidates: all.slice(0, 6), catalogId: id, title: pick.title, channel: pick.channel || pick.author, why: pick.why || '',
     duration: pick.duration || track.duration, alternatives: []};
@@ -1107,14 +1197,22 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
     for (let i = 0; i < perKind; i++) for (const group of streamGroups) if (group[i] && !skip.includes(group[i].base)) sources.push(group[i]);
     if (activeKinds.includes('audius') && !skip.includes('https://api.audius.co')) sources.push({ kind: 'audius', base: 'https://api.audius.co' });
 
+    const relayInRace = isAuto && sources.some((x) => x.kind === 'ytrelay');
+    let relayAsked = () => {};
+    const relayTried = new Promise((ok) => { relayAsked = ok; });
     const directRace = raceAudioSources(sources, async ({ kind, base }) => {
       raceSignal.throwIfAborted();
       const began = performance.now();
       try {
         let value;
         if (kind === 'soundcloud') value = await soundcloudStream(t, raceSignal);
-        else if (kind === 'ytrelay') value = await relayStream(t, raceSignal, sharedMatches?.length ? sharedMatches : await (shared || Promise.resolve([])));
-        else if (kind === 'monochrome') value = await monochromeStream(base, t, raceSignal, reqMs);
+        else if (kind === 'ytrelay') { try { value = await relayStream(t, raceSignal, sharedMatches?.length ? sharedMatches : await (shared || Promise.resolve([]))); } finally { relayAsked(); } }
+        else if (kind === 'monochrome') {
+          // Automatic plays YouTube Relay first: the backup only joins once the relay couldn't offer the song.
+          if (relayInRace) await Promise.race([relayTried, new Promise((ok) => setTimeout(ok, 5000))]);
+          raceSignal.throwIfAborted();
+          value = await monochromeStream(base, t, raceSignal, reqMs);
+        }
         else if (kind === 'audius') value = await audiusStream(t, raceSignal);
         else if (kind === 'jiosaavn') value = await jiosaavnStream(base, t, raceSignal, reqMs);
         else if (kind === 'hifi') value = await hifiStream(base, t, raceSignal, reqMs);
@@ -1371,6 +1469,7 @@ function preconnect(url) {
   const link=document.createElement('link');link.rel='preconnect';link.href=origin;link.crossOrigin='anonymous';document.head.append(link);
 }
 export function warmConnections(){
+  checkRelayRegions();
   preconnect(MATCH_ENDPOINT);
   preconnect(MONO_BASE);
   preconnect('https://saavn.sumit.co');
