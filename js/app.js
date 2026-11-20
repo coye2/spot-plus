@@ -32,6 +32,8 @@ import * as spArtists from './spotify-artists.js';
 import * as rating from './rating.js';
 import * as snake from './snake.js';
 import * as share from './share-card.js';
+import {parseSpotify,routeFor,isShortLink} from './spotify-open.js';
+import * as suggest from './search-suggest.js';
 import {clipSource,hasLocalClip,prefetchClips} from './canvas-cache.js';
 import {Jam,jamLink,validJamCode} from './jam.js';
 import qrcode from './vendor/qrcode.js';
@@ -459,7 +461,17 @@ player.on('state',()=>{const t=player.current();$('#np')?.classList.toggle('spok
 async function viewHome() {
   const recent = store.getRecent();
   const rk = reg(recent);
-  const shortcuts = `<div class="quick-grid"><a class="quick-item" href="#/spotify"><div class="ph-cover grad2">${I.library}</div><b>Spotify collections</b></a><a class="quick-item" href="#/podcasts"><div class="ph-cover grad3">${I.mic}</div><b>Podcasts</b></a><a class="quick-item" href="#/audiobooks"><div class="ph-cover grad4">${I.library}</div><b>Audiobooks</b></a><a class="quick-item" href="#/liked"><div class="ph-cover grad">${I.heartFill}</div><b>Liked Songs</b></a><a class="quick-item" href="#/dj"><div class="ph-cover dj-tile">${I.dj}</div><b>Spot+ DJ</b></a>${store.getPlaylists().slice(0,4).map(p=>`<a class="quick-item" href="#/my/${p.id}">${p.tracks[0]?.cover?img(p.tracks[0].cover):`<div class="ph-cover">${I.note}</div>`}<b>${esc(p.name)}</b></a>`).join('')}${recent.slice(0,Math.max(0,5-Math.min(4,store.getPlaylists().length))).map((t,i)=>`<button class="quick-item" data-act="track-play" data-key="${rk}" data-i="${i}">${img(t.cover)}<b>${esc(t.title)}</b></button>`).join('')}</div>`;
+  const plCover=p=>store.getPlaylistCover(p.id)?img(store.getPlaylistCover(p.id)):p.tracks[0]?.cover?img(p.tracks[0].cover):`<div class="ph-cover">${I.note}</div>`;
+  const mine=[
+    `<a class="quick-item" href="#/liked"><div class="ph-cover grad">${I.heartFill}</div><b>Liked Songs</b></a>`,
+    ...feedMixes().slice(0,2).map(m=>`<a class="quick-item" href="#/mix/${m.id}"><div class="ph-cover" style="background:${esc(m.color||'#333')}">${I.radio}</div><b>${esc(m.title)}</b></a>`),
+    ...[...store.getPlaylists()].sort((a,b)=>(b.updated||0)-(a.updated||0)).slice(0,4).map(p=>`<a class="quick-item" href="#/my/${p.id}">${plCover(p)}<b>${esc(p.name)}</b></a>`),
+    ...recent.slice(0,3).map((t,i)=>`<button class="quick-item" data-act="track-play" data-key="${rk}" data-i="${i}">${img(t.cover)}<b>${esc(t.title)}</b></button>`),
+  ];
+  const tools=[`<a class="quick-item" href="#/dj"><div class="ph-cover dj-tile">${I.dj}</div><b>Spot+ DJ</b></a>`,`<a class="quick-item" href="#/spotify"><div class="ph-cover grad2">${I.library}</div><b>Spotify collections</b></a>`,`<a class="quick-item" href="#/podcasts"><div class="ph-cover grad3">${I.mic}</div><b>Podcasts</b></a>`,`<a class="quick-item" href="#/audiobooks"><div class="ph-cover grad4">${I.library}</div><b>Audiobooks</b></a>`];
+  // Like Spotify: a greeting, then eight tiles — your music first, Spot+ tools fill any space left.
+  const greet=(h=>h<5?'Good night':h<12?'Good morning':h<18?'Good afternoon':'Good evening')(new Date().getHours());
+  const shortcuts = `<h1 class="home-greeting">${greet}</h1><div class="quick-grid">${[...mine.slice(0,8),...tools].slice(0,8).join('')}</div>`;
   const toolbar = `<div class="view-toolbar"><button class="avatar home-profile" data-act="profile" aria-label="Profile and settings">${esc((store.getSettings().displayName[0]||'S').toUpperCase())}</button><button class="chip on" data-act="home-filter" data-filter="all" aria-pressed="true">All</button><button class="chip" data-act="home-filter" data-filter="music" aria-pressed="false">Music</button><a class="chip" href="#/dj">DJ</a><span class="spacer"></span><span class="source-note">Music discovery · Deezer</span></div>`;
   // Clean home: the DJ bar, then your music. Rewind lives in Made for you; live counts stay off the home screen.
   const requestBar = homeDJ();
@@ -477,6 +489,8 @@ async function viewHome() {
   return toolbar + shortcuts + requestBar + shelf('Made for you', [...fm.filter(m=>m.id!=='discover-weekly').map(mixCard), ...mixCards(), ...fm.filter(m=>m.id==='discover-weekly').map(mixCard), rewindCard, ...mfy]) + `<div data-home-section="recent">${shelf('Jump back in', recent.slice(0, 12).map((t, i) => trackCard(t, rk, i)))}</div>` + shelf('Your Spotify playlists', pub)
     + shelf('Release Radar: new from your artists', (feed?.releaseRadar||[]).map(albumCard))
     + seasonal
+    + shelf('Your top artists', (feed?.people?.yours||[]).map(artistCard))
+    + (feed?.people?.because||[]).map(b=>shelf(`Because you listen to ${b.seed.name}`, b.artists.map(artistCard))).join('')
     + shelf('Trending songs', d.tracks.slice(0,12).map((t,i)=>trackCard(t,tk,i)))
     + shelf('Popular artists', d.artists.slice(0,12).map(artistCard))
     + shelf('New releases', d.releases.slice(0,12).map(albumCard))
@@ -501,6 +515,7 @@ function topResultCard(top) {
   return `<button class="top-result" data-act="track-play" data-key="${k}" data-i="0" aria-label="Play ${esc(item.title)} by ${esc(item.artist)}">${img(item.cover, 'top-art')}<b>${esc(item.title)}</b><small>Song · ${esc(item.artist)}</small></button>`;
 }
 function renderSearchResults(box, raw, q) {
+  for (const k of ['deepsongs', 'deepartists', 'deepalbums']) delete box.dataset[k];
   const d = rankSearch({...raw, tracks: visibleTracks(raw.tracks, store.getSettings())}, q, knownForSearch());
   const none = !d.tracks.length && !d.artists.length && !d.albums.length && !d.playlists.length;
   if (none) { box.innerHTML = `<div class="empty"><p class="muted">Nothing found for “${esc(q)}”.</p></div>`; return; }
@@ -554,6 +569,8 @@ function renderLyricMatches(found,q){
   box.innerHTML=`<h2>Lyrics</h2>${found.map((t,i)=>`<button class="lyric-match" data-act="track-play" data-key="${k}" data-i="${i}" aria-label="Play ${esc(t.title)} by ${esc(t.artist)}">${img(t.cover,'tcover')}<div><b>${esc(t.title)}</b><small>${esc(t.artist)}</small><q>${highlightLyric(t.lyricSnippet,q)}</q></div></button>`).join('')}`;
 }
 async function runSearch(q) {
+  // A pasted Spotify link opens its page in Spot+ instead of searching for the link's text.
+  if (/spotify/i.test(q) && openSpotifyText(q)) return;
   const my = ++searchTok;
   const box = $('#results');
   if (!box) return;
@@ -680,6 +697,26 @@ async function openArtistOf(t) {
 // Playlist search: Spotify collections that match, then a deep Deezer search, and always a playlist Spot+ builds.
 const buildCard=q=>`<a class="card build-card" href="#/build/${encodeURIComponent(q)}"><div class="ph-cover grad">${I.shuffle}</div><div class="ctitle">${esc(q)}</div><div class="csub">Built by Spot+ for you</div></a>`;
 function matchingCollections(q){const w=String(q||'').toLowerCase().split(/\s+/).filter(x=>x.length>1);if(!w.length)return [];return spotify.collections.filter(c=>{const t=`${c.title} ${c.category||''} ${c.artist||''}`.toLowerCase();return w.every(x=>t.includes(x));}).slice(0,12);}
+// A filter chip shows everything of that kind, not just the few on the All tab: up to 100 songs, or a grid of
+// artists or albums, best matches first.
+async function deepSearch(kind){
+  const q=decodeURIComponent((location.hash.split('#/search/')[1]||'')).trim(),results=$('#results');
+  if(!q||!results||results.dataset['deep'+kind]===q)return;
+  results.dataset['deep'+kind]=q;
+  const my=searchTok;
+  let list=await api.searchKind(q,kind).catch(()=>null);
+  if(!list||my!==searchTok)return;
+  const ranked=rankSearch({tracks:kind==='songs'?visibleTracks(list,store.getSettings()):[],artists:kind==='artists'?list:[],albums:kind==='albums'?list:[],playlists:[]},q,knownForSearch());
+  if(kind==='songs'){
+    const k=reg(ranked.tracks),html=`<h2>Songs</h2>${trackRows(ranked.tracks,k)}`;
+    let sec=results.querySelector('[data-search-section="songs-full"]')||results.querySelector('[data-search-section="songs"]');
+    if(!sec){results.insertAdjacentHTML('beforeend','<section data-search-section="songs-full"></section>');sec=results.querySelector('[data-search-section="songs-full"]');}
+    sec.innerHTML=html;sec.hidden=false;hydrateStatistics(sec);
+  }else{
+    const sec=results.querySelector(`[data-search-section="${kind}"]`);
+    if(sec){sec.innerHTML=`<section><h2>${kind==='artists'?'Artists':'Albums'}</h2><div class="grid">${(kind==='artists'?ranked.artists.map(artistCard):ranked.albums.map(albumCard)).join('')}</div></section>`;spArtists.fillPhotos(sec);}
+  }
+}
 async function deepPlaylists(box){
   if(!box||box.dataset.deep)return;box.dataset.deep='1';const q=box.dataset.q||'';
   const mine=store.getPlaylists().filter(p=>p.name.toLowerCase().includes(q.toLowerCase()));
@@ -827,6 +864,8 @@ const routes = [
   [/^#\/build\/(.{1,120})$/, viewBuild],
   [/^#\/sartist\/([A-Za-z0-9]{22})$/, viewSpotifyArtist],
   [/^#\/song\/(\d{1,15})$/, viewSong],
+  [/^#\/sptrack\/([A-Za-z0-9]{22})$/, viewSpTrack],
+  [/^#\/spalbum\/([A-Za-z0-9]{22})$/, viewSpAlbum],
   [/^#\/album\/(\d+)$/, viewAlbum],
   [/^#\/playlist\/(\d+)$/, viewPlaylist],
   [/^#\/library$/, viewLibrary],
@@ -1107,7 +1146,7 @@ async function handleAct(act, el) {
     case 'follow-artist': if(activeArtist){const on=store.toggleArtist(activeArtist);el.textContent=on?'Following':'Follow';el.setAttribute('aria-pressed',String(on));toast(on?'Artist added to your library':'Artist removed from your library');}break;
     case 'save-album': if(activeAlbum){const on=store.toggleAlbum(activeAlbum);el.innerHTML=`${on?I.check:I.plus}<span>${on?'Saved':'Save album'}</span>`;el.setAttribute('aria-pressed',String(on));toast(on?'Album added to your library':'Album removed from your library');}break;
     case 'home-filter': $$('[data-act=home-filter]').forEach(b=>{b.classList.toggle('on',b===el);b.setAttribute('aria-pressed',String(b===el));});$$('[data-home-section=recent]').forEach(x=>x.hidden=el.dataset.filter==='music');break;
-    case 'search-filter': if(el.dataset.filter==='playlists')deepPlaylists($('[data-search-section=playlists]'));$$('[data-act=search-filter]').forEach(b=>{b.classList.toggle('on',b===el);b.setAttribute('aria-pressed',String(b===el));});$$('[data-search-section]').forEach(x=>{const f=el.dataset.filter,sec=x.dataset.searchSection;x.hidden=f==='all'?sec==='songs-full':!(sec===f||(f==='songs'&&sec==='songs-full'));});break;
+    case 'search-filter': if(el.dataset.filter==='playlists')deepPlaylists($('[data-search-section=playlists]'));else if(['songs','artists','albums'].includes(el.dataset.filter))deepSearch(el.dataset.filter);$$('[data-act=search-filter]').forEach(b=>{b.classList.toggle('on',b===el);b.setAttribute('aria-pressed',String(b===el));});$$('[data-search-section]').forEach(x=>{const f=el.dataset.filter,sec=x.dataset.searchSection;x.hidden=f==='all'?sec==='songs-full':!(sec===f||(f==='songs'&&sec==='songs-full'));});break;
     case 'clear-searches': store.clearSearches();if($('#results'))$('#results').innerHTML=browseHome();break;
     case 'mute': if(player.el.volume>0){lastVolume=player.el.volume;player.setVolume(0);}else player.setVolume(lastVolume||.7);vol.value=player.el.volume*100;vol.style.setProperty('--p',vol.value+'%');el.setAttribute('aria-label',player.el.volume?'Mute':'Unmute');el.classList.toggle('on',!player.el.volume);break;
     case 'retry-playback': player.retry();break;
@@ -2034,6 +2073,28 @@ function linksSetupHtml(){
   <div class="link-chips">${chip(!!state?.profile,'Profile')}${chip(has('onRepeat'),'On Repeat')}${chip(has('topSongs'),'Your Top Songs')}${chip(has('daylist'),'daylist')}${chip(has('discoverWeekly'),'Discover Weekly')}</div>
   ${state?`<button class="link" data-act="links-clear">Disconnect Spotify</button>`:''}</section>`;
 }
+// Spotify links opened in Spot+: a song or an album, with Spotify's own names and covers, playable here.
+const spTrack=(t,cover)=>({id:'spotify:'+t.spotifyId,spotifyId:t.spotifyId,title:t.title,searchTitle:t.title,artist:t.artist,album:t.album||'',duration:t.duration,explicit:t.explicit,cover:t.cover||cover||'',coverXl:t.cover||cover||'',...(t.artistIds?.length?{artistIds:t.artistIds}:{})});
+async function viewSpTrack(id){
+  let d;try{d=await fetchPublic({track:id});}catch{return (await viewSpotifyCollection('track',id))+'<p class="settings-note">Showing Spotify’s player because the song couldn’t load in Spot+ right now.</p>';}
+  const t=spTrack(d);spArtists.learnFromTracks([t]);
+  const k=reg([t],{name:t.title});
+  const by=t.artistIds?.[0]?`<a href="#/sartist/${t.artistIds[0]}"><b>${esc(t.artist)}</b></a>`:`<b>${esc(t.artist)}</b>`;
+  setTimeout(()=>{if(location.hash==='#/sptrack/'+id&&!player.isPlaying())player.playList([t],0);},50);
+  return header({cover:t.coverXl,kicker:'Song · from a Spotify link',title:t.title,sub:`${by}${d.year?' · '+d.year:''}`})+actions(k,`<button class="btn" data-act="share-song" data-key="${k}">${I.share}Share</button>`)+trackRows([t],k);
+}
+async function viewSpAlbum(id){
+  let d;try{d=await fetchPublic({album:id});}catch{return (await viewSpotifyCollection('album',id))+'<p class="settings-note">Showing Spotify’s player because the album couldn’t load in Spot+ right now.</p>';}
+  const tracks=visibleTracks(d.tracks.map(t=>spTrack({...t,album:d.name},d.cover)),store.getSettings()),k=reg(tracks,{name:d.name});
+  return header({cover:d.cover,kicker:'Album · from a Spotify link',title:d.name,sub:`<b>${esc(d.owner)}</b> · ${plural(tracks.length,'song')}`})+actions(k,`<button class="btn" data-act="save-list" data-key="${k}">${I.plus}Save as playlist</button>`)+trackRows(tracks,k,{numbered:true});
+}
+/** Opens a Spotify link found in text. Returns true when it handled it. */
+function openSpotifyText(text){
+  const link=parseSpotify(text);
+  if(link){const r=routeFor(link);if(r){go(r);return true;}toast('Spotify profiles open on Spotify');return true;}
+  if(isShortLink(text)){toast('That’s a short Spotify link. Open it in Spotify, then Share → Copy link and paste that here.');return true;}
+  return false;
+}
 async function viewLinked(id){
   const state=await loadLinks();
   let p=state?.playlists?.[id];
@@ -2375,3 +2436,34 @@ bindPlayerDismiss(document.getElementById('np'),()=>closeNP());
   document.addEventListener('pointercancel', end);
   window.addEventListener('click', (e) => { if (performance.now() < swallow) { e.preventDefault(); e.stopPropagation(); swallow = 0; } }, true);
 })();
+
+// Spotify links from outside: shared to Spot+ (Android share sheet), opened as ?open=<link>, or pasted anywhere.
+(() => {
+  const params = new URLSearchParams(location.search);
+  const incoming = ['open', 'url', 'text', 'title'].map((k) => params.get(k)).filter(Boolean).join(' ');
+  if (incoming) {
+    history.replaceState(history.state, '', location.pathname + location.hash);
+    setTimeout(() => { if (!openSpotifyText(incoming)) toast('That link isn’t a Spotify song, album, playlist or artist'); }, 300);
+  }
+  document.addEventListener('paste', (e) => {
+    if (e.target.closest?.('input, textarea, [contenteditable]')) return;
+    const text = e.clipboardData?.getData('text') || '';
+    if (/spotify/i.test(text) && openSpotifyText(text)) e.preventDefault();
+  });
+})();
+
+// Autocomplete on both search boxes (the page's and the desktop top bar's).
+function suggestData(){
+  const cachedArtists=[],cachedSongs=[];
+  for(const d of searchCache.values()){cachedArtists.push(...(d.artists||[]));cachedSongs.push(...(d.tracks||[]));}
+  const q=($('#q')?.value||$('#globalQ')?.value||'').trim();
+  return {recents:store.getSearches(),artists:[...(q?api.localArtistMatches(q,store.getArtists()):[]),...store.getArtists(),...cachedArtists],songs:visibleTracks([...store.getRecent(),...store.getLikes(),...cachedSongs],store.getSettings())};
+}
+function pickSuggestion(it,input){
+  if(it.kind==='spotify'){openSpotifyText(input.value);return;}
+  if(it.href){go(it.href);return;}
+  const q=it.query||it.text;input.value=q;
+  if(input.id==='globalQ')go(`#/search/${encodeURIComponent(q)}`);else{clearTimeout(searchTimer);runSearch(q);input.blur();}
+}
+suggest.attach($('#globalQ'),{data:suggestData,pick:pickSuggestion});
+new MutationObserver(()=>{const q=$('#q');if(q&&!q.dataset.suggest)suggest.attach(q,{data:suggestData,pick:pickSuggestion});}).observe(document.getElementById('view')||document.body,{childList:true,subtree:true});

@@ -101,6 +101,18 @@ export async function buildFeed({api, onRepeat = [], recent = [], likes = [], no
     return albums;
   })();
 
+  // Your top artists with their photos, and artists like your top two that you don't play yet. Daily.
+  const today = now.toDateString();
+  const people = cached(storage, 'spotplus.feed.people', today) || await (async () => {
+    if (!api.artistLite || !tops.length) return {yours: [], because: []};
+    const pages = await Promise.all(tops.slice(0, 8).map((a) => api.artistLite(a.id).catch(() => null)));
+    const yours = pages.filter(Boolean).map((p) => p.artist).filter((a) => a?.id);
+    const because = pages.slice(0, 2).filter(Boolean).map((p) => ({seed: p.artist, artists: p.related.filter((r) => !known.has(String(r.id))).slice(0, 12)})).filter((b) => b.artists.length >= 4);
+    const value = {yours, because};
+    if (yours.length) save(storage, 'spotplus.feed.people', today, value);
+    return value;
+  })();
+
   const seasonal = await Promise.all(seasonalThemes(now).slice(0, 2).map(async (theme) => {
     const key = 'spotplus.feed.season.' + theme.id;
     const day = now.toDateString();
@@ -110,5 +122,5 @@ export async function buildFeed({api, onRepeat = [], recent = [], likes = [], no
   }));
 
   const repeat = onRepeat.length >= 5 ? {id: 'on-repeat', title: 'On Repeat', subtitle: 'The songs you can’t stop playing', color: '#be185d', tracks: onRepeat.slice(0, 50)} : null;
-  return {daylist, onRepeat: repeat, discover, releaseRadar: releaseRadar || [], seasonal: seasonal.filter((s) => s.playlists.length)};
+  return {daylist, onRepeat: repeat, discover, releaseRadar: releaseRadar || [], seasonal: seasonal.filter((s) => s.playlists.length), people};
 }

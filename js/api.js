@@ -212,6 +212,17 @@ export async function artist(id) {
  * Playlists for a name or a kind of playlist ("gym", "sad songs", "2000s r&b"): several searches merged (the words as
  * typed, plus "playlist" and "mix"), duplicates removed, best title matches and biggest playlists first.
  */
+/** More results of one kind for a search filter (Songs, Artists, Albums): up to 100, best first. */
+export async function searchKind(q, kind, limit = 100) {
+  const path = {songs: '/search/track', artists: '/search/artist', albums: '/search/album'}[kind];
+  const list = data(await jsonp(path, { q, limit }));
+  return kind === 'songs' ? list.map((t) => normTrack(t)) : kind === 'artists' ? list.map(normArtist) : list.map(normAlbum);
+}
+/** An artist's photo and related artists, without their whole discography (for the home feed). */
+export async function artistLite(id) {
+  const [a, rel] = await Promise.all([jsonp(`/artist/${id}`), jsonp(`/artist/${id}/related`, { limit: 14 }).catch(() => ({ data: [] }))]);
+  return { artist: normArtist(a), related: (rel?.data || []).map(normArtist) };
+}
 /** One song by its catalog ID (for shared Spot+ song links). */
 export async function trackById(id) { return normTrack(await jsonp(`/track/${id}`)); }
 export async function searchPlaylistsDeep(q, limit = 60) {

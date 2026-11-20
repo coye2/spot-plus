@@ -1,6 +1,6 @@
 // Spot+ service worker: offline app shell, cached cover art, and HTTP Range support for cached audio.
 // v40 includes version 2 account snapshots and incomplete-collection preservation.
-const SHELL_CACHE = 'spotplus-shell-v142';
+const SHELL_CACHE = 'spotplus-shell-v143';
 const IMG_CACHE = 'spotplus-img-v1';
 const AUDIO_CACHE = 'spotplus-audio-v1';
 const KEEP = [SHELL_CACHE, IMG_CACHE, AUDIO_CACHE, 'spotplus-live-voice-v1'];
@@ -15,7 +15,7 @@ const SHELL = [
   './css/app-shell.css','./css/dj-voice.css','./js/shell.js','./js/dj-voice.js','./js/dj-hosts.js','./js/audio-buffer.js',
   './js/folders.js',
   './css/account.css', './js/spotify-account.js', './js/spotify-reader.js',
-  './', './index.html', './css/style.css', './css/experience.css', './css/themes.css', './css/refinements.css', './css/fonts.css', './fonts/inter-latin-wght-normal.woff2', './js/app.js', './js/api.js', './js/player.js', './js/yt-embed.js','./js/sponsorblock.js', './js/search-rank.js', './js/feed.js', './js/playlist-art.js', './js/spotify-artists.js', './js/rating.js', './js/snake.js', './js/share-card.js', './js/store.js', './js/library.js', './js/dj.js', './js/local-model.js', './js/model-worker.js', './js/themes.js', './js/spotify.js', './js/spotify-import.js', './js/spotify-import-worker.js', './js/vendor/fflate.js',
+  './', './index.html', './css/style.css', './css/experience.css', './css/themes.css', './css/refinements.css', './css/fonts.css', './fonts/inter-latin-wght-normal.woff2', './js/app.js', './js/api.js', './js/player.js', './js/yt-embed.js','./js/sponsorblock.js', './js/search-rank.js', './js/feed.js', './js/playlist-art.js', './js/spotify-artists.js', './js/rating.js', './js/snake.js', './js/share-card.js', './js/spotify-open.js', './js/search-suggest.js', './js/store.js', './js/library.js', './js/dj.js', './js/local-model.js', './js/model-worker.js', './js/themes.js', './js/spotify.js', './js/spotify-import.js', './js/spotify-import-worker.js', './js/vendor/fflate.js',
   './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png', './icons/apple-touch-icon.png',
 ];
 const SHELL_PATHS = new Set(SHELL.map((path) => new URL(path, self.location.href).pathname));

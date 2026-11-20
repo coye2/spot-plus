@@ -1,6 +1,12 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '2.0.5', date: '2026-11-20', title: 'Open Spotify links, smarter search, a more personal home', items: [
+    'Open Spotify links in Spot+: paste a song, album, playlist or artist link into search (or anywhere in the app) and it opens and plays here. On Android you can also share a Spotify link straight to Spot+ from the share sheet.',
+    'Search suggests as you type: your recent searches, artists whose name starts with what you typed (with photos) and songs, with arrow keys and Enter on a computer.',
+    'Search filters go deep: Songs shows up to 100 songs, and Artists and Albums show a full grid instead of a single row.',
+    'Home greets you and starts with eight tiles of your own music (Liked Songs, your mixes, your playlists, what you just played), then adds Your top artists and Because you listen to… rows.',
+  ]},
   {version: '2.0.4', date: '2026-11-20', title: 'Share songs', items: [
     'Share from the ⋯ menu in the player (and on any song): a Spot+ card made for stories, with the album art, the song and the Spot+ logo; the song’s Spotify link; or a Spot+ link that opens it right in Spot+.',
     'On a phone the card goes straight to the share sheet (Instagram, Messages, Discord…); on a computer it’s saved as a picture.',

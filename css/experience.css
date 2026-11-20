@@ -111,3 +111,17 @@ body.library-collapsed{--sidebar:72px}body.library-collapsed .library-heading{pa
 @media (pointer: fine) { .snake-pad { display: none; } .snake { grid-template-rows: auto 1fr auto; } }
 .q-head-actions { display: inline-flex; gap: 14px; margin-left: auto; }
 .snake-link { font-weight: 700; }
+.home-greeting{font-size:clamp(24px,5vw,32px);margin:6px 0 12px}
+
+/* Search autocomplete */
+form:has(> .suggest) { position: relative; }
+.suggest { position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 60; padding: 6px; border-radius: 12px; background: var(--bg2, #181818); box-shadow: 0 16px 40px #000b, 0 0 0 1px color-mix(in srgb, var(--text) 10%, transparent); max-height: min(420px, 60vh); overflow-y: auto; }
+.suggest[hidden] { display: none; }
+.suggest-item { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.suggest-item:hover, .suggest-item.on { background: color-mix(in srgb, var(--text) 10%, transparent); }
+.suggest-item img { width: 40px; height: 40px; border-radius: 4px; object-fit: cover; flex: none; }
+.suggest-item img.round { border-radius: 50%; }
+.suggest-item svg { width: 22px; height: 22px; margin: 0 9px; fill: var(--muted); flex: none; }
+.suggest-item span { display: flex; flex-direction: column; min-width: 0; }
+.suggest-item b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.suggest-item small { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

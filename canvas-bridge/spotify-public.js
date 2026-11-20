@@ -9,15 +9,27 @@ const id22 = value => /^[A-Za-z0-9]{22}$/.test(value || '');
 const username = value => /^[A-Za-z0-9._-]{1,64}$/.test(value || '');
 const str = (value, max = 300) => typeof value === 'string' ? value.replace(/ /g, ' ').slice(0, max) : '';
 const safeImage = url => { try { const u = new URL(url); return u.protocol === 'https:' && /(^|\.)(scdn\.co|spotifycdn\.com)$/.test(u.hostname) ? u.href : ''; } catch { return ''; } };
-const image = sources => (Array.isArray(sources) ? sources : []).filter(s => safeImage(s?.url)).sort((a, b) => (b?.width || 0) - (a?.width || 0)).map(s => safeImage(s.url))[0] || '';
+const image = sources => (Array.isArray(sources) ? sources : []).filter(s => safeImage(s?.url)).sort((a, b) => (b?.width || b?.maxWidth || 0) - (a?.width || a?.maxWidth || 0)).map(s => safeImage(s.url))[0] || '';
 
-export function playlistFromEmbed(html) {
+const embedEntity = (html) => {
   const raw = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/)?.[1];
-  if (!raw) return null;
-  const e = JSON.parse(raw)?.props?.pageProps?.state?.data?.entity;
-  if (!e || e.type !== 'playlist') return null;
+  try { return raw ? JSON.parse(raw)?.props?.pageProps?.state?.data?.entity : null; } catch { return null; }
+};
+/** One song from its Spotify embed page: name, artists (with their Spotify IDs), length and cover. */
+export function trackFromEmbed(html) {
+  const e = embedEntity(html);
+  if (!e || e.type !== 'track' || !id22(e.id)) return null;
+  const artists = (Array.isArray(e.artists) ? e.artists : []).filter(a => a?.name);
+  return {spotifyId: e.id, title: str(e.title || e.name), artist: artists.map(a => str(a.name, 120)).join(', '),
+    artistIds: artists.map(a => String(a.uri || '').split(':')[2]).filter(id22), duration: Math.round((Number(e.duration) || 0) / 1000),
+    explicit: !!e.isExplicit, cover: image(e.visualIdentity?.image), year: Number(String(e.releaseDate?.isoString || '').slice(0, 4)) || 0};
+}
+export function playlistFromEmbed(html) {
+  const e = embedEntity(html);
+  // Albums use the same shape as playlists on Spotify's embed pages.
+  if (!e || (e.type !== 'playlist' && e.type !== 'album')) return null;
   return {
-    id: str(e.id, 22), name: str(e.name, 200), owner: str(e.subtitle, 200), cover: image(e.coverArt?.sources),
+    type: e.type, id: str(e.id, 22), name: str(e.name, 200), owner: str(e.subtitle, 200), cover: image(e.coverArt?.sources) || image(e.visualIdentity?.image),
     tracks: (Array.isArray(e.trackList) ? e.trackList : []).slice(0, 100).map(t => {
       const spotifyId = String(t?.uri || '').split(':')[2];
       return id22(spotifyId) && t.title ? {spotifyId, title: str(t.title), artist: str(t.subtitle), duration: Math.round((Number(t.duration) || 0) / 1000), explicit: !!t.isExplicit} : null;
@@ -81,19 +93,20 @@ export function playlistDetails(html, id) {
     description: str(p.description, 500).replace(/<[^>]+>/g, ''), followers: Number(p.followers) || 0, total: Number(p.content?.totalCount) || 0, songs};
 }
 export async function spotifyPublic(request, {fetcher = fetch, cache, waitUntil = () => {}} = {}) {
-  const params = new URL(request.url).searchParams, playlist = params.get('playlist'), user = params.get('user'), artist = params.get('artist');
-  if ([playlist, user, artist].filter(Boolean).length !== 1 || (playlist && !id22(playlist)) || (artist && !id22(artist)) || (user && !username(user))) return json({error: 'Provide one playlist ID, artist ID or username'}, 400);
-  const key = new Request(new URL(request.url).origin + '/spotify-public?v=2&' + (playlist ? 'playlist=' + playlist : artist ? 'artist=' + artist : 'user=' + user));
+  const params = new URL(request.url).searchParams, playlist = params.get('playlist'), user = params.get('user'), artist = params.get('artist'), track = params.get('track'), album = params.get('album');
+  if ([playlist, user, artist, track, album].filter(Boolean).length !== 1 || [playlist, artist, track, album].some(v => v && !id22(v)) || (user && !username(user))) return json({error: 'Provide one Spotify playlist, album, track or artist ID, or a username'}, 400);
+  const which = playlist ? 'playlist=' + playlist : artist ? 'artist=' + artist : track ? 'track=' + track : album ? 'album=' + album : 'user=' + user;
+  const key = new Request(new URL(request.url).origin + '/spotify-public?v=2&' + which);
   const hit = await cache?.match(key); if (hit) return hit;
-  const url = playlist ? 'https://open.spotify.com/embed/playlist/' + playlist : artist ? 'https://open.spotify.com/artist/' + artist : 'https://open.spotify.com/user/' + encodeURIComponent(user);
+  const url = playlist ? 'https://open.spotify.com/embed/playlist/' + playlist : artist ? 'https://open.spotify.com/artist/' + artist : track ? 'https://open.spotify.com/embed/track/' + track : album ? 'https://open.spotify.com/embed/album/' + album : 'https://open.spotify.com/user/' + encodeURIComponent(user);
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 9000);
   try {
     const response = await fetcher(url, {signal: controller.signal, redirect: 'manual', headers: {Accept: 'text/html', 'User-Agent': 'Mozilla/5.0 (compatible; SpotPlus/2.0; +https://coye2.github.io/spot-plus/)'}});
     if (response.status === 404) return json({error: 'Not found'}, 404, 600);
     if (!response.ok) return json({error: 'Spotify unavailable'}, 503);
     const html = await boundedText(response, 2500000);
-    let data = playlist ? playlistFromEmbed(html) : artist ? artistFromPage(html, artist) : profileFromPage(html, user);
-    if (!data) return json({error: playlist ? 'That playlist isn’t viewable by link' : artist ? 'That artist page couldn’t be read' : 'That profile isn’t public'}, 404, 600);
+    let data = playlist || album ? playlistFromEmbed(html) : artist ? artistFromPage(html, artist) : track ? trackFromEmbed(html) : profileFromPage(html, user);
+    if (!data) return json({error: playlist ? 'That playlist isn’t viewable by link' : album ? 'That album couldn’t be read' : track ? 'That song couldn’t be read' : artist ? 'That artist page couldn’t be read' : 'That profile isn’t public'}, 404, 600);
     if (playlist) {
       // The embed has the song list; the full page adds the creator and each song's artists (best effort).
       const page = await fetcher('https://open.spotify.com/playlist/' + playlist, {signal: controller.signal, redirect: 'manual', headers: {Accept: 'text/html', 'User-Agent': 'Mozilla/5.0 (compatible; SpotPlus/2.0; +https://coye2.github.io/spot-plus/)'}})

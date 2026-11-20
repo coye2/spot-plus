@@ -2,6 +2,14 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 2.0.5 — Open Spotify links, smarter search, a more personal home
+_2026-11-20_
+
+- Open Spotify links in Spot+: paste a song, album, playlist or artist link into search (or anywhere in the app) and it opens and plays here. On Android you can also share a Spotify link straight to Spot+ from the share sheet.
+- Search suggests as you type: your recent searches, artists whose name starts with what you typed (with photos) and songs, with arrow keys and Enter on a computer.
+- Search filters go deep: Songs shows up to 100 songs, and Artists and Albums show a full grid instead of a single row.
+- Home greets you and starts with eight tiles of your own music (Liked Songs, your mixes, your playlists, what you just played), then adds Your top artists and Because you listen to… rows.
+
 ## 2.0.4 — Share songs
 _2026-11-20_
 
