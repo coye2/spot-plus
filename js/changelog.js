@@ -1,6 +1,10 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '2.0.2', date: '2026-11-20', title: 'Snake controls on iPhone', items: [
+    'The arrow buttons turn the snake the moment you touch them, and no longer select text or bring up the copy menu.',
+    'Swipe anywhere on the screen to turn, not just on the board.',
+  ]},
   {version: '2.0.1', date: '2026-11-20', title: 'Snake, for everyone', items: [
     'Play Snake from Up next: the snake is made of your songs’ covers. The head is the song playing now, every bite is the next song in your queue, and the snake grows one cover at a time.',
     'Works on every device: swipe or use the buttons on a phone, arrow keys or WASD on a computer, space to pause. It speeds up as you grow and remembers your best score.',

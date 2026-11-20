@@ -78,7 +78,8 @@ body.library-collapsed{--sidebar:72px}body.library-collapsed .library-heading{pa
 .capability small { display: block; }
 
 /* Snake: full screen, board as large as fits, d-pad on touch screens. */
-.snake { inset: 0; width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: max(12px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); border: 0; color: #fff;
+.snake, .snake * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+.snake { inset: 0; touch-action: none; overscroll-behavior: none; width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: max(12px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); border: 0; color: #fff;
   background: radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--accent) 35%, #000), #000 70%); display: grid; grid-template-rows: auto 1fr auto auto; gap: 12px; }
 .snake::backdrop { background: #000; }
 .snake-top { display: flex; align-items: center; gap: 14px; }
@@ -104,7 +105,8 @@ body.library-collapsed{--sidebar:72px}body.library-collapsed .library-heading{pa
 .snake-now div { min-width: 0; } .snake-now b, .snake-now span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .snake-pad { display: grid; grid-template-columns: repeat(3, 64px); grid-template-rows: repeat(2, 52px); gap: 6px; justify-content: center; }
 .snake-pad button { border: 0; border-radius: 14px; background: #ffffff1f; color: #fff; font-size: 20px; touch-action: manipulation; cursor: pointer; }
-.snake-pad button:active { background: #ffffff40; }
+.snake-pad button { display: grid; place-items: center; } .snake-pad button svg { pointer-events: none; }
+.snake-pad button:active, .snake-pad button.down { background: #ffffff45; transform: scale(.96); }
 .snake-pad [data-d="up"] { grid-column: 2; } .snake-pad [data-d="left"] { grid-column: 1; grid-row: 2; } .snake-pad [data-d="down"] { grid-column: 2; grid-row: 2; } .snake-pad [data-d="right"] { grid-column: 3; grid-row: 2; }
 @media (pointer: fine) { .snake-pad { display: none; } .snake { grid-template-rows: auto 1fr auto; } }
 .q-head-actions { display: inline-flex; gap: 14px; margin-left: auto; }

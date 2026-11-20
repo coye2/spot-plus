@@ -2,6 +2,12 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 2.0.2 — Snake controls on iPhone
+_2026-11-20_
+
+- The arrow buttons turn the snake the moment you touch them, and no longer select text or bring up the copy menu.
+- Swipe anywhere on the screen to turn, not just on the board.
+
 ## 2.0.1 — Snake, for everyone
 _2026-11-20_
 

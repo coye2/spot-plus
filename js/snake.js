@@ -64,7 +64,7 @@ export function open({songs = [], onPlay, accent = '#1ed760'} = {}) {
   d.innerHTML = `<div class="snake-top"><button class="snake-x" aria-label="Close Snake">✕</button><div class="snake-score"><b>0</b><span>songs eaten</span></div><div class="snake-best">Best <b>${Number(localStorage.getItem(BEST)) || 0}</b></div></div>
     <div class="snake-board"><canvas aria-label="Snake game board"></canvas><div class="snake-overlay"></div></div>
     <div class="snake-now"><img alt=""><div><b></b><span></span></div></div>
-    <div class="snake-pad" aria-label="Direction buttons"><button data-d="up" aria-label="Up">▲</button><button data-d="left" aria-label="Left">◀</button><button data-d="down" aria-label="Down">▼</button><button data-d="right" aria-label="Right">▶</button></div>`;
+    <div class="snake-pad" aria-label="Direction buttons"><button type="button" data-d="up" aria-label="Up"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path fill="currentColor" d="M12 6l7 10H5z" transform="rotate(0 12 12)"/></svg></button><button type="button" data-d="left" aria-label="Left"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path fill="currentColor" d="M12 6l7 10H5z" transform="rotate(270 12 12)"/></svg></button><button type="button" data-d="down" aria-label="Down"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path fill="currentColor" d="M12 6l7 10H5z" transform="rotate(180 12 12)"/></svg></button><button type="button" data-d="right" aria-label="Right"><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path fill="currentColor" d="M12 6l7 10H5z" transform="rotate(90 12 12)"/></svg></button></div>`;
   document.body.append(d);
   const canvas = d.querySelector('canvas'), ctx = canvas.getContext('2d'), overlay = d.querySelector('.snake-overlay');
   const images = new Map();
@@ -165,7 +165,7 @@ export function open({songs = [], onPlay, accent = '#1ed760'} = {}) {
     g = createGame({songs: list});
     showSong(0);
     overlay.hidden = false;
-    overlay.innerHTML = `<h2>Snake</h2><p>Eat the next song in your queue to grow. Don’t hit the walls or yourself.</p><p class="snake-hint">${matchMedia('(pointer: coarse)').matches ? 'Swipe or use the buttons to turn.' : 'Use the arrow keys or WASD. Space pauses.'}</p><div class="snake-buttons"><button class="btn primary" data-a="go">Start</button></div>`;
+    overlay.innerHTML = `<h2>Snake</h2><p>Eat the next song in your queue to grow. Don’t hit the walls or yourself.</p><p class="snake-hint">${matchMedia('(pointer: coarse)').matches ? 'Swipe anywhere or tap the arrows to turn.' : 'Use the arrow keys or WASD. Space pauses.'}</p><div class="snake-buttons"><button class="btn primary" data-a="go">Start</button></div>`;
     overlay.querySelector('[data-a="go"]').onclick = start;
   };
   const pause = () => {
@@ -179,18 +179,31 @@ export function open({songs = [], onPlay, accent = '#1ed760'} = {}) {
     if (keys[e.key]) { e.preventDefault(); if (!running && g && !g.over && overlay.hidden === false && overlay.querySelector('[data-a="go"]')) overlay.querySelector('[data-a="go"]').click(); if (g) turn(g, keys[e.key]); }
     else if (e.key === ' ') { e.preventDefault(); running ? pause() : overlay.querySelector('[data-a="go"],[data-a="again"]')?.click(); }
   };
-  let touch = null;
-  const board = d.querySelector('.snake-board');
-  board.addEventListener('touchstart', (e) => { touch = {x: e.touches[0].clientX, y: e.touches[0].clientY}; }, {passive: true});
-  board.addEventListener('touchmove', (e) => {
-    if (!touch || !g) return;
+  // Touch: swipe anywhere on the screen (not only the board). On iPhone, touch events are handled directly and
+  // their default stopped, so a press never starts text selection or the copy menu and turns land instantly.
+  let touch = null, lastTouch = 0;
+  const press = (dir, e) => { e.preventDefault(); if (g && running) turn(g, dir); else if (g && !g.over) overlay.querySelector('[data-a="go"]')?.click(); };
+  d.addEventListener('touchstart', (e) => {
+    lastTouch = Date.now();
+    const pad = e.target.closest?.('.snake-pad button');
+    if (pad) { press(pad.dataset.d, e); pad.classList.add('down'); setTimeout(() => pad.classList.remove('down'), 140); touch = null; return; }
+    if (e.target.closest?.('button, a')) return;
+    touch = {x: e.touches[0].clientX, y: e.touches[0].clientY};
     e.preventDefault();
+  }, {passive: false});
+  d.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    if (!touch || !g) return;
     const dx = e.touches[0].clientX - touch.x, dy = e.touches[0].clientY - touch.y;
-    if (Math.max(Math.abs(dx), Math.abs(dy)) < 18) return;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 16) return;
     turn(g, Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
     touch = {x: e.touches[0].clientX, y: e.touches[0].clientY};
   }, {passive: false});
-  d.querySelectorAll('.snake-pad button').forEach((b) => b.addEventListener('pointerdown', (e) => { e.preventDefault(); if (g) turn(g, b.dataset.d); }));
+  d.addEventListener('touchend', () => { touch = null; });
+  // Mouse or pen on the buttons (ignored right after a touch, which already turned).
+  d.querySelectorAll('.snake-pad button').forEach((b) => b.addEventListener('mousedown', (e) => { if (Date.now() - lastTouch > 600) press(b.dataset.d, e); }));
+  d.addEventListener('contextmenu', (e) => e.preventDefault());
+  d.addEventListener('selectstart', (e) => e.preventDefault());
   const onHide = () => { if (document.hidden) pause(); };
   const close = () => { cancelAnimationFrame(raf); clearTimeout(timer); removeEventListener('keydown', onKey); removeEventListener('resize', size); document.removeEventListener('visibilitychange', onHide); d.close(); d.remove(); };
   d.querySelector('.snake-x').onclick = close;
