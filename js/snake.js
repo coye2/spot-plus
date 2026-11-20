@@ -7,11 +7,12 @@ const DIRS = {up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0]};
 const OPPOSITE = {up: 'down', down: 'up', left: 'right', right: 'left'};
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 
-/** Pure game state, so the rules can be tested without a screen. */
+/** Pure game state, so the rules can be tested without a screen. The body reads in queue order: the head is the
+ * song playing now, then the next songs; every song you eat joins at the tail, the way a real snake grows. */
 export function createGame({cols = 15, rows = 15, songs = [], random = Math.random} = {}) {
-  const mid = Math.floor(rows / 2);
+  const mid = Math.floor(rows / 2), n = songs.length;
   const g = {cols, rows, songs, random, dir: 'right', queued: [], over: false, won: false, eaten: 0,
-    snake: [{x: 3, y: mid, song: 0}, {x: 2, y: mid, song: -1}, {x: 1, y: mid, song: -1}], next: 1, food: null};
+    snake: [{x: 3, y: mid, song: n ? 0 : -1}, {x: 2, y: mid, song: n > 1 ? 1 : -1}, {x: 1, y: mid, song: n > 2 ? 2 : -1}], next: Math.min(3, n), food: null, prev: null};
   placeFood(g);
   return g;
 }
@@ -28,7 +29,7 @@ export function turn(g, dir) {
   if (dir === last || dir === OPPOSITE[last] || g.queued.length >= 2) return;
   g.queued.push(dir);
 }
-/** One move. Returns 'ate', 'over' or 'moved'. */
+/** One move. Returns 'ate', 'over' or 'moved'. g.prev keeps where each piece was, for smooth drawing. */
 export function step(g) {
   if (g.over) return 'over';
   if (g.queued.length) g.dir = g.queued.shift();
@@ -38,19 +39,13 @@ export function step(g) {
   // The tail moves away this turn unless the snake grows, so the head may take its place.
   const body = eating ? g.snake : g.snake.slice(0, -1);
   if (x < 0 || y < 0 || x >= g.cols || y >= g.rows || body.some((s) => s.x === x && s.y === y)) { g.over = true; return 'over'; }
-  // Covers move along the body: the new head shows the newest song, older songs trail behind.
-  const covers = g.snake.map((s) => s.song);
-  g.snake.unshift({x, y, song: covers[0]});
-  if (eating) {
-    g.eaten++;
-    g.snake[0].song = g.food.song;
-    for (let i = 1; i < g.snake.length; i++) g.snake[i].song = covers[i - 1];
-    g.next++;
-    placeFood(g);
-    return 'ate';
-  }
-  g.snake.pop();
-  for (let i = 1; i < g.snake.length; i++) g.snake[i].song = covers[i - 1];
+  g.prev = g.snake.map((s) => ({x: s.x, y: s.y}));
+  // Every piece slides into the place of the one ahead of it and keeps its own song.
+  const songs = g.snake.map((s) => s.song);
+  const places = [{x, y}, ...g.prev.slice(0, eating ? g.prev.length : -1)];
+  if (eating) songs.push(g.food.song);
+  g.snake = places.map((p, i) => ({...p, song: songs[i]}));
+  if (eating) { g.eaten++; g.next++; placeFood(g); return 'ate'; }
   return 'moved';
 }
 /** Gets quicker as the snake grows: 170 ms per move at the start, down to 75. */
@@ -89,8 +84,10 @@ export function open({songs = [], onPlay, accent = '#1ed760'} = {}) {
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     draw();
   };
+  // Pieces are drawn between squares: each slides from where it was to where it is over one move, so the snake
+  // glides instead of jumping. t goes 0 → 1 across each move; an eaten song pops in at the tail.
   const tile = (x, y, songIndex, scale = 1, glow = false) => {
-    const pad = cell * (1 - scale) / 2 + 1, s = cell * scale - 2, r = Math.max(3, cell * 0.18);
+    const pad = cell * (1 - scale) / 2 + 1, s = cell * scale - 2, r = Math.max(3, cell * 0.2);
     const px = x * cell + pad, py = y * cell + pad;
     ctx.save();
     ctx.beginPath(); ctx.roundRect(px, py, s, s, r); ctx.clip();
@@ -100,16 +97,23 @@ export function open({songs = [], onPlay, accent = '#1ed760'} = {}) {
     ctx.restore();
     if (glow) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.roundRect(px, py, s, s, r); ctx.stroke(); }
   };
+  const ease = (t) => t * t * (3 - 2 * t);
+  let bite = 0;
   function draw(now = performance.now()) {
     if (!g) return;
     const px = cell * 15;
     ctx.clearRect(0, 0, px, px);
-    // Checkerboard floor.
     for (let y = 0; y < 15; y++) for (let x = 0; x < 15; x++) { ctx.fillStyle = (x + y) % 2 ? '#ffffff08' : '#ffffff03'; ctx.fillRect(x * cell, y * cell, cell, cell); }
-    if (g.food) tile(g.food.x, g.food.y, g.food.song, 0.78 + Math.sin(now / 180) * 0.08, true);
-    for (let i = g.snake.length - 1; i >= 0; i--) { const s = g.snake[i]; tile(s.x, s.y, s.song, i === 0 ? 1 : 0.92); }
+    const t = running && g.prev ? Math.min(1, (now - last) / speed(g.eaten)) : 1;
+    const at = (i) => { const s = g.snake[i], p = g.prev?.[i] || s; return {x: p.x + (s.x - p.x) * t, y: p.y + (s.y - p.y) * t}; };
+    if (g.food) tile(g.food.x, g.food.y, g.food.song, 0.8 + Math.sin(now / 200) * 0.07, true);
+    const n = g.snake.length, pop = Math.max(0, 1 - (now - bite) / 260);
+    for (let i = n - 1; i >= 0; i--) {
+      const p = at(i), grow = i === n - 1 && pop > 0 && !g.prev?.[i] ? ease(1 - pop) : 1;
+      tile(p.x, p.y, g.snake[i].song, (i === 0 ? 1 + pop * 0.12 : 0.9) * grow);
+    }
     // Eyes on the head, looking where it's going.
-    const h = g.snake[0], [dx, dy] = DIRS[g.dir], cx = h.x * cell + cell / 2, cy = h.y * cell + cell / 2;
+    const h = at(0), [dx, dy] = DIRS[g.queued[0] && t > 0.85 ? g.queued[0] : g.dir], cx = h.x * cell + cell / 2, cy = h.y * cell + cell / 2;
     for (const side of [-1, 1]) {
       const ex = cx + dx * cell * 0.18 + dy * side * cell * 0.2, ey = cy + dy * cell * 0.18 - dx * side * cell * 0.2;
       ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ex, ey, cell * 0.12, 0, 7); ctx.fill();
@@ -127,11 +131,13 @@ export function open({songs = [], onPlay, accent = '#1ed760'} = {}) {
   const loop = (now) => {
     raf = requestAnimationFrame(loop);
     if (running && now - last >= speed(g.eaten)) {
-      last = now;
+      // Keep an exact rhythm (no drift); after a long gap (tab hidden), restart the clock instead of rushing.
+      last = now - last > speed(g.eaten) * 3 ? now : last + speed(g.eaten);
       const r = step(g);
       if (r === 'ate') {
+        bite = now;
         d.querySelector('.snake-score b').textContent = g.eaten;
-        showSong(g.snake[0].song);
+        showSong(g.snake.at(-1).song);
         imageFor((g.next + 2) % Math.max(1, list.length));
         navigator.vibrate?.(12);
       }
@@ -152,7 +158,7 @@ export function open({songs = [], onPlay, accent = '#1ed760'} = {}) {
     navigator.vibrate?.([30, 40, 30]);
     const record = g.eaten > best();
     if (record) { try { localStorage.setItem(BEST, String(g.eaten)); } catch { /* storage blocked */ } d.querySelector('.snake-best b').textContent = g.eaten; }
-    const ate = [...new Set(g.snake.map((s) => s.song).filter((i) => i >= 0))].reverse().map((i) => list[i]).filter(Boolean);
+    const ate = [...new Set(g.snake.map((s) => s.song).filter((i) => i >= 0))].map((i) => list[i]).filter(Boolean);
     overlay.hidden = false;
     overlay.innerHTML = `<h2>${g.won ? 'You filled the board!' : record ? 'New best!' : 'Game over'}</h2><p>You ate ${g.eaten} song${g.eaten === 1 ? '' : 's'}.</p>
       ${ate.length > 1 ? `<div class="snake-ate">${ate.slice(0, 12).map((s) => `<img src="${esc(s.cover || '')}" alt="${esc(s.title)}" title="${esc(s.title)} · ${esc(s.artist)}">`).join('')}</div>` : ''}
@@ -165,7 +171,7 @@ export function open({songs = [], onPlay, accent = '#1ed760'} = {}) {
     g = createGame({songs: list});
     showSong(0);
     overlay.hidden = false;
-    overlay.innerHTML = `<h2>Snake</h2><p>Eat the next song in your queue to grow. Don’t hit the walls or yourself.</p><p class="snake-hint">${matchMedia('(pointer: coarse)').matches ? 'Swipe anywhere or tap the arrows to turn.' : 'Use the arrow keys or WASD. Space pauses.'}</p><div class="snake-buttons"><button class="btn primary" data-a="go">Start</button></div>`;
+    overlay.innerHTML = `<h2>Snake</h2><p>Eat the next song in your queue: it joins your tail. Don’t hit the walls or yourself.</p><p class="snake-hint">${matchMedia('(pointer: coarse)').matches ? 'Swipe anywhere or tap the arrows to turn.' : 'Use the arrow keys or WASD. Space pauses.'}</p><div class="snake-buttons"><button class="btn primary" data-a="go">Start</button></div>`;
     overlay.querySelector('[data-a="go"]').onclick = start;
   };
   const pause = () => {

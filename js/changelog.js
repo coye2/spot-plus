@@ -1,6 +1,10 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '2.0.3', date: '2026-11-20', title: 'Smooth Snake', items: [
+    'The snake glides between squares instead of jumping, keeping an even rhythm, and each bite pops in with a little bounce.',
+    'The snake reads like your queue: the song playing now is the head, the next songs follow, and every song you eat joins the tail.',
+  ]},
   {version: '2.0.2', date: '2026-11-20', title: 'Snake controls on iPhone', items: [
     'The arrow buttons turn the snake the moment you touch them, and no longer select text or bring up the copy menu.',
     'Swipe anywhere on the screen to turn, not just on the board.',

@@ -2,6 +2,12 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 2.0.3 — Smooth Snake
+_2026-11-20_
+
+- The snake glides between squares instead of jumping, keeping an even rhythm, and each bite pops in with a little bounce.
+- The snake reads like your queue: the song playing now is the head, the next songs follow, and every song you eat joins the tail.
+
 ## 2.0.2 — Snake controls on iPhone
 _2026-11-20_
 

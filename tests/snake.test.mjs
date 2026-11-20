@@ -7,11 +7,12 @@ const fixed = () => 0; // food at the first free cell
 
 test('the snake eats the next song in the queue and grows with it at its head', () => {
   const g = createGame({songs, random: fixed});
-  g.food = {x: 4, y: g.snake[0].y, song: 1};
+  g.food = {x: 4, y: g.snake[0].y, song: 3};
   assert.equal(step(g), 'ate');
   assert.equal(g.snake.length, 4);
-  assert.deepEqual(g.snake.map((s) => s.song), [1, 0, -1, -1]);
-  assert.equal(g.food.song, 2, 'next bite is the following song');
+  assert.deepEqual(g.snake.map((s) => s.song), [0, 1, 2, 3], 'head is the song playing now, the bite joins the tail');
+  assert.equal(g.food.song, 4, 'next bite is the following song');
+  assert.deepEqual(g.prev[0], {x: 3, y: g.snake[0].y}, 'where the head came from, for smooth drawing');
 });
 
 test('turning back on yourself is ignored; walls and your own body end the game', () => {
