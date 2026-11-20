@@ -1,6 +1,9 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '1.9.59', date: '2026-11-19', title: 'Spot+ YouTube Relay in three regions', items: [
+    'YouTube refuses servers in bursts, one address at a time. Spot+ now has relay servers in three regions; when one is refused, the song is asked again through another (each only takes about two seconds to give up), so far more songs come from YouTube instead of the backup.',
+  ]},
   {version: '1.9.58', date: '2026-11-19', title: 'YouTube Relay waits out refusals', items: [
     'YouTube refuses the Spot+ server in short bursts that hit every request at once, so asking many times in parallel didn’t help. The server now spreads its tries over about five seconds, which gets through most bursts.',
     'In Automatic, if YouTube still says no, the song switches straight to the backup (already looked up) instead of trying YouTube a second time.',

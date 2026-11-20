@@ -20,10 +20,11 @@ export const FORMATS = {
 export const RETRY_WAITS = [0, 1200]; // kept for older callers
 // YouTube's refusals come in bursts that hit every request at that moment (live, 2026-11-19: seven parallel
 // lookups were refused together), so the waves are spread over about five seconds rather than fired at once.
+// Each server gives up within about two seconds: when YouTube is refusing this server's address, the app does
+// better retrying through a Spot+ server in another region (relay-west / relay-eu) than waiting here.
 export const WAVES = [
   {profile: 'visionos', lookups: 2},
-  {profile: 'android_vr', lookups: 1, wait: 1200},
-  {profile: 'visionos', lookups: 2, wait: 2500},
+  {profile: 'android_vr', lookups: 1, wait: 800},
 ];
 
 /** Runs the lookups at once; resolves with the first that found a stream (and cancels the rest), else the first failure. */

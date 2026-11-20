@@ -2,6 +2,11 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 1.9.59 — Spot+ YouTube Relay in three regions
+_2026-11-19_
+
+- YouTube refuses servers in bursts, one address at a time. Spot+ now has relay servers in three regions; when one is refused, the song is asked again through another (each only takes about two seconds to give up), so far more songs come from YouTube instead of the backup.
+
 ## 1.9.58 — YouTube Relay waits out refusals
 _2026-11-19_
 

@@ -1,0 +1,12 @@
+// A second copy of the Spot+ server, run near aws:eu-west-1 so it asks YouTube from different addresses
+// than the main one. YouTube refuses servers in bursts per address; when the main one is refused, the app
+// retries through these. Only the audio routes are used here. Deploy: wrangler deploy -c relay-eu.jsonc
+{
+  "name": "spot-plus-relay-eu",
+  "main": "worker.js",
+  "compatibility_date": "2026-11-19",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "placement": {"region": "aws:eu-west-1"},
+  "observability": {"enabled": true, "head_sampling_rate": 0.01}
+}

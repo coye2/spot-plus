@@ -398,6 +398,17 @@ export function noteRelaySong(ok) {
   relayPause = Math.min(relayPause * 2, 15 * 60e3);
   relayStrikes = 0;
 }
+// Spot+ servers in three regions. YouTube refuses servers in bursts per address, so when one is refused the next
+// try goes through another region (each finds and streams its own link: YouTube's links only work from the
+// address that asked). A refused region is rested for 90 seconds.
+export const RELAY_REGIONS = ['https://spot-plus-canvas.pwr97pnmkn.workers.dev', 'https://spot-plus-relay-west.pwr97pnmkn.workers.dev', 'https://spot-plus-relay-eu.pwr97pnmkn.workers.dev'];
+const regionRest = new Map();
+export function restRelayRegion(base, ms = 90e3) { if (base) regionRest.set(base, Date.now() + ms); }
+const regionResting = (base) => (regionRest.get(base) || 0) > Date.now();
+function relayRegion() {
+  const awake = RELAY_REGIONS.filter((b) => !regionResting(b));
+  return awake[0] || [...RELAY_REGIONS].sort((a, b) => (regionRest.get(a) || 0) - (regionRest.get(b) || 0))[0];
+}
 // Uploads YouTube just refused are tried last for a few minutes, so a retry lands on another upload.
 const relayAvoid = new Map();
 export function avoidRelayVideo(id) { if (id) relayAvoid.set(id, Date.now() + 5 * 60e3); }
@@ -419,7 +430,8 @@ export async function relayStream(track, signal, matches) {
   // full-song sources after three.
   const fmt = relayFormat();
   const pick = matches.find((m) => m?.id === id) || {};
-  return {url: `${RELAY_ENDPOINT}?id=${id}&fmt=${fmt}`, mime: fmt.includes('opus') ? 'audio/webm' : 'audio/mp4',
+  const region = relayRegion();
+  return {url: `${region}/yta?id=${id}&fmt=${fmt}`, relayRegion: region, mime: fmt.includes('opus') ? 'audio/webm' : 'audio/mp4',
     bitrate: RELAY_BITRATE[fmt] || 128000, kind: 'ytrelay', engineLabel: 'Spot+ YouTube Relay', instance: RELAY_BASE,
     videoId: id, candidates: all.slice(0, 6), catalogId: id, title: pick.title, channel: pick.channel || pick.author, why: pick.why || '',
     duration: pick.duration || track.duration, alternatives: []};
