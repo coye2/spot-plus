@@ -2,6 +2,13 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 2.0.7 — Song Mix & stutter-free playback
+_2026-11-20_
+
+- Spotify-style Mix right on every playlist and Now Playing: tap Mix to blend songs smoothly with Smart Mix, DJ Blend (equal-power crossfade with bass-swap EQ), or Smooth Fade (2–12 s) — now working on iPhone and iPad too via hardware-timed Web Audio transitions.
+- One-tap Mix this playlist, Smooth-order Up Next (spaces out back-to-back tracks by the same artist), and Start song mix on every track, including synced Spotify songs.
+- Eliminated audio stuttering: stopped buffering progress events from re-rendering the UI on every chunk, fixed buffer headroom math so the next song waits until the playing song has a real buffer, removed main-thread reverb pre-generation spikes, throttled Canvas color sampling, added zero-gap slice lookahead in the audio relay, and fixed iOS silent-unlock CSP.
+
 ## 2.0.6 — Fewer server requests
 _2026-11-20_
 

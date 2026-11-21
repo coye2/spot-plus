@@ -57,15 +57,12 @@ function roomBuffer(room) {
   if (!impulses.has(room)) impulses.set(room, impulse(ctx, room));
   return impulses.get(room);
 }
-/** Build every room in idle moments so switching rooms never stalls. */
-function prewarmRooms() {
-  const queue = Object.keys(ROOMS).filter(room => !impulses.has(room));
-  const next = () => { const room = queue.shift(); if (!room || !ctx) return; roomBuffer(room); (globalThis.requestIdleCallback || setTimeout)(next, {timeout: 400}); };
-  (globalThis.requestIdleCallback || setTimeout)(next, {timeout: 400});
-}
+
+export const hasWebAudioSupport = !!(globalThis.AudioContext || globalThis.webkitAudioContext);
 
 let settings = load(), ctx = null, nodes = null;
 const sources = new WeakMap();
+const channels = new WeakMap();
 let current = null;
 const listeners = new Set();
 export const onChange = fn => listeners.add(fn);
@@ -96,18 +93,37 @@ function build() {
   voxOut.connect(dry).connect(pan); voxOut.connect(convA).connect(gainA).connect(wet); voxOut.connect(convB).connect(gainB).connect(wet); wet.connect(pan);
   pan.connect(out).connect(ctx.destination);
   // With every effect off, sound skips the effects completely (bit-for-bit the original).
-  const bypass = ctx.createGain(); input.connect(bypass).connect(ctx.destination); bypass.gain.value = 0;
+  const bypass = ctx.createGain(); input.connect(bypass).connect(ctx.destination); bypass.gain.value = 1; out.gain.value = 0;
   nodes = {bypass, input, bass, lofi, dryVox, wetVox, midHighGain, dry, wet, convs: [convA, convB], gains: [gainA, gainB], active: 0, pan, depth, out, room: null, pitch: null};
-  prewarmRooms();
+  // Reverb impulse responses are generated lazily only when reverb > 0, avoiding main-thread audio stutters.
   ctx.audioWorklet?.addModule(new URL('./pitch-worklet.js', import.meta.url)).then(() => {
     nodes.pitch = new AudioWorkletNode(ctx, 'spotplus-pitch', {outputChannelCount: [2]});
     input.disconnect(); input.connect(nodes.pitch).connect(bass);
+    input.connect(bypass);
     applyGraph();
   }).catch(() => {});
 }
 
+function ensureChannel(media) {
+  if (!media) return null;
+  if (channels.has(media)) return channels.get(media);
+  const source = ctx.createMediaElementSource(media);
+  // Lightweight per-element channel strip: high-pass filter (bypassed at 10 Hz unless DJ Blend sweeps bass) + gain.
+  const eq = ctx.createBiquadFilter();
+  eq.type = 'highpass';
+  eq.frequency.value = 10;
+  eq.Q.value = 0.707;
+  const gain = ctx.createGain();
+  gain.gain.value = 1;
+  source.connect(eq).connect(gain).connect(nodes.input);
+  sources.set(media, source);
+  const ch = {source, eq, gain};
+  channels.set(media, ch);
+  return ch;
+}
+
 function attach(media, reload) {
-  if (!media || sources.has(media)) return;
+  if (!media || sources.has(media)) return channels.get(media) || null;
   if (reload) {
     // Switching on mid-song: reload once at the same spot, now with cross-origin access.
     const at = media.currentTime, playing = !media.paused, src = media.src;
@@ -116,9 +132,7 @@ function attach(media, reload) {
     media.addEventListener('loadedmetadata', seek, {once: true});
     if (playing) media.play().catch(() => {});
   }
-  const source = ctx.createMediaElementSource(media);
-  source.connect(nodes.input);
-  sources.set(media, source);
+  return ensureChannel(media);
 }
 export const isCaptured = media => sources.has(media);
 let blocked = false;
@@ -147,7 +161,8 @@ function applyGraph() {
   // Sing-along: blend from the original to the vocal-reduced mix.
   const v = Math.max(0, Math.min(1, s.vocals || 0));
   ramp(nodes.dryVox.gain, v > 0 ? 0 : 1); ramp(nodes.wetVox.gain, v > 0 ? 1 : 0); ramp(nodes.midHighGain.gain, 1 - v);
-  if (nodes.room !== s.room) {
+  // Only generate the reverb impulse buffer when reverb is actually turned on (prevents main-thread stutters).
+  if (s.reverb > 0 && nodes.room !== s.room) {
     if (nodes.room === null) { nodes.convs[0].buffer = roomBuffer(s.room); }
     else { // Load the new room into the idle reverb, then crossfade (no click, no gap).
       const next = 1 - nodes.active; nodes.convs[next].buffer = roomBuffer(s.room);
@@ -184,7 +199,10 @@ let probing = null;
 // speed and pitch still apply (they live on the element). Effects come back when the app is opened again.
 const inBackground = () => !!globalThis.document?.hidden;
 async function route(media, warm = false) {
-  if (!media || (!needsGraph(settings) && !warm)) { if (nodes) applyGraph(); return; }
+  if (!media) return;
+  // Always resume a suspended AudioContext for an already-captured element so audio never goes silent.
+  if (sources.has(media) && ctx && ctx.state !== 'running') ctx.resume().catch(() => {});
+  if (!needsGraph(settings) && !warm) { if (nodes) applyGraph(); return; }
   if (inBackground() && !sources.has(media)) return;
   if (!ctx) build();
   if (ctx.state !== 'running') ctx.resume().catch(() => {});
@@ -202,6 +220,103 @@ async function route(media, warm = false) {
   if (ok) { try { attach(media, true); } catch { /* already routed */ } applyGraph(); }
 }
 
+/** True when both media elements can be crossfaded via hardware-timed Web Audio GainNodes (including iOS Safari). */
+export function canWebAudioCrossfade(outgoing, incoming) {
+  if (!hasWebAudioSupport || inBackground() || !outgoing || !incoming) return false;
+  const readyForGraph = (m) => {
+    const src = m.currentSrc || m.src || '';
+    if (!src || src.startsWith('data:')) return false;
+    return sources.has(m) || m.crossOrigin === 'anonymous' || src.startsWith('blob:');
+  };
+  return readyForGraph(outgoing) && readyForGraph(incoming);
+}
+
+/**
+ * Sample-accurate equal-power Web Audio crossfade (with optional DJ Blend bass-swap EQ).
+ * Works on iPhone & iPad Safari where HTMLMediaElement.volume is read-only.
+ */
+export function crossfadeElements(outgoing, incoming, {seconds = 4, style = 'smart'} = {}) {
+  if (!canWebAudioCrossfade(outgoing, incoming)) return null;
+  if (!ctx) build();
+  if (ctx.state !== 'running') ctx.resume().catch(() => {});
+  const outCh = attach(outgoing, false);
+  const inCh = attach(incoming, false);
+  if (!outCh || !inCh) return null;
+  applyGraph();
+
+  const dur = Math.max(0.5, Math.min(12, Number(seconds) || 4));
+  const now = ctx.currentTime;
+  const steps = 64;
+  const outCurve = new Float32Array(steps);
+  const inCurve = new Float32Array(steps);
+  for (let i = 0; i < steps; i++) {
+    const p = i / (steps - 1);
+    outCurve[i] = Math.cos(p * (Math.PI / 2));
+    inCurve[i] = Math.sin(p * (Math.PI / 2));
+  }
+
+  outCh.gain.gain.cancelScheduledValues(now);
+  inCh.gain.gain.cancelScheduledValues(now);
+  outCh.eq.frequency.cancelScheduledValues(now);
+  inCh.eq.frequency.cancelScheduledValues(now);
+
+  outCh.gain.gain.setValueAtTime(1, now);
+  inCh.gain.gain.setValueAtTime(0.0001, now);
+  outCh.gain.gain.setValueCurveAtTime(outCurve, now, dur);
+  inCh.gain.gain.setValueCurveAtTime(inCurve, now, dur);
+
+  // DJ Blend: smoothly high-pass outgoing low end while bringing in incoming bass cleanly.
+  if (style === 'blend') {
+    outCh.eq.frequency.setValueAtTime(20, now);
+    outCh.eq.frequency.exponentialRampToValueAtTime(220, now + dur * 0.65);
+    inCh.eq.frequency.setValueAtTime(160, now);
+    inCh.eq.frequency.exponentialRampToValueAtTime(10, now + dur * 0.55);
+  } else {
+    outCh.eq.frequency.setValueAtTime(10, now);
+    inCh.eq.frequency.setValueAtTime(10, now);
+  }
+
+  let finished = false;
+  let timer = 0;
+  let resolveDone = () => {};
+  const resetChannels = () => {
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    try {
+      outCh.gain.gain.cancelScheduledValues(t);
+      outCh.gain.gain.setValueAtTime(1, t);
+      outCh.eq.frequency.cancelScheduledValues(t);
+      outCh.eq.frequency.setValueAtTime(10, t);
+      inCh.gain.gain.cancelScheduledValues(t);
+      inCh.gain.gain.setValueAtTime(1, t);
+      inCh.eq.frequency.cancelScheduledValues(t);
+      inCh.eq.frequency.setValueAtTime(10, t);
+    } catch { /* ignore */ }
+  };
+
+  const done = new Promise((resolve) => {
+    resolveDone = resolve;
+    timer = setTimeout(() => {
+      if (finished) return;
+      finished = true;
+      resetChannels();
+      resolve();
+    }, Math.round(dur * 1000) + 40);
+    timer.unref?.();
+  });
+
+  return {
+    done,
+    cancel() {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      resetChannels();
+      resolveDone();
+    },
+  };
+}
+
 let saveTimer = 0;
 export function set(patch, storage = globalThis.localStorage) {
   settings = {...settings, ...patch};
@@ -214,7 +329,7 @@ export function set(patch, storage = globalThis.localStorage) {
 export const usePreset = name => set(fromPreset(name));
 /** Back in the app after background play: put the playing song through effects again. */
 export function restoreAfterBackground(media) { if (media && needsGraph(settings) && !sources.has(media)) { current = media; route(media); } }
-/** Called when the effects panel opens: builds the sound engine and every reverb room ahead of time. */
+/** Called when the effects panel opens: builds the sound engine without blocking the main thread. */
 export function warmUp() {
   if (!ctx) build();
   if (ctx.state !== 'running') ctx.resume().catch(() => {});

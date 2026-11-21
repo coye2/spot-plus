@@ -162,7 +162,7 @@ export function addDownload(t) { write('downloads', [slim(t), ...getDownloads().
 export function removeDownloadMeta(id) { write('downloads', getDownloads().filter((x) => x.id !== String(id))); }
 
 /* ---------- Settings ---------- */
-const DEFAULTS = { smartRadio:true, automix:'0', notifyUpdates:true, notifyReleases:true, notifyStats:true, themePreset:'pine', amoled:true, preloadNext:true, source: 'auto', quality: 'high', customPiped: '', customInvidious: '', customHifi: '', density: 'comfortable', accent: 'green', motion: 'system', textSize: 'normal', sidebarWidth: 288, librarySort: 'recent', libraryFilter: 'all', showExplicit: true, displayName: 'Your library', libraryCollapsed:false, djVoice:true, djCommentary:true, djHost:'afterhours' };
+const DEFAULTS = { smartRadio:true, automix:'0', mixStyle:'smart', notifyUpdates:true, notifyReleases:true, notifyStats:true, themePreset:'pine', amoled:true, preloadNext:true, source: 'auto', quality: 'high', customPiped: '', customInvidious: '', customHifi: '', density: 'comfortable', accent: 'green', motion: 'system', textSize: 'normal', sidebarWidth: 288, librarySort: 'recent', libraryFilter: 'all', showExplicit: true, displayName: 'Your library', libraryCollapsed:false, djVoice:true, djCommentary:true, djHost:'afterhours' };
 // Audio sources that are no longer offered move to the closest one that is: the YouTube-based ones
 // (Piped, Invidious, YouTube's own player) to Spot+ YouTube Relay; Deezer's 30-second previews to Automatic.
 export const SOURCES = ['ytrelay', 'auto', 'soundcloud', 'hifi', 'jiosaavn', 'audius'];

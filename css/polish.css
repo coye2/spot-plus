@@ -347,8 +347,12 @@ details.settings-more{padding:16px 0}details.settings-more>summary,.connection-h
 .toast{display:flex;align-items:center;gap:12px}.toast-action{margin-left:auto;font-weight:800;color:var(--accent);background:none;border:0;padding:4px 2px;flex:none;cursor:pointer}
 .toast:has(.toast-action){pointer-events:auto}.toast-action{pointer-events:auto}
 
-/* Sound effects */
-.np-fx svg{width:22px;height:22px;fill:currentColor}.np-fx.on{color:var(--accent)}.np-fx.on svg{filter:drop-shadow(0 0 6px var(--accent))}
+/* Sound effects & Mix */
+.np-fx svg,.np-mix svg{width:22px;height:22px;fill:currentColor}.np-fx.on,.np-mix.on{color:var(--accent)}.np-fx.on svg,.np-mix.on svg{filter:drop-shadow(0 0 6px var(--accent))}
+.mix-btn.on{background:color-mix(in srgb,var(--accent) 22%,transparent);color:var(--accent-text,var(--accent));border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+.mix-sheet{padding:4px 4px 10px}.mix-toggle-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-radius:12px;background:var(--bg3);margin-bottom:14px}.mix-toggle-row b{display:block;font-size:15px}.mix-toggle-row small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+.mix-modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:8px 0 14px}.mix-mode{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:10px 12px;border-radius:12px;border:1px solid color-mix(in srgb,var(--text) 14%,transparent);background:var(--bg3);color:var(--text);text-align:left;cursor:pointer}.mix-mode b{font-size:13px}.mix-mode small{font-size:11px;color:var(--muted);line-height:1.3}.mix-mode.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 18%,transparent)}.mix-mode.on b{color:var(--accent-text,var(--accent))}
+.mix-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.mix-actions .btn{flex:1;justify-content:center;min-width:140px}
 .fx{padding:4px 4px 8px}.fx-presets{display:flex;gap:8px;overflow-x:auto;padding:4px 0 14px;scrollbar-width:none;margin:0 -4px}.fx-presets::-webkit-scrollbar{display:none}.fx-presets .chip{flex:none}
 .fx-slider{display:block;margin:10px 0}.fx-slider span{display:flex;justify-content:space-between;font-weight:700;font-size:14px;margin-bottom:6px}.fx-slider b{color:var(--text);font-variant-numeric:tabular-nums}
 .fx-slider input{width:100%;accent-color:var(--accent);height:28px}

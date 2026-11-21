@@ -12,6 +12,7 @@ import {fetchSnapshot,newSyncKey,validSyncKey} from './relay-sync.js';
 import * as api from './api.js';
 import * as notify from './notify.js';
 import * as fx from './fx.js';
+import * as automix from './automix.js';
 import * as live from './live-stats.js';
 import * as mixes from './mixes.js';
 import * as libsync from './library-sync.js';
@@ -103,6 +104,7 @@ const P = {
   person: '<path d="M12 12a4 4 0 100-8 4 4 0 000 8zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>',
   vol: '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06a7 7 0 010 13.42v2.06A9 9 0 0014 3.23z"/>',
   import: '<path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>',
+  mix: '<path d="M3 17h4.2c1.1 0 2.1-.5 2.8-1.4l4-5.2c.4-.5 1-.8 1.6-.8H21v2h-5.4l-4 5.2C10.5 18.2 8.9 19 7.2 19H3v-2zm0-10h4.2c1.7 0 3.3.8 4.4 2.2l.8 1-1.3 1.7-.8-1C9.5 9.8 8.4 9 7.2 9H3V7zm12.6 7.4L14.3 12.7l1.3-1.7.8 1c.4.5 1 .8 1.6.8H21v2h-3c-1 0-1.9-.4-2.4-.4z"/>',
 };
 const I = Object.fromEntries(Object.entries(P).map(([k, v]) => [k, `<svg viewBox="0 0 24 24" aria-hidden="true">${v}</svg>`]));
 const setIcon = (el, name) => { if (el && el.dataset.cur !== name) { el.dataset.cur = name; el.innerHTML = I[name]; } };
@@ -224,9 +226,17 @@ function header({ cover, coverHtml, kicker, title, sub }) {
   return `<header class="phead"><div class="phead-art">${coverHtml || img(cover)}</div>
     <div class="phead-meta"><div class="kicker">${esc(kicker)}</div><h1>${esc(title)}</h1><div class="sub">${sub || ''}</div></div></header>`;
 }
-const actions = (key, extra = '') => `<div class="actions">
+const mixLabel = () => {
+  const m = automix.normalizeMixSettings(store.getSettings());
+  return m.enabled ? `Mix · ${m.seconds}s` : 'Mix';
+};
+const actions = (key, extra = '') => {
+  const m = automix.normalizeMixSettings(store.getSettings());
+  return `<div class="actions">
   <button class="btn primary" data-act="play-all" data-key="${key}" aria-label="Play all">${I.play}<span>Play</span></button>
-  <button class="btn" data-act="shuffle-all" data-key="${key}">${I.shuffle}<span>Shuffle</span></button>${extra}</div>`;
+  <button class="btn" data-act="shuffle-all" data-key="${key}">${I.shuffle}<span>Shuffle</span></button>
+  <button class="btn mix-btn${m.enabled ? ' on' : ''}" data-act="mix-sheet" data-key="${key}" aria-pressed="${m.enabled}">${I.mix}<span>${mixLabel()}</span></button>${extra}</div>`;
+};
 const loadingHtml = '<div class="loading" role="status"><div class="spin" aria-hidden="true"></div><span class="muted">Loading music…</span></div>';
 const errorHtml = (e) => `<div class="empty"><h2>Something went wrong</h2><p class="muted">${esc(e?.message || e)}</p><button class="btn" data-act="retry">Try again</button></div>`;
 
@@ -266,7 +276,8 @@ player.setQueueHooks({
   onFinish:t=>{if(!spoken.isSpoken(t))mixes.recordFinish(t);},
   resumeAt:t=>spoken.resumeAt(t),
 });
-player.setAutoMix(store.getSettings().automix||0);
+const initMix = automix.normalizeMixSettings(store.getSettings());
+player.setAutoMix(initMix.seconds, initMix.preferredStyle);
 
 /* ---------------- Your devices & shared playlists ---------------- */
 const appBase=()=>new URL('./',location.href).href;
@@ -819,7 +830,8 @@ async function viewSettings() {
     <label class="field"><span>Audio source<small>Spot+ YouTube Relay plays full songs from YouTube in Spot+’s own player, with no ads. Automatic tries it first and switches to another full-song source when a song isn’t available there.</small></span>${((cur) => `<select data-setting="source">${[['ytrelay', 'Spot+ YouTube Relay'], ['auto', 'Automatic'], ...(api.soundcloudAvailable() || cur === 'soundcloud' ? [['soundcloud', 'SoundCloud']] : []), ['hifi', 'HiFi / Monochrome'], ['jiosaavn', 'JioSaavn'], ['audius', 'Audius']].map(([v, l]) => `<option value="${v}"${cur === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`)(s.source)}</label>
     <label class="field"><span>Streaming quality</span>${sel('quality', [['high', 'High'], ['low', 'Data saver']])}</label>
     ${toggle('smartRadio','Smart Radio','When your queue ends, keep playing similar songs. It learns from what you skip.')}
-    <label class="field"><span>AutoMix<small>${player.crossfadeSupported?'Blend each song into the next, like a DJ. Off while effects are on.':'Blending songs isn’t possible on iPhone and iPad (Safari doesn’t let apps fade audio).'}</small></span>${sel('automix',[['0','Off'],['3','3 seconds'],['6','6 seconds'],['9','9 seconds']])}</label>
+    <label class="field"><span>Song Mix &amp; Crossfade<small>${player.crossfadeSupported?'Blend songs together smoothly like a DJ — including on iPhone &amp; iPad via equal-power Web Audio transitions.':'Your browser does not support audio crossfading.'}</small></span>${sel('automix',[['0','Off'],['3','3 seconds'],['6','6 seconds'],['9','9 seconds'],['12','12 seconds']])}</label>
+    <label class="field"><span>Mix style<small>Smart Mix adapts to song lengths; DJ Blend adds a bass-swap EQ crossover so beats never clash.</small></span>${sel('mixStyle',[['smart','Smart Mix'],['blend','DJ Blend'],['fade','Smooth Fade']])}</label>
     ${toggle('preloadNext','Prepare the next song','Buffers the beginning of the next song after your current music has enough buffered audio. Skipped on data-saving connections.')}
     ${toggle('showExplicit','Allow explicit content','When off, explicit tracks are excluded from discovery and new playback queues.')}
     <button class="btn small" data-act="sleep-timer">Sleep timer</button>
@@ -943,13 +955,21 @@ window.addEventListener('hashchange', () => route());
 
 /* ---------------- Actions ---------------- */
 async function startRadio(t) {
-  if (!t.artistId) return toast('No radio for this song');
-  const tt = toast('Starting radio…');
+  if (!t || t.local) return toast('No mix available for local files');
+  const tt = toast('Starting song mix…');
   try {
-    const r = await api.artistRadio(t.artistId);
-    player.playList([t, ...r.filter((x) => x.id !== t.id)], 0, { shuffle: false });
-    tt.set(`Radio based on ${t.artist}`);
-  } catch (e) { tt.set(`Couldn't start radio: ${e.message}`); }
+    let artistId = t.artistId;
+    if (!artistId && t.artist) {
+      const primary = String(t.artist).split(/[,&]|feat\.|ft\./i)[0].trim();
+      const found = primary ? await api.findArtist(primary).catch(() => null) : null;
+      artistId = found?.id || null;
+    }
+    if (!artistId) return tt.set('No song mix found for this track');
+    const r = await api.artistRadio(artistId);
+    const list = [t, ...r.filter((x) => String(x.id) !== String(t.id))];
+    player.playList(list, 0, { shuffle: false, mix: true });
+    tt.set(`Song Mix based on ${t.title}`);
+  } catch (e) { tt.set(`Couldn't start song mix: ${e.message}`); }
 }
 
 /* ---------------- Downloads (Spotify-style toggle) ---------------- */
@@ -1083,7 +1103,7 @@ function trackSheet(t, meta = {}) {
       { icon: I.plus, label: 'Add to playlist…', fn: () => playlistPicker([t]) },
       !t.local && { icon: I.share, label: 'Share', fn: () => setTimeout(() => songShareSheet(t), 0) },
       /^[A-Za-z0-9]{22}$/.test(t.spotifyId||'') && {icon:I.arrow,label:'Open Spotify player',fn:()=>go('#/spotify/track/'+t.spotifyId)},
-      t.artistId && { icon: I.radio, label: 'Start radio', fn: () => startRadio(t) },
+      !t.local && { icon: I.mix, label: 'Start song mix', fn: () => startRadio(t) },
       !t.local && { icon: dl ? I.check : I.download, label: dl ? 'Remove download' : 'Download for offline', fn: () => (dl ? player.removeDownload(t.id).then(() => toast('Download removed')) : downloadTracks([t])) },
       !t.local && { icon: I.swap, label: 'Wrong song? Pick another version', fn: () => pickMatch(t) },
       t.local && {icon:I.trash,label:'Remove local copy',fn:async()=>{if(await confirmBox('Remove local audio?', 'The imported copy will be removed from this browser. Your original file is kept.')){await player.removeLocalFile(t.id);toast('Local copy removed');}}},
@@ -1265,6 +1285,50 @@ async function handleAct(act, el) {
     case 'fx-preset': fx.usePreset(el.dataset.preset); fxSheet(true); break;
     case 'fx-room': fx.set({room:el.dataset.room}); fxSheet(true); break;
     case 'fx-toggle': fx.set({[el.dataset.key]:!fx.get()[el.dataset.key]}); fxSheet(true); break;
+    case 'mix-sheet': mixSheet(key || ''); break;
+    case 'mix-toggle': {
+      const cur = automix.normalizeMixSettings(store.getSettings());
+      const nextSec = cur.enabled ? 0 : (lastMixSec || 6);
+      applyMixSettings(nextSec, cur.preferredStyle);
+      mixSheet(el.dataset.key || '', true);
+      break;
+    }
+    case 'mix-style': {
+      const cur = automix.normalizeMixSettings(store.getSettings());
+      const nextSec = cur.enabled ? cur.seconds : (lastMixSec || 6);
+      applyMixSettings(nextSec, el.dataset.style);
+      mixSheet(el.dataset.key || '', true);
+      break;
+    }
+    case 'mix-play-list': {
+      const tracks = visibleTracks(listOf(key).tracks, store.getSettings());
+      if (!tracks.length) return toast('No playable songs in this list');
+      const cur = automix.normalizeMixSettings(store.getSettings());
+      if (!cur.enabled) applyMixSettings(lastMixSec || 6, cur.preferredStyle);
+      dj.stop();
+      closeSheet();
+      player.playList(tracks, 0, { shuffle: false, mix: true });
+      toast(`Mixing ${tracks.length} songs · ${automix.MIX_MODES[cur.preferredStyle]?.label || 'Smart Mix'}`);
+      break;
+    }
+    case 'mix-queue': {
+      const cur = automix.normalizeMixSettings(store.getSettings());
+      if (!cur.enabled) applyMixSettings(lastMixSec || 6, cur.preferredStyle);
+      const reordered = player.mixQueue();
+      closeSheet();
+      toast(reordered ? 'Queue mixed for smooth flow' : 'Mix transitions enabled for upcoming songs');
+      break;
+    }
+    case 'mix-song-radio': {
+      const t = player.current();
+      closeSheet();
+      if (t) {
+        const cur = automix.normalizeMixSettings(store.getSettings());
+        if (!cur.enabled) applyMixSettings(lastMixSec || 6, cur.preferredStyle);
+        await startRadio(t);
+      }
+      break;
+    }
     case 'sing-along': {const on=fx.get().vocals>0;fx.set(on?{vocals:0,preset:'custom'}:{...fx.fromPreset('karaoke')});const b=$('.sing-btn');if(b){b.classList.toggle('on',!on);b.querySelector('span').textContent=!on?'Singing along':'Sing along';}karaokeLoop();if(!on&&fx.isBlocked())toast('This song’s audio server doesn’t allow the vocal remover. Lyrics still highlight as you sing.');break;}
     case 'link-devices': devicesSheet(); break;
     case 'copy-pair': navigator.clipboard?.writeText(libsync.pairLink(appBase(),syncKey())).then(()=>toast('Link copied. Open it on your other device.'),()=>toast('Couldn’t copy. Scan the code instead.')); break;
@@ -1423,7 +1487,7 @@ document.addEventListener('change', async (e) => {
     t.disabled=true;const status=$('#rewindImportStatus');
     try{const n=await importRewind([...t.files],message=>{status.textContent=message;});await route({keepScroll:true});toast(`Added ${n.toLocaleString()} listens. Duplicates skipped.`);}catch(error){status.textContent=error.message;t.disabled=false;t.value='';}return;
   }
-  if (t.dataset.setting) { try { store.setSettings({ [t.dataset.setting]: t.type==='checkbox'?t.checked:t.value.trim() }); if(t.dataset.setting==='automix')player.setAutoMix(t.value); applyPreferences(); toast('Saved'); } catch(err) { toast(err.message); } }
+  if (t.dataset.setting) { try { store.setSettings({ [t.dataset.setting]: t.type==='checkbox'?t.checked:t.value.trim() }); if(t.dataset.setting==='automix'||t.dataset.setting==='mixStyle'){const m=automix.normalizeMixSettings(store.getSettings());player.setAutoMix(m.seconds,m.preferredStyle);mixBadge();} applyPreferences(); toast('Saved'); } catch(err) { toast(err.message); } }
   if (['importFile','welcomeBackup'].includes(t.id) && t.files[0]) {
     try { if(t.id==='welcomeBackup')dismissWelcome();if(t.files[0].size>30*1024*1024)throw new Error('Choose a Spot+ backup smaller than 30 MB.');const result=store.importData(JSON.parse(await t.files[0].text()));toast(result.spotifyAccount==='different-account-kept'?'Backup imported. Your current Spotify account copy was kept; the backup belongs to another account.':result.spotifyAccount==='newer-copy-kept'?'Backup imported. Your newer Spotify library copy was kept.':'Backup imported'); }
     catch (err) { toast(`Import failed: ${err.message}`); }
@@ -1620,7 +1684,8 @@ player.on('state',()=>{
   prefetchedFor=t.id;const s=player.state;
   setTimeout(()=>prefetchClips([t,s.queue[s.index+1],s.queue[s.index+2]]),player.isPlaying()?1500:0);
 });
-player.on('time',()=>{if(npOpen&&canvasPreference){syncCanvas();if(np.classList.contains('has-canvas'))playerColors.sampleVideo($('#npCanvas'));}});
+let lastCanvasSample=0;
+player.on('time',()=>{if(!npOpen||!canvasPreference||document.hidden)return;if(np.dataset.canvasState==='deferred'||np.dataset.canvasState==='waiting')syncCanvas();const now=Date.now();if(np.classList.contains('has-canvas')&&now-lastCanvasSample>=2000){lastCanvasSample=now;playerColors.sampleVideo($('#npCanvas'));}});
 document.addEventListener('visibilitychange',()=>syncCanvas());
 function qRow(t, idx, cur) {
   return `<div class="trow${cur ? ' playing' : ''}" data-act="q-jump" data-qi="${idx}">${img(t.cover, 'tcover')}
@@ -1894,14 +1959,78 @@ function syncFx(){
   $$('[data-key]',panel).forEach(c=>{const k=c.dataset.key;c.classList.toggle('on',k==='keepPitch'?!s.keepPitch:!!s[k]);if(k==='keepPitch')c.textContent=s.keepPitch?'Speed keeps pitch':'Speed changes pitch (vinyl)';});
 }
 let fxFrame=0,fxPending={};
-document.addEventListener('input',e=>{const key=e.target.dataset?.fx;if(!key)return;const v=Number(e.target.value);fxPending[key]=v;if(!fxFrame)fxFrame=requestAnimationFrame(()=>{fxFrame=0;const patch=fxPending;fxPending={};fx.set(patch);});const label=$('#fxv-'+key);if(label)label.textContent=fxFmt[key](v);$$('.fx-presets .chip').forEach(c=>c.classList.remove('on'));});
+document.addEventListener('input',e=>{
+  if(e.target.dataset?.mixSec!==undefined){
+    const sec=Math.max(0,Math.min(12,Math.round(Number(e.target.value)||0)));
+    const cur=automix.normalizeMixSettings(store.getSettings());
+    applyMixSettings(sec,cur.preferredStyle);
+    const lbl=$('#mixSecVal');if(lbl)lbl.textContent=sec?`${sec}s`:'Off';
+    const tog=$('#mixToggleInput');if(tog)tog.checked=sec>0;
+    return;
+  }
+  const key=e.target.dataset?.fx;if(!key)return;const v=Number(e.target.value);fxPending[key]=v;if(!fxFrame)fxFrame=requestAnimationFrame(()=>{fxFrame=0;const patch=fxPending;fxPending={};fx.set(patch);});const label=$('#fxv-'+key);if(label)label.textContent=fxFmt[key](v);$$('.fx-presets .chip').forEach(c=>c.classList.remove('on'));
+});
+let lastMixSec=6;
+function applyMixSettings(seconds, style='smart'){
+  const sec=Math.max(0,Math.min(12,Math.round(Number(seconds)||0)));
+  if(sec>0)lastMixSec=sec;
+  const cleanStyle=automix.MIX_STYLE_IDS.includes(style)?style:'smart';
+  store.setSettings({automix:String(sec),mixStyle:cleanStyle});
+  player.setAutoMix(sec,cleanStyle);
+  mixBadge();
+}
+function mixBadge(){
+  const m=automix.normalizeMixSettings(store.getSettings());
+  $('.np-mix')?.classList.toggle('on',m.enabled);
+  $('.np-mix')?.setAttribute('aria-pressed',String(m.enabled));
+  $$('.mix-btn').forEach(b=>{
+    b.classList.toggle('on',m.enabled);
+    b.setAttribute('aria-pressed',String(m.enabled));
+    const span=b.querySelector('span');
+    if(span)span.textContent=m.enabled?`Mix · ${m.seconds}s`:'Mix';
+  });
+}
+function mixSheet(listKey='', refresh=false){
+  const m=automix.normalizeMixSettings(store.getSettings());
+  if(m.seconds>0)lastMixSec=m.seconds;
+  const curTrack=player.current();
+  const hasList=!!(listKey&&listOf(listKey).tracks.length>1);
+  const modes=automix.MIX_STYLE_IDS.map(id=>{
+    const mode=automix.MIX_MODES[id];
+    const on=m.enabled&&m.preferredStyle===id;
+    return `<button class="mix-mode${on?' on':''}" data-act="mix-style" data-style="${id}" data-key="${esc(listKey)}" aria-pressed="${on}"><b>${esc(mode.label)}</b><small>${esc(mode.short==='Smart'?'Auto timing':mode.short==='DJ Blend'?'Bass-swap EQ':'Equal-power')}</small></button>`;
+  }).join('');
+  const body=`<div class="mix-sheet">
+    <div class="mix-toggle-row"><div><b>Smooth song transitions</b><small>${m.enabled?`${automix.MIX_MODES[m.preferredStyle]?.label||'Smart Mix'} · ${m.seconds}s overlap`:'Blend songs seamlessly like Spotify Premium Mix'}</small></div><input id="mixToggleInput" type="checkbox" role="switch" data-act="mix-toggle" data-key="${esc(listKey)}" ${m.enabled?'checked':''} aria-label="Toggle song mix transitions"></div>
+    <div class="mix-modes">${modes}</div>
+    <label class="fx-slider"><span>Transition overlap<b id="mixSecVal">${m.enabled?`${m.seconds}s`:'Off'}</b></span><input type="range" data-mix-sec min="0" max="12" step="1" value="${m.seconds}" aria-label="Mix transition length in seconds"></label>
+    <p class="settings-note">${esc(automix.MIX_MODES[m.enabled?m.preferredStyle:'smart'].desc)} Works on iPhone, iPad, Android, and desktop in the app; background/lock-screen playback keeps smooth gapless handoff.</p>
+    <div class="mix-actions">
+      ${hasList?`<button class="btn primary" data-act="mix-play-list" data-key="${esc(listKey)}">${I.mix}<span>Mix this playlist</span></button>`:''}
+      ${player.state.queue.length-player.state.index>2?`<button class="btn" data-act="mix-queue">${I.shuffle}<span>Smooth-order Up Next</span></button>`:''}
+      ${curTrack&&!curTrack.local?`<button class="btn" data-act="mix-song-radio">${I.radio}<span>Start song mix</span></button>`:''}
+    </div>
+  </div>`;
+  if(refresh&&!sheet.hidden&&$('#sheetPanel .mix-sheet')){
+    $('#sheetPanel .mix-sheet').outerHTML=body;
+    return;
+  }
+  openSheet({head:'<div class="sheet-title">Mix</div>',body});
+}
 let fxEl=null;
 const fxBind=()=>{if(player.el!==fxEl){fxEl=player.el;fx.bind(player.el);}};
-player.setEffectsHooks({effectsOn:()=>fx.needsGraph(fx.get()),isCaptured:fx.isCaptured,prepareElement:fx.prepare,corsKnown:fx.knownCors});
+player.setEffectsHooks({
+  effectsOn:()=>fx.needsGraph(fx.get()),
+  isCaptured:fx.isCaptured,
+  prepareElement:fx.prepare,
+  corsKnown:fx.knownCors,
+  canWebAudioCrossfade:fx.canWebAudioCrossfade,
+  crossfadeElements:fx.crossfadeElements,
+});
 player.on('time',()=>{if(player.el===fxEl&&!fx.isCaptured(fxEl)&&fx.needsGraph(fx.get()))fx.bind(fxEl);});
 const fxBadge=()=>{$('.np-fx')?.classList.toggle('on',fx.isActive(fx.get()));const note=$('#sheetPanel .fx-note');if(note&&fx.isBlocked())note.textContent='This song’s audio server doesn’t allow reverb, pitch or bass, so it plays normally. Speed still works, and effects come back on the next song that allows them.';};
 $('.np-fx')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();fxSheet();});
-player.on('state',fxBind);fx.onChange(fxBadge);fxBadge();
+player.on('state',fxBind);player.on('state',mixBadge);fx.onChange(fxBadge);fxBadge();mixBadge();
 addEventListener('spotplus:music-play',fx.resume);document.addEventListener('visibilitychange',()=>{if(!document.hidden){fx.resume();fx.restoreAfterBackground(player.el);}});
 function sleepMenu(){openSheet({head:'<div class="sheet-title">Sleep timer</div>',items:[...[5,15,30,60].map(minutes=>({icon:I.history,label:`${minutes} minutes`,fn:()=>{clearTimeout(sleepTimer);sleepTimer=setTimeout(()=>{player.pause();dj.stop();toast('Sleep timer ended');},minutes*60000);toast(`Playback will pause in ${minutes} minutes`);}})),{icon:I.close,label:'Turn off timer',fn:()=>{clearTimeout(sleepTimer);sleepTimer=null;toast('Sleep timer off');}}]});}
 function trapFocus(e,root){if(e.key!=='Tab')return;const focusable=$$('button:not(:disabled),a[href],input:not(:disabled),select,textarea,[tabindex="0"]',root).filter(el=>el.getClientRects().length);if(!focusable.length)return;const first=focusable[0],last=focusable.at(-1);if(e.shiftKey&&(document.activeElement===first||!root.contains(document.activeElement))){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}

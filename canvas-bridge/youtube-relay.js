@@ -254,18 +254,44 @@ export async function youtubeRelay(request, {fetcher = fetch, cache, waitUntil =
     ? new globalThis.FixedLengthStream(expected) : new TransformStream();
   const task = (async () => {
     let active = first;
+    let prefetched = null;
+    const startSlice = (from) => {
+      if (from > last) return null;
+      const to = Math.min(from + NEXT_SLICE - 1, last);
+      const promise = mediaRequest(link.url, from, to, undefined, fetcher).catch((err) => ({__err: err}));
+      return {from, to, promise};
+    };
+    const dropPrefetched = async () => {
+      if (!prefetched) return;
+      const p = prefetched;
+      prefetched = null;
+      const res = await p.promise;
+      if (res && !res.__err) await discard(res);
+    };
     try {
+      // Begin fetching slice 2 while slice 1 streams so the 1 MB boundary (~60 s) never stalls.
+      prefetched = startSlice(firstSpan.end + 1);
       await pipeSlice(first, writable);
       active = null;
       let renewed = false;
       for (let from = firstSpan.end + 1; from <= last;) {
         const to = Math.min(from + NEXT_SLICE - 1, last);
-        let part = await mediaRequest(link.url, from, to, undefined, fetcher);
+        let part;
+        if (prefetched && prefetched.from === from && prefetched.to === to) {
+          const ready = await prefetched.promise;
+          prefetched = null;
+          if (ready?.__err) throw ready.__err;
+          part = ready;
+        } else {
+          await dropPrefetched();
+          part = await mediaRequest(link.url, from, to, undefined, fetcher);
+        }
         active = part;
         let span = validateUpstreamRange(part, from, to, total);
         if (!span && !renewed) {
           renewed = true;
           await discard(part);
+          active = null;
           memo.delete(fmt + ':' + vid);
           await cache?.delete(linkKey(vid, fmt)).catch(() => {});
           const newer = await resolveLink(vid, {fetcher, cache, waitUntil, fresh: true, fmt});
@@ -279,6 +305,8 @@ export async function youtubeRelay(request, {fetcher = fetch, cache, waitUntil =
           span = validateUpstreamRange(part, from, to, total);
         }
         if (!span) throw new Error('Upstream returned an invalid or incomplete range');
+        // Overlap the following slice (if any) with piping this one — zero extra subrequests.
+        prefetched = startSlice(span.end + 1);
         await pipeSlice(part, writable);
         active = null;
         from = span.end + 1;
@@ -286,6 +314,7 @@ export async function youtubeRelay(request, {fetcher = fetch, cache, waitUntil =
       await writable.close();
     } catch (error) {
       await discard(active);
+      await dropPrefetched();
       try { await writable.abort(error); } catch { /* listener already gone */ }
     }
   })();

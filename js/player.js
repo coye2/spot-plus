@@ -17,6 +17,7 @@ import { bufferEngine, classifyFailure, inspectSeek } from './buffer-engine.js';
 import { predictUpcoming, SkipTracker, ActivationTracker } from './predictive-pipeline.js';
 import { router, isVerifiedEquivalent } from './source-router.js';
 import { memoryEngine } from './memory-engine.js';
+import { effectiveMixSeconds, orderForMix, runCrossfade, MIX_STYLE_IDS } from './automix.js';
 
 export const AUDIO_CACHE = 'spotplus-audio-v1';
 
@@ -44,17 +45,58 @@ export const on = (ev, fn) => listeners[ev].add(fn);
 export const mediaElements = () => [audio, nextBuffer.spare];
 /* Effects hooks (set by fx.js): which elements are routed through effects, and whether effects are on. */
 let effectsOn = () => false, isCaptured = () => false, prepareElement = async () => {}, corsKnown = () => undefined;
-export function setEffectsHooks(hooks) { ({ effectsOn, isCaptured, prepareElement, corsKnown } = { effectsOn, isCaptured, prepareElement, corsKnown, ...hooks }); }
+let canWebAudioCrossfade = () => false, crossfadeElements = () => null;
+export function setEffectsHooks(hooks) {
+  ({
+    effectsOn,
+    isCaptured,
+    prepareElement,
+    corsKnown,
+    canWebAudioCrossfade,
+    crossfadeElements,
+  } = { effectsOn, isCaptured, prepareElement, corsKnown, canWebAudioCrossfade, crossfadeElements, ...hooks });
+}
 // A plain element held in reserve (unlocked on the first tap, never routed through effects) for songs whose
 // server doesn't allow effects. A routed element would play them silently.
 let plainSpare = null;
 /* Smart Radio + learning hooks (set by the app). */
 let continueQueue = null, onSkip = () => {}, onFinish = () => {}, resumeAt = () => 0;
 export function setQueueHooks(hooks) { ({ continueQueue = continueQueue, onSkip = onSkip, onFinish = onFinish, resumeAt = resumeAt } = hooks); }
-/* AutoMix: crossfade into the next song. Needs adjustable element volume (not on iPhone) and effects off. */
-let mixSeconds = 0, mixing = false;
-export const crossfadeSupported = (() => { try { const a = new Audio(); a.volume = 0.5; return a.volume === 0.5; } catch { return false; } })();
-export function setAutoMix(seconds) { mixSeconds = crossfadeSupported ? Math.max(0, Math.min(12, Number(seconds) || 0)) : 0; }
+/* Mix / AutoMix: equal-power DJ transitions via Web Audio (works on iPhone/iPad!) or 60fps element volume. */
+let mixSeconds = 0, mixStyle = 'smart', mixing = false, activeCrossfade = null;
+const elementVolumeSupported = (() => { try { const a = new Audio(); a.volume = 0.5; return a.volume === 0.5; } catch { return false; } })();
+const webAudioSupported = !!(globalThis.AudioContext || globalThis.webkitAudioContext);
+export const crossfadeSupported = elementVolumeSupported || webAudioSupported;
+export function setAutoMix(seconds, style) {
+  mixSeconds = crossfadeSupported ? Math.max(0, Math.min(12, Number(seconds) || 0)) : 0;
+  if (typeof style === 'string' && MIX_STYLE_IDS.includes(style)) mixStyle = style;
+  emit('state');
+}
+export function mixConfig() {
+  return {
+    enabled: mixSeconds > 0,
+    seconds: mixSeconds,
+    style: mixSeconds > 0 ? mixStyle : 'off',
+    preferredStyle: mixStyle,
+    supported: crossfadeSupported,
+    elementVolume: elementVolumeSupported,
+    webAudio: webAudioSupported,
+    active: mixing,
+  };
+}
+/** Returns true when a stream source is known to serve CORS headers suitable for zero-reload Web Audio mixing. */
+function sourceAllowsCors(source) {
+  if (!source?.url) return false;
+  if (corsKnown(source.url) === true) return true;
+  if (source.url.startsWith('blob:')) return true;
+  return ['ytrelay', 'offline-blob', 'jiosaavn', 'audius'].includes(source.kind);
+}
+function cancelActiveCrossfade() {
+  if (!activeCrossfade) return;
+  const cf = activeCrossfade;
+  activeCrossfade = null;
+  try { cf.cancel(); } catch { /* ignore */ }
+}
 const emit = (ev, d) => listeners[ev].forEach((fn) => { try { fn(d); } catch (e) { console.error(e); } });
 
 export const state = {
@@ -91,6 +133,7 @@ export const canSeek = () => !state.loading && !state.error && (yt.active ? yt.r
 export function pause() {
   userPaused = true;
   pendingPlay = false;
+  cancelActiveCrossfade();
   if (state.loading) {
     cancelLoad?.abort();
     ++token;
@@ -126,6 +169,7 @@ let unlockedPrimary = audio;
 let prefetchTimer = 0, warmGeneration = 0, startedAt = 0, activeGen = 0, pauseClearTimer = 0;
 let volumeLevel = 1;
 let stallTimer = null;
+let stallUiTimer = null;
 let liveAttempt = 0;
 let mediaTicket = 0;
 let suppressError = false;
@@ -134,6 +178,8 @@ let previewUpgradeTimer = null, previewUpgradeControl = null, previewUpgradeTrie
 function clearStall() {
   clearTimeout(stallTimer);
   stallTimer = null;
+  clearTimeout(stallUiTimer);
+  stallUiTimer = null;
   telemetry.endStall();
 }
 
@@ -161,15 +207,19 @@ function watchStall() {
   if (stallTimer) return;
   const generation = token;
   const ticket = mediaTicket;
-  const adaptiveMs = bufferEngine.profile().stallTimeoutMs;
+  const netProfile = bufferEngine.profile(navigator.connection);
+  const adaptiveMs = netProfile.stallTimeoutMs;
+  const midSong = (audio.currentTime || 0) > 0.35;
   const budgetMs = stallBudget(audio.currentTime);
-  const ms = (state.source?.fast || state.source?.alternatives?.length)
+  let ms = (state.source?.fast || state.source?.alternatives?.length)
     ? Math.max(2500, Math.min(budgetMs, adaptiveMs + 1500))
     : Math.max(budgetMs, adaptiveMs);
+  // Mid-song stalls should give cellular networks a brief chance to recover natively instead of tearing down <audio> and re-seeking.
+  if (midSong) ms = Math.max(ms, netProfile.condition === 'unstable' ? 8000 : 6500);
   // The relay may try up to four uploads of the song before the first byte (each refusal takes about two
   // seconds), so its first start gets longer before it counts as stuck.
   // A region that already had the song ready (warmed) should answer at once, so it gets less time.
-  const wait = state.source?.kind === 'ytrelay' && (audio.currentTime || 0) <= 0.35 ? (state.source.warm ? 5000 : Math.max(ms, 12000)) : ms;
+  const wait = state.source?.kind === 'ytrelay' && !midSong ? (state.source.warm ? 5000 : Math.max(ms, 12000)) : ms;
   stallTimer = setTimeout(() => {
     stallTimer = null;
     if (generation !== token || !pendingPlay || !isRealSrc()) return;
@@ -411,21 +461,38 @@ function recoverMedia(mediaErr = null) {
 }
 
 function maybeMix() {
-  if (!mixSeconds || mixing || effectsOn() || state.repeat === 'one' || audio.paused || !mediaLength()) return;
-  const left = mediaLength() - audio.currentTime;
-  if (left > mixSeconds || left < 1 || state.index >= state.queue.length - 1) return;
+  // Never run dual-element crossfade while backgrounded/locked so iOS keeps the single-element audio session intact.
+  if (!mixSeconds || mixing || globalThis.document?.hidden || state.repeat === 'one' || audio.paused || !mediaLength()) return;
+  const curTrack = current();
   const nextTrack = state.queue[state.index + 1];
-  if (!nextBuffer.entry || nextBuffer.entry.key !== api.streamKey(nextTrack) || nextBuffer.entry.media.readyState < 3) return;
+  if (!curTrack || !nextTrack || state.index >= state.queue.length - 1) return;
+  const spokenTrack = !!(curTrack.direct || nextTrack.direct);
+  const overlap = effectiveMixSeconds({
+    seconds: mixSeconds,
+    style: mixStyle,
+    currentDuration: mediaLength(),
+    nextDuration: nextTrack.duration || 0,
+    spoken: spokenTrack,
+  });
+  if (!overlap) return;
+  const left = mediaLength() - audio.currentTime;
+  if (left > overlap || left < 0.75) return;
+  const entry = nextBuffer.entry;
+  const minReady = left <= 3 ? 2 : 3;
+  if (!entry || entry.key !== api.streamKey(nextTrack) || (entry.media.readyState || 0) < minReady) return;
+  // Require either hardware-timed Web Audio crossfade (works on iPhone/iPad!) or writable element volume (with effects off).
+  const canWebAudio = canWebAudioCrossfade(audio, entry.media);
+  if (!canWebAudio && (!elementVolumeSupported || effectsOn())) return;
   mixing = true;
-  onFinish(current());
+  onFinish(curTrack);
   state.index++;
   errRetries = 0;
-  load({ mixSeconds: Math.max(1, left), trigger: 'automix' }).finally(() => { mixing = false; });
+  load({ mixSeconds: Math.max(1, Math.min(overlap, left)), mixStyle, trigger: 'automix' }).finally(() => { mixing = false; });
 }
 
-/** InstantPlay: when AutoMix is off (e.g. iOS), hand off cleanly to a ready Player B right before 'ended'. */
+/** InstantPlay: when AutoMix is off or couldn't blend, hand off cleanly to a ready Player B right before 'ended'. */
 function maybeSeamless() {
-  if (mixSeconds || mixing || effectsOn() || state.repeat === 'one' || state.index >= state.queue.length - 1) return;
+  if (mixing || effectsOn() || globalThis.document?.hidden || state.repeat === 'one' || state.index >= state.queue.length - 1) return;
   const nextTrack = state.queue[state.index + 1];
   const key = nextTrack && api.streamKey(nextTrack);
   if (!key || !nextBuffer.isReady(key, 2) || !seamlessHandoffWindow(audio, mediaLength())) return;
@@ -434,19 +501,6 @@ function maybeSeamless() {
   state.index++;
   errRetries = 0;
   load({ trigger: 'seamless-handoff' }).finally(() => { mixing = false; });
-}
-
-function fade(media, from, to, seconds) {
-  return new Promise((resolve) => {
-    const start = performance.now(), ms = seconds * 1000;
-    const step = () => {
-      const k = Math.min(1, (performance.now() - start) / ms);
-      media.volume = Math.max(0, Math.min(1, from + (to - from) * k));
-      if (k < 1) setTimeout(step, 50);
-      else resolve();
-    };
-    step();
-  });
 }
 
 let ytToken = 0;
@@ -693,7 +747,8 @@ async function load(opts = {}) {
   api.cancelPrewarm(t);
 
   const inBackground = !!globalThis.document?.hidden;
-  const streamKeyForTrack = !opts.keepSkip && (!effectsOn() || inBackground) ? api.streamKey(t) : '';
+  const allowWarmTake = !opts.keepSkip && (!effectsOn() || !!opts.mixSeconds || inBackground);
+  const streamKeyForTrack = allowWarmTake ? api.streamKey(t) : '';
   const warmed = streamKeyForTrack ? nextBuffer.take(streamKeyForTrack) : null;
   const bgSource = inBackground && !isCaptured(audio)
     ? (warmed?.source || (streamKeyForTrack && !t.local ? memoryEngine.getStream(streamKeyForTrack) : null))
@@ -705,6 +760,9 @@ async function load(opts = {}) {
     prepared: !!(warmed || bgSource),
     cold: !warmed && !bgSource && !t.local,
   });
+
+  // Always cancel any earlier in-flight crossfade before starting a new transition or skip.
+  cancelActiveCrossfade();
 
   if (reuseActiveInBackground) {
     // On iOS/Safari lock screen or background, keep the active <audio> element alive so the OS
@@ -718,14 +776,29 @@ async function load(opts = {}) {
       el = audio;
       bindAudio(audio);
       if (opts.mixSeconds) {
-        // AutoMix: the old song fades out while the new one fades in; a fresh spare preloads the song after.
-        audio.volume = 0;
-        fade(audio, 0, target, opts.mixSeconds);
-        fade(previous, previous.volume, 0, opts.mixSeconds).then(() => {
-          previous.pause();
-          previous.removeAttribute('src');
-          previous.load();
+        // Spotify-style equal-power crossfade: uses hardware-timed Web Audio GainNodes (+ DJ bass-swap EQ)
+        // on iPhone/iPad & CORS streams, or smooth 60fps requestAnimationFrame volume ramps otherwise.
+        const useWebAudio = canWebAudioCrossfade(previous, audio);
+        if (useWebAudio) {
+          audio.volume = target;
+        }
+        const cleanupOut = (outEl) => {
+          if (!outEl) return;
+          outEl.pause();
+          outEl.removeAttribute('src');
+          outEl.load();
+        };
+        activeCrossfade = runCrossfade({
+          outgoing: previous,
+          incoming: audio,
+          targetVolume: target,
+          seconds: opts.mixSeconds,
+          style: opts.mixStyle || mixStyle,
+          elementVolumeSupported,
+          webAudioFade: useWebAudio ? crossfadeElements : null,
+          onCleanupOutgoing: cleanupOut,
         });
+        activeCrossfade.done.finally(() => { activeCrossfade = null; });
         const spare = new Audio();
         spare.preload = 'none';
         spare.playsInline = true;
@@ -853,7 +926,8 @@ async function load(opts = {}) {
         emit('effects-skipped');
       } else if (!isCaptured(audio) && effectsOn() && !inBackground) {
         await prepareElement(audio, src);
-      } else if (!isCaptured(audio) && corsKnown(src) === true && !inBackground) {
+      } else if (!isCaptured(audio) && !inBackground && (corsKnown(src) === true || (mixSeconds > 0 && sourceAllowsCors(state.source)))) {
+        // Pre-enable CORS on relay/offline/CORS streams when Mix is on so iOS Web Audio crossfades never reload mid-song.
         audio.crossOrigin = 'anonymous';
       } else if (!isCaptured(audio)) {
         audio.removeAttribute('crossorigin');
@@ -1005,13 +1079,12 @@ function prefetch() {
   const netProfile = bufferEngine.profile(navigator.connection);
   const upcoming = predictUpcoming({ queue: state.queue, index: state.index, repeat: state.repeat });
   const next = upcoming[0]?.track || null;
-  // The next song's backup lookup too, so a refusal at the start of it switches over at once.
-  if (next && !next.local && store.getSettings().source === 'auto') api.prefetchBackup(next);
   if (store.getSettings().preloadNext === false || !netProfile.preloadStageA || !next || !isPlaying() || state.loading) {
     nextBuffer.clear();
     return;
   }
-  const needHeadroom = Math.min(netProfile.headroomSec, mediaWarmHeadroom(navigator.connection));
+  // Use Math.max (never Math.min!) so unstable/normal connections build real buffered headroom before opening Player B.
+  const needHeadroom = Math.max(netProfile.headroomSec, mediaWarmHeadroom(navigator.connection));
   if (!skipTracker.isRapidSkipping() && netProfile.maxPreloadAhead >= 2) {
     api.prewarmAhead(upcoming.slice(0, 2).map((u) => u.track));
   }
@@ -1020,10 +1093,14 @@ function prefetch() {
     try {
       if (generation !== warmGeneration || !isPlaying() || state.loading) return;
       if (!isEmbed() && !audioHasHeadroom(audio, needHeadroom)) {
-        prefetchTimer = setTimeout(() => { if (generation === warmGeneration && isPlaying() && !state.loading) prefetch(); }, 150);
+        // Poll gently (1000ms) while waiting for the current song's buffer to build.
+        prefetchTimer = setTimeout(() => { if (generation === warmGeneration && isPlaying() && !state.loading) prefetch(); }, 1000);
         prefetchTimer.unref?.();
         return;
       }
+
+      // Now that the current song has solid buffered headroom, look up the next song's backup too.
+      if (next && !next.local && store.getSettings().source === 'auto') api.prefetchBackup(next);
 
       // Stage A: resolve candidate sources for next track (and subsequent track on fast connections).
       let source = await (api.prewarm(next) || api.resolve(next));
@@ -1034,12 +1111,14 @@ function prefetch() {
       }
 
       if (generation !== warmGeneration || !isPlaying() || state.loading) return;
-      if (!isEmbed() && !audioHasHeadroom(audio, Math.max(3, needHeadroom - 2))) return;
+      if (!isEmbed() && !audioHasHeadroom(audio, Math.max(6, needHeadroom - 2))) return;
 
       // Stage B: prepare Player B when permitted, non-embed, and not rapid-skipping.
       if (source.kind === 'youtube-embed') yt.preload(source.videoId);
-      if (netProfile.preloadStageB && !effectsOn() && source.kind !== 'youtube-embed' && !skipTracker.isRapidSkipping()) {
-        nextBuffer.warm(api.streamKey(next), source, { cors: corsKnown(source.url) === true });
+      const allowStageB = netProfile.preloadStageB && (!effectsOn() || mixSeconds > 0) && source.kind !== 'youtube-embed' && !skipTracker.isRapidSkipping();
+      if (allowStageB) {
+        const wantCors = corsKnown(source.url) === true || (mixSeconds > 0 && sourceAllowsCors(source));
+        nextBuffer.warm(api.streamKey(next), source, { cors: wantCors });
       }
     } catch { /* Foreground playback retains its own retry path. */ }
   }, delay);
@@ -1051,7 +1130,7 @@ function prefetch() {
 api.onRelayReady?.((trackId, region) => {
   const cur = current(), src = state.source;
   if (!cur || String(cur.id) !== String(trackId) || src?.kind !== 'ytrelay' || src.relayRegion === region) return;
-  if (!pendingPlay || userPaused || (audio.currentTime || 0) > 0.05 || (audio.readyState || 0) >= 3) return;
+  if (!pendingPlay || userPaused || (audio.currentTime || 0) > 0 || (audio.readyState || 0) >= 2) return;
   const path = src.url.slice(src.url.indexOf('/yta'));
   playAssigned({...src, url: region + path, relayRegion: region, warm: true});
 });
@@ -1199,19 +1278,30 @@ function bindAudio(media) {
     if (!isRealSrc()) return;
     bufferEngine.recordStall();
     telemetry.beginStall('waiting');
-    if ((audio.currentTime || 0) < 0.35) setPhase(STATES.BUFFERING);
-    else setPhase(STATES.STALLED);
     watchStall();
     ++warmGeneration;
     clearTimeout(prefetchTimer);
-    emit('state');
+    if ((audio.currentTime || 0) < 0.35) {
+      setPhase(STATES.BUFFERING);
+      emit('state');
+    } else if (!stallUiTimer) {
+      // Debounce brief mid-song buffering so micro-hiccups don't thrash DOM layout while decoding.
+      const gen = token;
+      stallUiTimer = setTimeout(() => {
+        stallUiTimer = null;
+        if (gen !== token || audio.paused || !isRealSrc()) return;
+        setPhase(STATES.STALLED);
+        emit('state');
+      }, 350);
+      stallUiTimer.unref?.();
+    }
   });
   listen('seeked', () => {
     telemetry.endSeek();
   });
   listen('progress', () => {
+    // Track buffer throughput quietly — emitting full UI state on every HTTP chunk caused main-thread stutter.
     bufferEngine.recordBufferProgress(audio, state.source?.bitrate || 128_000);
-    emit('state');
   });
   listen('timeupdate', () => {
     skipNonMusic();
@@ -1239,13 +1329,19 @@ function shuffled(a) {
   for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; }
   return r;
 }
-export function playList(tracks, i = 0, { shuffle = null } = {}) {
+export function playList(tracks, i = 0, { shuffle = null, mix = false } = {}) {
   if (!tracks || !tracks.length) return;
   if (shuffle !== null) state.shuffle = shuffle;
   skipTracker.clear();
   const list = tracks.map(store.slim);
   i = Math.max(0, Math.min(i, list.length - 1));
-  if (state.shuffle) {
+  if (mix) {
+    state.original = list;
+    const startIdx = shuffle && i === 0 ? Math.floor(Math.random() * list.length) : i;
+    const arranged = [list[startIdx], ...list.filter((_, idx) => idx !== startIdx)];
+    state.queue = orderForMix(arranged, 0);
+    state.index = 0;
+  } else if (state.shuffle) {
     state.original = list;
     const first = shuffle && i === 0 ? list[Math.floor(Math.random() * list.length)] : list[i];
     state.queue = [first, ...shuffled(list.filter((x) => x !== first))];
@@ -1257,7 +1353,16 @@ export function playList(tracks, i = 0, { shuffle = null } = {}) {
   }
   errRetries = 0; failStreak = 0; restorePos = 0;
   api.prewarmAhead([state.queue[state.index], state.queue[state.index + 1]].filter((t) => t && !t.local));
-  load({ trigger: 'play-list' });
+  load({ trigger: mix ? 'mix-list' : 'play-list' });
+}
+/** Smoothly reorder upcoming queue items for a Mix session (no back-to-back same artist). */
+export function mixQueue() {
+  if (state.queue.length - state.index <= 2) return false;
+  state.queue = orderForMix(state.queue, Math.max(0, state.index));
+  emit('state');
+  save();
+  prefetch();
+  return true;
 }
 export function playIndex(i) {
   if (i >= 0 && i < state.queue.length) {

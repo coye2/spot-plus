@@ -13,8 +13,9 @@ export function audioHasHeadroom(media, seconds = 8) {
   if (media.src.startsWith('blob:')) return true;
   const ahead = bufferedAhead(media);
   if (ahead >= seconds || (ahead > 0.5 && Number.isFinite(media.duration) && media.duration - media.currentTime <= ahead + 0.25)) return true;
-  // iPhone Safari often hides buffered ranges while audio is already flowing.
-  return (media.readyState || 0) >= 3 && (media.currentTime || 0) > 0.35;
+  // iPhone Safari sometimes omits buffered ranges while audio is already flowing;
+  // only fall back to readyState when no buffered ranges are reported.
+  return !(media.buffered?.length > 0) && (media.readyState || 0) >= 3 && (media.currentTime || 0) > 0.35;
 }
 
 export function loopQuality(connection) {

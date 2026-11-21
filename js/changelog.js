@@ -1,6 +1,11 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '2.0.7', date: '2026-11-20', title: 'Song Mix & stutter-free playback', items: [
+    'Spotify-style Mix right on every playlist and Now Playing: tap Mix to blend songs smoothly with Smart Mix, DJ Blend (equal-power crossfade with bass-swap EQ), or Smooth Fade (2–12 s) — now working on iPhone and iPad too via hardware-timed Web Audio transitions.',
+    'One-tap Mix this playlist, Smooth-order Up Next (spaces out back-to-back tracks by the same artist), and Start song mix on every track, including synced Spotify songs.',
+    'Eliminated audio stuttering: stopped buffering progress events from re-rendering the UI on every chunk, fixed buffer headroom math so the next song waits until the playing song has a real buffer, removed main-thread reverb pre-generation spikes, throttled Canvas color sampling, added zero-gap slice lookahead in the audio relay, and fixed iOS silent-unlock CSP.',
+  ]},
   {version: '2.0.6', date: '2026-11-20', title: 'Fewer server requests', items: [
     'Spot+ hit the free server plan’s daily limit (100,000 requests) after a busy day. Each song now asks the servers about half as often: one backup region instead of all of them, the next song warmed in one region, region checks twice a day, and counters remembered on your device.',
     'If the daily limit is ever reached again, Spot+ says so once with the time music is back, and stops retrying in the meantime.',
