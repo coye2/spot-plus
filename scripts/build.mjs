@@ -11,17 +11,25 @@ await rm('dist', {recursive: true, force: true});
 await mkdir('dist', {recursive: true});
 for (const path of ['index.html', 'audio', 'css', 'js', 'icons', 'fonts', 'sw.js', 'manifest.webmanifest']) await cp(path, `dist/${path}`, {recursive: true});
 
-// 1. Minify modules. Userscripts keep their headers untouched; vendor files are already minified.
+// 1. Minify modules (including nested js/playback/). Userscripts keep their headers untouched; vendor files are already minified.
 const skip = name => /\.user\.js$|\.meta\.js$|helper-core\.js$/.test(name);
 let saved = 0;
-for (const name of await readdir('js')) {
-  if (!name.endsWith('.js') || skip(name)) continue;
-  const source = await readFile(`js/${name}`, 'utf8');
-  // shell.js is a classic script: keep its names out of the global scope.
-  const {code} = await transform(source, {loader: 'js', format: name === 'shell.js' || name === 'boot.js' ? 'iife' : 'esm', minify: true, target: 'es2022', legalComments: 'none'});
-  saved += source.length - code.length;
-  await writeFile(`dist/js/${name}`, code);
+async function minifyDir(dir) {
+  for (const entry of await readdir(dir, {withFileTypes: true})) {
+    const rel = `${dir}/${entry.name}`;
+    if (entry.isDirectory()) {
+      if (entry.name !== 'vendor') await minifyDir(rel);
+      continue;
+    }
+    if (!entry.name.endsWith('.js') || skip(entry.name)) continue;
+    const source = await readFile(rel, 'utf8');
+    // shell.js and boot.js are classic scripts: keep their names out of the global scope.
+    const {code} = await transform(source, {loader: 'js', format: rel === 'js/shell.js' || rel === 'js/boot.js' ? 'iife' : 'esm', minify: true, target: 'es2022', legalComments: 'none'});
+    saved += source.length - code.length;
+    await writeFile(`dist/${rel}`, code);
+  }
 }
+await minifyDir('js');
 
 // 2. One stylesheet, in the original cascade order.
 let html = await readFile('index.html', 'utf8');
@@ -38,7 +46,11 @@ async function walk(file) {
   if (graph.has(file)) return;
   graph.add(file);
   const source = await readFile(file, 'utf8');
-  for (const [, spec] of source.matchAll(/^\s*import\s[^'"]*?from\s*['"](\.\/[\w./-]+\.js)['"]/gm)) await walk('js/' + spec.slice(2));
+  const baseDir = file.slice(0, file.lastIndexOf('/') + 1);
+  for (const [, spec] of source.matchAll(/^\s*import\s[^'"]*?from\s*['"](\.\.?\/[\w./-]+\.js)['"]/gm)) {
+    const resolved = new URL(spec, `https://spot.local/${baseDir}`).pathname.slice(1);
+    await walk(resolved);
+  }
 }
 await walk('js/app.js');
 const preloads = [...graph].map(file => `<link rel="modulepreload" href="${file}">`).join('\n');

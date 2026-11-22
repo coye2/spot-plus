@@ -40,7 +40,7 @@ test('effectiveMixSeconds adapts Smart Mix to song length and skips spoken audio
   assert.ok(std >= 4 && std <= 8, `expected adaptive 4..8s, got ${std}`);
   assert.equal(effectiveMixSeconds({seconds: 9, style: 'fade', currentDuration: 210, nextDuration: 195}), 9);
   assert.deepEqual(normalizeMixSettings({automix: '6', mixStyle: 'blend'}), {
-    enabled: true, seconds: 6, style: 'blend', preferredStyle: 'blend',
+    enabled: true, seconds: 6, style: 'blend', preferredStyle: 'blend', curve: 'equal-power',
   });
 });
 

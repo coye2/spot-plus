@@ -1,0 +1,1098 @@
+/* spotplus-ui.css — Spot+ UI (Liquid Glass & Apple Music-inspired interface),
+   Interface Style Switcher, Audio/DSP/AutoEq Studio, Enhanced Lyrics & Real Visualizers.
+   All Spot+ UI redesign rules are strictly scoped under body[data-ui="spotplus"] so
+   Original Spot+ remains completely preserved. */
+
+:root {
+  --sp-font: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+  --sp-art-radius: 14px;
+  --sp-glass-blur: 26px;
+  --sp-glass-alpha: 0.62;
+  --sp-glass-border: rgba(255, 255, 255, 0.18);
+  --sp-glass-spec: rgba(255, 255, 255, 0.24);
+  --sp-anim-scale: 1;
+  --sp-spring: cubic-bezier(0.22, 1.24, 0.36, 1);
+  --sp-ease: cubic-bezier(0.22, 0.9, 0.32, 1);
+}
+
+/* ==========================================================================
+   1. SHARED COMPONENTS (Active in both Original Spot+ and Spot+ UI)
+   ========================================================================== */
+
+/* --- Interface Style Switcher inside Theme Studio --- */
+.ui-switcher-box {
+  margin: 12px 0 20px;
+  padding: 20px 22px;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 8px);
+}
+.ui-switcher-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.ui-switcher-head h2 { margin: 0 0 4px; font-size: 20px; }
+.ui-switcher-head p { margin: 0; font-size: 13px; color: var(--muted); }
+.ui-style-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.ui-style-card {
+  position: relative;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1.5px solid var(--line);
+  background: var(--bg3);
+  color: var(--text);
+  cursor: pointer;
+  transition: transform 180ms var(--sp-ease), border-color 180ms ease, box-shadow 180ms ease;
+}
+.ui-style-card:hover { transform: translateY(-2px); border-color: var(--accent-text); }
+.ui-style-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 12px 28px rgba(0, 0, 0, 0.35);
+}
+.ui-style-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ui-style-card strong { font-size: 15px; font-weight: 700; }
+.ui-style-card small { font-size: 12px; color: var(--muted); line-height: 1.45; }
+.ui-style-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent-text);
+}
+.ui-style-card.selected .ui-style-badge {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+/* Live miniature preview inside Interface Style cards */
+.ui-mini-preview {
+  height: 104px;
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(155deg, color-mix(in srgb, var(--accent) 28%, #0a0a0d), #070709);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.ui-mini-orig-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.ui-mini-orig-tiles span { height: 22px; border-radius: 4px; background: rgba(255, 255, 255, 0.11); }
+.ui-mini-orig-bar {
+  height: 18px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.16);
+  margin-top: auto;
+}
+.ui-mini-orig-nav {
+  height: 14px;
+  background: rgba(0, 0, 0, 0.65);
+  border-radius: 3px;
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+}
+.ui-mini-orig-nav i { width: 14px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.55); }
+.ui-mini-sp-hero {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  margin: 0 auto;
+  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 45%, #fff));
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.45);
+}
+.ui-mini-sp-pill {
+  height: 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+.ui-mini-sp-dock {
+  width: 66%;
+  height: 16px;
+  margin: 0 auto;
+  border-radius: 999px;
+  background: rgba(20, 20, 24, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding: 0 8px;
+}
+.ui-mini-sp-dock i { width: 8px; height: 8px; border-radius: 50%; background: rgba(255, 255, 255, 0.75); }
+.ui-mini-sp-dock i:first-child { background: var(--accent); }
+
+/* Spot+ UI & Player Customization Panel */
+.sp-custom-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 22px;
+}
+.sp-custom-grid .field { margin-bottom: 0; }
+.sp-custom-grid input[type="range"] { width: 120px; }
+
+@media (max-width: 767px) {
+  .ui-style-cards { grid-template-columns: 1fr; }
+  .sp-custom-grid { grid-template-columns: 1fr; gap: 12px; }
+}
+
+/* --- Visualizer Canvas & Artwork Glow --- */
+.np-viz-wrap {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+#npViz {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 48%;
+  display: block;
+  opacity: 0.92;
+  transition: opacity 280ms ease, filter 280ms ease;
+}
+#np[data-mode="lyrics"] #npViz {
+  filter: blur(18px);
+  opacity: 0.45;
+}
+.np-viz-note {
+  position: absolute;
+  bottom: calc(env(safe-area-inset-bottom) + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.52);
+  color: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  white-space: nowrap;
+  z-index: 4;
+}
+.np-top,
+.np-foot {
+  position: relative;
+  z-index: 4;
+}
+.np-body {
+  position: relative;
+  z-index: 2;
+}
+.np-art { position: relative; }
+.np-art::before {
+  content: "";
+  position: absolute;
+  inset: -12px;
+  border-radius: calc(var(--sp-art-radius, 14px) + 14px);
+  background: radial-gradient(circle, var(--song-color, var(--accent)) 0%, transparent 72%);
+  opacity: calc(var(--viz-bass, 0) * 0.85);
+  transform: scale(calc(1 + var(--viz-bass, 0) * 0.14));
+  filter: blur(28px);
+  pointer-events: none;
+  transition: opacity 110ms linear, transform 110ms linear;
+  z-index: 0;
+}
+.np-art img { position: relative; z-index: 1; }
+@media (max-width: 899px) {
+  .np[data-mode="art"] .np-body {
+    flex: 1 1 auto;
+    min-height: 120px;
+    margin: 12px 0;
+    container-type: size;
+    overflow: visible;
+  }
+  .np[data-mode="art"] .np-art {
+    width: min(100%, 38dvh, 420px);
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
+  }
+  @supports (width: 100cqh) {
+    .np[data-mode="art"] .np-art {
+      width: min(100cqw, 100cqh, 420px);
+      height: min(100cqw, 100cqh, 420px);
+    }
+    .np[data-mode="art"] .np-art img {
+      width: 100%;
+      height: 100%;
+    }
+  }
+}
+
+/* Hold-for-2x Speed Pill on Now Playing Artwork */
+.np-speed-pill {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(18, 18, 22, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+
+/* --- Upgraded Lyrics Engine Styles --- */
+.ly-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 2px 12px;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+.ly-toolbar .chip {
+  font-size: 12px;
+  padding: 6px 11px;
+  min-height: 32px;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.ly-word {
+  color: rgba(255, 255, 255, 0.42);
+  transition: color 140ms ease, text-shadow 140ms ease;
+}
+.ly.on .ly-word.sung {
+  color: #ffffff;
+  text-shadow: 0 0 18px rgba(255, 255, 255, 0.35);
+}
+.ly.on .ly-word.current {
+  color: #ffffff;
+  text-shadow: 0 0 22px rgba(255, 255, 255, 0.55);
+}
+.ly-trans {
+  display: block;
+  font-size: 0.62em;
+  font-weight: 500;
+  line-height: 1.35;
+  margin-top: 4px;
+  opacity: 0.76;
+  color: rgba(255, 255, 255, 0.85);
+}
+body[data-lyrics-size="small"] .ly { font-size: 20px; }
+body[data-lyrics-size="medium"] .ly { font-size: 26px; }
+body[data-lyrics-size="large"] .ly { font-size: 31px; }
+body[data-lyrics-size="xlarge"] .ly { font-size: 36px; }
+body[data-lyrics-blur="on"] .np-lyrics .ly:not(.on) {
+  filter: blur(1.4px);
+  opacity: 0.46;
+}
+body[data-lyrics-blur="on"] .np-lyrics .ly.near {
+  filter: blur(0.6px);
+  opacity: 0.62;
+}
+body[data-lyrics-blur="on"] .np-lyrics .ly:hover {
+  filter: none;
+  opacity: 0.88;
+}
+body[data-lyrics-blur="on"] .np-lyrics .ly.on {
+  filter: none;
+  opacity: 1;
+}
+
+/* --- Audio, Parametric EQ, AutoEq & DSP Studio Sheet --- */
+.dsp-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  padding: 4px;
+  border-radius: 14px;
+  background: var(--bg3);
+  margin-bottom: 14px;
+}
+.dsp-tab {
+  padding: 8px 6px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--muted);
+  text-align: center;
+  min-height: 36px;
+  transition: background 150ms ease, color 150ms ease;
+}
+.dsp-tab.on {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.dsp-master-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--bg3);
+  margin-bottom: 12px;
+}
+.dsp-master-row b { display: block; font-size: 14px; }
+.dsp-master-row small { display: block; font-size: 12px; color: var(--muted); }
+.eq-curve-box {
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--canvas) 75%, var(--bg3));
+  border: 1px solid var(--line);
+  padding: 10px 10px 6px;
+  margin-bottom: 12px;
+}
+.eq-curve-svg {
+  width: 100%;
+  height: 92px;
+  display: block;
+}
+.eq-sliders {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px 6px;
+  margin: 12px 0;
+}
+.eq-band {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px;
+  border-radius: 10px;
+  background: var(--bg3);
+}
+.eq-band.selected { outline: 1.5px solid var(--accent); }
+.eq-band-gain { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--accent-text); }
+.eq-band input[type="range"] { width: 100%; margin: 4px 0; }
+.eq-band-freq { font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.eq-band-editor {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--bg3);
+  margin: 10px 0 12px;
+}
+.eq-band-editor label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); }
+.eq-band-editor select, .eq-band-editor input { font-size: 12.5px; padding: 6px 8px; border-radius: 8px; }
+
+.autoeq-search-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.autoeq-search-row input {
+  flex: 1;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 14px;
+  border: 1px solid var(--line);
+}
+.autoeq-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.autoeq-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--bg3);
+  border: 1px solid transparent;
+  min-height: 46px;
+}
+.autoeq-item.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg3));
+}
+.autoeq-item b { display: block; font-size: 13.5px; }
+.autoeq-item small { display: block; font-size: 11.5px; color: var(--muted); }
+.autoeq-tag {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.autoeq-item.on .autoeq-tag { background: var(--accent); color: var(--accent-ink); }
+
+.dsp-card {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--bg3);
+  margin-bottom: 10px;
+}
+.dsp-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.dsp-card-head b { font-size: 13.5px; }
+.dsp-card-head small { display: block; font-size: 11.5px; color: var(--muted); }
+
+/* ==========================================================================
+   2. SPOT+ UI (Liquid Glass & Apple Music-inspired Interface)
+   Strictly scoped under body[data-ui="spotplus"]
+   ========================================================================== */
+
+body[data-ui="spotplus"] {
+  font-family: var(--sp-font);
+  --sp-glass-bg: rgba(22, 22, 28, var(--sp-glass-alpha));
+  --sp-glass-surface: rgba(28, 28, 35, calc(var(--sp-glass-alpha) * 0.92));
+  --sp-glass-pill: rgba(255, 255, 255, 0.14);
+  --sp-glass-shadow: 0 14px 36px rgba(0, 0, 0, 0.42), inset 0 1px 0 var(--sp-glass-spec);
+}
+
+body[data-ui="spotplus"][data-mode="light"] {
+  --sp-glass-bg: rgba(246, 247, 250, 0.78);
+  --sp-glass-surface: rgba(255, 255, 255, 0.72);
+  --sp-glass-pill: rgba(0, 0, 0, 0.07);
+  --sp-glass-border: rgba(0, 0, 0, 0.11);
+  --sp-glass-spec: rgba(255, 255, 255, 0.85);
+  --sp-glass-shadow: 0 12px 30px rgba(15, 23, 42, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  body[data-ui="spotplus"] {
+    --sp-glass-bg: var(--bg2);
+    --sp-glass-surface: var(--bg3);
+  }
+}
+
+/* --- Typography & Home Polish --- */
+body[data-ui="spotplus"] h1 {
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+body[data-ui="spotplus"] h2 {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+body[data-ui="spotplus"] .mobile-top {
+  background: transparent;
+  padding-top: calc(var(--st) + 8px);
+}
+body[data-ui="spotplus"] .mobile-top > span {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+body[data-ui="spotplus"] .quick-grid {
+  gap: 10px;
+}
+body[data-ui="spotplus"] .quick-item {
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg3) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  transition: transform 160ms var(--sp-ease), background 160ms ease;
+}
+body[data-ui="spotplus"] .quick-item:active { transform: scale(0.97); }
+body[data-ui="spotplus"] .card {
+  border-radius: 16px;
+  background: transparent;
+  transition: transform 180ms var(--sp-ease), background 180ms ease;
+}
+body[data-ui="spotplus"] .card img,
+body[data-ui="spotplus"] .card .ph-cover {
+  border-radius: var(--sp-art-radius, 14px);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.34);
+}
+body[data-ui="spotplus"] .card:active { transform: scale(0.97); }
+
+/* --- Album / Playlist / Artist Hero Bleed & Centered Glass Controls --- */
+body[data-ui="spotplus"][data-page="album"] .phead,
+body[data-ui="spotplus"][data-page="playlist"] .phead,
+body[data-ui="spotplus"][data-page="my"] .phead,
+body[data-ui="spotplus"][data-page="linked"] .phead,
+body[data-ui="spotplus"][data-page="liked"] .phead,
+body[data-ui="spotplus"][data-page="mix"] .phead {
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 14px;
+  padding: 18px 14px 8px;
+}
+body[data-ui="spotplus"] .phead-art {
+  border-radius: calc(var(--sp-art-radius, 14px) + 4px);
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.52);
+  overflow: hidden;
+}
+body[data-ui="spotplus"] .phead-art img {
+  border-radius: calc(var(--sp-art-radius, 14px) + 4px);
+}
+body[data-ui="spotplus"][data-page="album"] .actions,
+body[data-ui="spotplus"][data-page="playlist"] .actions,
+body[data-ui="spotplus"][data-page="my"] .actions,
+body[data-ui="spotplus"][data-page="linked"] .actions,
+body[data-ui="spotplus"][data-page="liked"] .actions,
+body[data-ui="spotplus"][data-page="mix"] .actions {
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+body[data-ui="spotplus"] .actions .btn,
+body[data-ui="spotplus"] .actions .btn.white,
+body[data-ui="spotplus"] .actions .btn.primary {
+  border-radius: 999px;
+  min-height: 46px;
+  padding: 0 22px;
+  background: var(--sp-glass-bg);
+  border: 1px solid var(--sp-glass-border);
+  box-shadow: var(--sp-glass-shadow);
+  backdrop-filter: blur(var(--sp-glass-blur)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--sp-glass-blur)) saturate(180%);
+  color: var(--text);
+  font-weight: 700;
+  transition: transform 150ms var(--sp-spring), background 150ms ease;
+}
+body[data-ui="spotplus"] .actions .btn.white,
+body[data-ui="spotplus"] .actions .btn.primary {
+  background: color-mix(in srgb, var(--accent) 26%, var(--sp-glass-bg));
+  color: var(--accent-text);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--sp-glass-border));
+}
+body[data-ui="spotplus"] .actions .btn:active { transform: scale(0.95); }
+
+/* Clean hairline dividers between tracks */
+body[data-ui="spotplus"] .trow {
+  border-radius: 12px;
+  min-height: 58px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 42%, transparent);
+}
+body[data-ui="spotplus"] .trow .tcover { border-radius: 8px; }
+body[data-ui="spotplus"] .box {
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--bg2) 86%, transparent);
+  border: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+body[data-ui="spotplus"] .searchbox {
+  border-radius: 999px;
+  background: var(--sp-glass-bg);
+  color: var(--text);
+  border: 1px solid var(--sp-glass-border);
+  box-shadow: var(--sp-glass-shadow);
+  backdrop-filter: blur(var(--sp-glass-blur)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--sp-glass-blur)) saturate(180%);
+}
+body[data-ui="spotplus"] .searchbox input { color: var(--text); }
+
+/* --- Mobile Floating Liquid Glass Bottom Tab Bar & Floating Pill Mini-Player --- */
+@media (max-width: 899px) {
+  body[data-ui="spotplus"] .nav {
+    position: fixed;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    bottom: calc(var(--sb, 0px) + 10px);
+    width: min(306px, calc(100vw - 44px));
+    height: 58px;
+    padding: 5px 6px;
+    border-radius: 999px;
+    background: var(--sp-glass-bg);
+    border: 1px solid var(--sp-glass-border);
+    box-shadow: var(--sp-glass-shadow);
+    backdrop-filter: blur(var(--sp-glass-blur)) saturate(195%);
+    -webkit-backdrop-filter: blur(var(--sp-glass-blur)) saturate(195%);
+    gap: 2px;
+    z-index: 25;
+  }
+  body[data-ui="spotplus"] .nav a,
+  body[data-ui="spotplus"] .nav button {
+    height: 100%;
+    min-width: 48px;
+    border-radius: 999px;
+    gap: 2px;
+    color: color-mix(in srgb, var(--text) 78%, transparent);
+    transition: background 180ms ease, color 180ms ease, transform 150ms var(--sp-spring);
+  }
+  body[data-ui="spotplus"] .nav a.on {
+    background: var(--sp-glass-pill);
+    color: var(--accent-text);
+    box-shadow: inset 0 1px 0 var(--sp-glass-spec);
+  }
+  body[data-ui="spotplus"] .nav a:active,
+  body[data-ui="spotplus"] .nav button:active {
+    transform: scale(0.92);
+  }
+  body[data-ui="spotplus"][data-tab-labels="off"] .nav span {
+    display: none;
+  }
+  body[data-ui="spotplus"][data-tab-labels="off"] .nav svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  /* Detached floating Liquid Glass mini-player pill hovering above the floating tab bar */
+  body[data-ui="spotplus"] .bar {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: calc(var(--sb, 0px) + 78px);
+    height: 58px;
+    border-radius: 999px;
+    padding: 6px 12px 6px 8px;
+    background: color-mix(in srgb, var(--song-surface, var(--bg2)) 48%, var(--sp-glass-bg));
+    border: 1px solid var(--sp-glass-border);
+    box-shadow: var(--sp-glass-shadow);
+    backdrop-filter: blur(var(--sp-glass-blur)) saturate(190%);
+    -webkit-backdrop-filter: blur(var(--sp-glass-blur)) saturate(190%);
+    overflow: hidden;
+    z-index: 24;
+  }
+  body[data-ui="spotplus"] #barArt {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  }
+  body[data-ui="spotplus"] .bar-prog {
+    position: absolute;
+    left: 22px;
+    right: 22px;
+    bottom: 2px;
+    top: auto;
+    height: 2.5px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.16);
+    overflow: hidden;
+  }
+  body[data-ui="spotplus"] #barProg {
+    height: 100%;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.92);
+  }
+  body[data-ui="spotplus"] main {
+    padding-bottom: calc(var(--sb, 0px) + 96px);
+  }
+  body[data-ui="spotplus"].has-bar main {
+    padding-bottom: calc(var(--sb, 0px) + 156px);
+  }
+  body[data-ui="spotplus"] #toasts {
+    bottom: calc(var(--sb, 0px) + 148px);
+  }
+}
+
+/* --- Desktop Liquid Glass Chrome --- */
+@media (min-width: 900px) {
+  body[data-ui="spotplus"] .topbar {
+    background: color-mix(in srgb, var(--canvas) 75%, transparent);
+    backdrop-filter: blur(var(--sp-glass-blur)) saturate(180%);
+    -webkit-backdrop-filter: blur(var(--sp-glass-blur)) saturate(180%);
+  }
+  body[data-ui="spotplus"] .sidebar {
+    background: var(--sp-glass-bg);
+    border: 1px solid var(--sp-glass-border);
+    box-shadow: var(--sp-glass-shadow);
+    border-radius: 22px;
+    backdrop-filter: blur(var(--sp-glass-blur)) saturate(180%);
+    -webkit-backdrop-filter: blur(var(--sp-glass-blur)) saturate(180%);
+  }
+  body[data-ui="spotplus"] .bar {
+    margin: 0 12px 10px;
+    border-radius: 24px;
+    border: 1px solid var(--sp-glass-border);
+    background: color-mix(in srgb, var(--song-deep, var(--bg2)) 45%, var(--sp-glass-bg));
+    box-shadow: var(--sp-glass-shadow);
+    backdrop-filter: blur(var(--sp-glass-blur)) saturate(190%);
+    -webkit-backdrop-filter: blur(var(--sp-glass-blur)) saturate(190%);
+  }
+  body[data-ui="spotplus"] .top-search form {
+    border-radius: 999px;
+    background: var(--sp-glass-bg);
+    border: 1px solid var(--sp-glass-border);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+}
+
+/* --- Liquid Glass Bottom Sheets & Dialogs --- */
+body[data-ui="spotplus"] .sheet-panel,
+body[data-ui="spotplus"] dialog {
+  background: var(--sp-glass-bg);
+  border: 1px solid var(--sp-glass-border);
+  box-shadow: var(--sp-glass-shadow);
+  backdrop-filter: blur(calc(var(--sp-glass-blur) + 6px)) saturate(190%);
+  -webkit-backdrop-filter: blur(calc(var(--sp-glass-blur) + 6px)) saturate(190%);
+  border-radius: 30px 30px 0 0;
+}
+@media (min-width: 900px) {
+  body[data-ui="spotplus"] .sheet-panel,
+  body[data-ui="spotplus"] dialog {
+    border-radius: 26px;
+  }
+}
+
+/* ==========================================================================
+   3. REDESIGNED NOW PLAYING SCREEN (Spot+ UI)
+   ========================================================================== */
+
+@keyframes spFluidDrift {
+  0%   { transform: scale(1.38) translate3d(-3%, -2%, 0) rotate(0deg); }
+  33%  { transform: scale(1.48) translate3d(3%, 2%, 0) rotate(6deg); }
+  66%  { transform: scale(1.42) translate3d(-2%, 3%, 0) rotate(-5deg); }
+  100% { transform: scale(1.38) translate3d(-3%, -2%, 0) rotate(0deg); }
+}
+
+body[data-ui="spotplus"] .np {
+  background: var(--song-deep, #070709);
+  border: 0;
+  color: #ffffff;
+  --text: #ffffff;
+  --muted: rgba(255, 255, 255, 0.68);
+  padding: calc(var(--st, 0px) + 10px) 22px calc(var(--sb, 0px) + 16px);
+  transition: transform calc(340ms * var(--sp-anim-scale)) var(--sp-ease);
+}
+
+body[data-ui="spotplus"] .np-bg {
+  opacity: 0.96;
+  filter: blur(72px) saturate(1.75) brightness(0.62);
+  transform: scale(1.4);
+  will-change: transform;
+}
+body[data-ui="spotplus"][data-player-bg="fluid"] .np.open .np-bg {
+  animation: spFluidDrift 26s ease-in-out infinite;
+}
+body[data-ui="spotplus"][data-player-bg="still"] .np-bg {
+  animation: none;
+  filter: blur(66px) saturate(1.45) brightness(0.56);
+}
+body[data-ui="spotplus"][data-player-bg="solid"] .np-bg {
+  opacity: 0;
+}
+body[data-ui="spotplus"][data-player-bg="solid"] .np {
+  background: var(--canvas, #000000);
+}
+body[data-ui="spotplus"][data-anim="reduced"] .np-bg,
+body[data-ui="spotplus"][data-motion="reduced"] .np-bg {
+  animation: none !important;
+}
+
+body[data-ui="spotplus"] .np::after {
+  background: radial-gradient(circle at 50% 24%, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.48) 65%, rgba(0, 0, 0, 0.78) 100%);
+}
+
+/* Circular Liquid Glass Top Bar Buttons */
+body[data-ui="spotplus"] .np-top {
+  background: transparent;
+  gap: 8px;
+  position: relative;
+  z-index: 4;
+  padding: 2px 0;
+}
+body[data-ui="spotplus"] .np-top .icon {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 6px 18px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(22px) saturate(180%);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  color: #ffffff;
+  transition: transform 160ms var(--sp-spring), background 160ms ease;
+}
+body[data-ui="spotplus"] .np-top .icon:active { transform: scale(0.9); }
+body[data-ui="spotplus"] .np-top .icon.on {
+  background: color-mix(in srgb, var(--accent) 42%, rgba(255, 255, 255, 0.16));
+  border-color: color-mix(in srgb, var(--accent) 68%, #ffffff);
+  color: #ffffff;
+}
+body[data-ui="spotplus"] .np-label {
+  flex: 1;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: -0.01em;
+  color: rgba(255, 255, 255, 0.92);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 8px;
+}
+
+/* Centered Artwork with Play/Pause Spring Scaling */
+body[data-ui="spotplus"] .np-body {
+  position: relative;
+  z-index: 2;
+  margin: 10px 0 12px;
+}
+body[data-ui="spotplus"] .np-art {
+  width: min(88vw, 390px, 42dvh);
+  max-width: 420px;
+}
+@media (max-width: 899px) {
+  body[data-ui="spotplus"] .np[data-mode="art"] .np-art {
+    width: min(100%, 38dvh, 400px);
+  }
+  @supports (width: 100cqh) {
+    body[data-ui="spotplus"] .np[data-mode="art"] .np-art {
+      width: min(100cqw, 100cqh, 400px);
+      height: min(100cqw, 100cqh, 400px);
+    }
+  }
+}
+body[data-ui="spotplus"] .np-art img {
+  border-radius: var(--sp-art-radius, 14px);
+  box-shadow: 0 28px 64px rgba(0, 0, 0, 0.58), 0 4px 16px rgba(0, 0, 0, 0.35);
+  transform: scale(1);
+  transition: transform calc(420ms * var(--sp-anim-scale)) var(--sp-spring), box-shadow 340ms ease;
+  will-change: transform;
+}
+body[data-ui="spotplus"] .np[data-playing="false"] .np-art img {
+  transform: scale(0.84);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.42);
+}
+
+/* Morphing Lyrics Header (thumbnail cover beside song title when Lyrics mode is open on mobile) */
+.np-lyrics-mini {
+  display: none;
+}
+body[data-ui="spotplus"] .np[data-mode="lyrics"] .np-lyrics-mini {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 2px 10px;
+  position: relative;
+  z-index: 4;
+}
+.np-lyrics-mini img {
+  width: 52px;
+  height: 52px;
+  border-radius: 10px;
+  object-fit: cover;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+  flex: none;
+}
+.np-lyrics-mini-meta { flex: 1; min-width: 0; }
+.np-lyrics-mini-meta b {
+  display: block;
+  font-size: 16px;
+  font-weight: 800;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.np-lyrics-mini-meta span {
+  display: block;
+  font-size: 13.5px;
+  color: rgba(255, 255, 255, 0.72);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 899px) {
+  body[data-ui="spotplus"] .np[data-mode="lyrics"] .np-info {
+    display: none;
+  }
+}
+
+/* Frosted Glass Queue Container inside Now Playing */
+body[data-ui="spotplus"] .np[data-mode="queue"] .np-panel {
+  border-radius: 28px;
+  padding: 12px 14px;
+  background: rgba(18, 18, 22, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(32px) saturate(185%);
+  -webkit-backdrop-filter: blur(32px) saturate(185%);
+}
+body[data-ui="spotplus"] .np[data-mode="queue"] .q-head {
+  font-size: 17px;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+}
+
+/* Footer, Track Metadata, Pill Scrubber, Bare Glyph Controls */
+body[data-ui="spotplus"] .np-foot {
+  background: transparent;
+  position: relative;
+  z-index: 4;
+}
+body[data-ui="spotplus"] #npTitle {
+  font-size: 23px;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  color: #ffffff;
+}
+body[data-ui="spotplus"] #npArtist {
+  font-size: 16px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.72);
+}
+body[data-ui="spotplus"] .np-info .icon[data-role="like"] {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.42);
+  color: #ffffff;
+}
+body[data-ui="spotplus"] .np-info .icon[data-role="like"].on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* Apple Music Pill Progress Scrubber */
+body[data-ui="spotplus"] .np-seek {
+  margin: 14px 0 4px;
+}
+body[data-ui="spotplus"] .np-seek input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 7px;
+  border-radius: 999px;
+  background: linear-gradient(to right, rgba(255, 255, 255, 0.94) var(--p, 0%), rgba(255, 255, 255, 0.22) var(--p, 0%));
+  transition: height 150ms var(--sp-ease);
+  cursor: pointer;
+}
+body[data-ui="spotplus"] .np-seek input[type="range"]:hover,
+body[data-ui="spotplus"] .np-seek input[type="range"]:active {
+  height: 11px;
+}
+body[data-ui="spotplus"] .np-seek input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 1px;
+  height: 11px;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+}
+body[data-ui="spotplus"] .np-seek input[type="range"]::-moz-range-thumb {
+  width: 1px;
+  height: 11px;
+  border: 0;
+  background: transparent;
+}
+body[data-ui="spotplus"] .times {
+  margin-top: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+/* Bare Glyph Transport Controls (matching Apple Music / Liquid Glass reference) */
+body[data-ui="spotplus"] .np-ctrls {
+  margin: 10px 0 14px;
+  justify-content: space-between;
+  padding: 0 4px;
+}
+body[data-ui="spotplus"] .np-ctrls .icon {
+  color: #ffffff;
+  background: transparent;
+  transition: transform 140ms var(--sp-spring), opacity 140ms ease;
+}
+body[data-ui="spotplus"] .np-ctrls .icon:active { transform: scale(0.86); }
+body[data-ui="spotplus"] .np-ctrls .icon.huge {
+  width: 66px;
+  height: 66px;
+  background: transparent !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+}
+body[data-ui="spotplus"] .np-ctrls .icon.huge svg {
+  width: 44px;
+  height: 44px;
+}
+body[data-ui="spotplus"] .np-ctrls .icon.big svg {
+  width: 36px;
+  height: 36px;
+}
+body[data-ui="spotplus"] .np-ctrls .icon[data-role="shuffle"].on,
+body[data-ui="spotplus"] .np-ctrls .icon[data-role="repeat"].on {
+  color: var(--accent-text);
+  position: relative;
+}
+body[data-ui="spotplus"] .np-ctrls .icon[data-role="shuffle"].on::after,
+body[data-ui="spotplus"] .np-ctrls .icon[data-role="repeat"].on::after {
+  content: "";
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--accent-text);
+}
+
+/* Minimalist Bottom Glyph Dock */
+body[data-ui="spotplus"] .np-tabs {
+  gap: 8px;
+  margin-top: 2px;
+}
+body[data-ui="spotplus"] .np-tabs button {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  color: rgba(255, 255, 255, 0.82);
+  min-height: 38px;
+  padding: 6px 13px;
+  font-size: 13px;
+  transition: transform 140ms var(--sp-spring), background 160ms ease;
+}
+body[data-ui="spotplus"] .np-tabs button:active { transform: scale(0.94); }
+body[data-ui="spotplus"] .np-tabs button.on {
+  background: rgba(255, 255, 255, 0.92);
+  color: #111114;
+  border-color: rgba(255, 255, 255, 0.95);
+}
+
+/* Reduced Motion Respect */
+@media (prefers-reduced-motion: reduce) {
+  body[data-ui="spotplus"] .np,
+  body[data-ui="spotplus"] .np-art img,
+  body[data-ui="spotplus"] .np-bg,
+  .ui-style-card {
+    animation: none !important;
+    transition: none !important;
+  }
+}

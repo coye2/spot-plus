@@ -1,6 +1,18 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '2.2.0', date: '2026-11-21', title: 'Spotify — Official Playback & preview streaming fixes', items: [
+    'Added Spotify — Official Playback in Audio sources using standards-compliant OAuth 2.0 PKCE (zero client secrets in browser bundles), official Spotify Web Playback SDK on supported EME browsers, and Spotify Connect remote control for Premium accounts — with truthful availability badges and automatic fallback to Spot+ YouTube Relay.',
+    'Added a dedicated Cloudflare Worker control-plane service (workers/spotify-relay) with per-user & per-IP rate limiting, request coalescing, circuit breaker, bounded retries, short-lived metadata URI resolution, and strict refusal of unauthorized DRM audio proxying.',
+    'Fixed preview-mode audio streaming so relay URLs resolve to the live browser origin without stale service-worker cache interference, defaulted audio-reactive visualizers to off so opening Now Playing never interrupts iOS playback, and prevented Now Playing cover art from overlapping the header on compact viewports.',
+  ]},
+  {version: '2.1.0', date: '2026-11-20', title: 'Spot+ UI, Audio Studio & Live Visualizers', items: [
+    'New Interface Style switcher right inside Theme Studio and Settings: switch live between Original Spot+ and the redesigned Spot+ UI (Liquid Glass floating tab bar, frosted mini-player pill, fluid artwork Now Playing canvas, pause-shrink artwork spring, morphing lyrics header, and centered glass album & playlist headers) with zero page reload and uninterrupted audio playback.',
+    'All 33+ color themes, AMOLED, Light/Dark/Auto/Clear modes, and custom wallpapers work across both interfaces, alongside new customization controls for player background style, glass intensity, blur radius, artwork roundness, typography pairing, animation feel, tab labels, hold-for-2× speed preview, and double-tap artwork seek.',
+    'Audio Studio (Parametric EQ, AutoEq Headphones & DSP): 10-band configurable parametric equalizer with live frequency response curve and custom presets, searchable AutoEq headphone correction database (65+ models + ParametricEQ.txt importer), and toggleable Web Audio DSP (Master Preamp, Loudness Normalization, Dynamics Compressor, True-Peak Limiter, Sub-Bass Warmth, Mid/Side Stereo Width, Headphone Crossfeed, and Channel Balance) alongside existing Speed, Pitch, Reverb, Lo-Fi, 8D, and Vocal Remover effects.',
+    'Upgraded Synced Lyrics: genuine enhanced LRC word-by-word highlight support when timestamps exist (falling back cleanly to line sync without fabricating word timings), progressive soft-focus blur on surrounding lines, configurable Bluetooth timing offset (−200 to +600 ms), adjustable lyrics font size, and cached client-side bilingual/translated lyrics.',
+    'Real audio-reactive Music Visualizers (Fluid Hills, Spectrum Bars, Waveform, Ambient Glow, Artwork Glow, Minimal) driven by a real Web Audio AnalyserNode, plus selectable song-mix fade curves (Equal-Power, Smooth S-Curve, Linear).',
+  ]},
   {version: '2.0.7', date: '2026-11-20', title: 'Song Mix & stutter-free playback', items: [
     'Spotify-style Mix right on every playlist and Now Playing: tap Mix to blend songs smoothly with Smart Mix, DJ Blend (equal-power crossfade with bass-swap EQ), or Smooth Fade (2–12 s) — now working on iPhone and iPad too via hardware-timed Web Audio transitions.',
     'One-tap Mix this playlist, Smooth-order Up Next (spaces out back-to-back tracks by the same artist), and Start song mix on every track, including synced Spotify songs.',

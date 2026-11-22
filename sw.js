@@ -1,11 +1,13 @@
 // Spot+ service worker: offline app shell, cached cover art, and HTTP Range support for cached audio.
 // v40 includes version 2 account snapshots and incomplete-collection preservation.
-const SHELL_CACHE = 'spotplus-shell-v145';
+const SHELL_CACHE = 'spotplus-shell-v148';
 const IMG_CACHE = 'spotplus-img-v1';
 const AUDIO_CACHE = 'spotplus-audio-v1';
 const KEEP = [SHELL_CACHE, IMG_CACHE, AUDIO_CACHE, 'spotplus-live-voice-v1'];
 const SHELL = [
   './js/gate.js', './js/maintenance.js', './js/automix.js',
+  './js/playback/spotify-capabilities.js', './js/playback/spotify-auth.js', './js/playback/spotify-device.js', './js/playback/spotify-provider.js',
+  './js/ui-engine.js', './js/autoeq.js', './js/dsp.js', './js/lyrics-engine.js', './js/visualizer.js', './js/audio-studio-ui.js', './css/spotplus-ui.css',
   './js/playback-telemetry.js', './js/source-router.js', './js/memory-engine.js', './js/buffer-engine.js', './js/predictive-pipeline.js',
   './js/profile-photo.js', './js/backgrounds.js', './js/background-catalog.js', './css/backgrounds.css',
   './js/audio-selection.js','./js/player-colors.js','./js/spotify-stats.js','./js/listening-history.js','./js/history-import-worker.js','./js/rewind.js','./js/stats-api.js','./js/canvas-cache.js','./js/jam.js','./js/jam-mesh.js','./js/relay-sync.js','./js/spotify-links.js','./js/vendor/nostr-sign.js','./js/onboarding.js','./js/notify.js','./js/landing.js','./js/fx.js','./js/spoken.js','./js/generator.js','./js/mixes.js','./js/library-sync.js','./js/live-stats.js','./js/changelog.js','./js/cors-probe.js','./js/pitch-worklet.js','./js/boot.js','./css/landing.css','./icons/shot-home.webp','./icons/shot-coll.webp','./icons/shot-jam.webp','./js/vendor/qrcode.js','./css/rewind.css','./css/polish.css',
@@ -96,6 +98,7 @@ self.addEventListener('fetch', (e) => {
 
   // Versioned app shell: open immediately from cache; a new worker installs the next complete version.
   if (url.origin === self.location.origin) {
+    if (url.pathname.startsWith('/__preview_worker/')) return;
     if (url.pathname.includes('/__offline/')) {
       e.respondWith(serveCachedAudioRange(req));
       return;

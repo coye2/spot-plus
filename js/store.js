@@ -162,10 +162,10 @@ export function addDownload(t) { write('downloads', [slim(t), ...getDownloads().
 export function removeDownloadMeta(id) { write('downloads', getDownloads().filter((x) => x.id !== String(id))); }
 
 /* ---------- Settings ---------- */
-const DEFAULTS = { smartRadio:true, automix:'0', mixStyle:'smart', notifyUpdates:true, notifyReleases:true, notifyStats:true, themePreset:'pine', amoled:true, preloadNext:true, source: 'auto', quality: 'high', customPiped: '', customInvidious: '', customHifi: '', density: 'comfortable', accent: 'green', motion: 'system', textSize: 'normal', sidebarWidth: 288, librarySort: 'recent', libraryFilter: 'all', showExplicit: true, displayName: 'Your library', libraryCollapsed:false, djVoice:true, djCommentary:true, djHost:'afterhours' };
+const DEFAULTS = { smartRadio:true, automix:'0', mixStyle:'smart', mixCurve:'equal-power', notifyUpdates:true, notifyReleases:true, notifyStats:true, themePreset:'pine', amoled:true, preloadNext:true, source: 'auto', quality: 'high', customPiped: '', customInvidious: '', customHifi: '', spotifyClientId: '', spotifyRelayUrl: '', density: 'comfortable', accent: 'green', motion: 'system', textSize: 'normal', sidebarWidth: 288, librarySort: 'recent', libraryFilter: 'all', showExplicit: true, displayName: 'Your library', libraryCollapsed:false, djVoice:true, djCommentary:true, djHost:'afterhours', uiStyle:'original', playerBg:'fluid', fontChoice:'system', artRadius:14, glassIntensity:72, blurIntensity:26, animIntensity:'full', visualizerMode:'off', lyricsSize:'medium', lyricsBlur:true, lyricsDelayMs:0, lyricsTranslation:'off', lyricsTargetLang:'en', tabBarLabels:false, playerDoubleTapSeek:true, playerHold2x:true };
 // Audio sources that are no longer offered move to the closest one that is: the YouTube-based ones
 // (Piped, Invidious, YouTube's own player) to Spot+ YouTube Relay; Deezer's 30-second previews to Automatic.
-export const SOURCES = ['ytrelay', 'auto', 'soundcloud', 'hifi', 'jiosaavn', 'audius'];
+export const SOURCES = ['ytrelay', 'auto', 'spotify', 'soundcloud', 'hifi', 'jiosaavn', 'audius'];
 const LEGACY_SOURCES = {piped: 'ytrelay', invidious: 'ytrelay', youtube: 'ytrelay', deezer: 'auto', preview: 'auto'};
 export const migrateSource = (source) => SOURCES.includes(source) ? source : LEGACY_SOURCES[source] || 'auto';
 /** Once at startup and after importing a profile: move a saved source that is no longer offered. */
@@ -175,7 +175,7 @@ export function migrateSavedSource() {
 }
 export const getSettings = () => {
   const saved={...DEFAULTS,...read('settings',{})};
-  for(const key of ['displayName','customPiped','customInvidious','customHifi'])saved[key]=typeof saved[key]==='string'?saved[key]:DEFAULTS[key];
+  for(const key of ['displayName','customPiped','customInvidious','customHifi','spotifyClientId','spotifyRelayUrl'])saved[key]=typeof saved[key]==='string'?saved[key]:DEFAULTS[key];
   return saved;
 };
 export const setSettings = (patch) => write('settings', { ...getSettings(), ...patch });

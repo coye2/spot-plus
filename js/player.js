@@ -17,7 +17,8 @@ import { bufferEngine, classifyFailure, inspectSeek } from './buffer-engine.js';
 import { predictUpcoming, SkipTracker, ActivationTracker } from './predictive-pipeline.js';
 import { router, isVerifiedEquivalent } from './source-router.js';
 import { memoryEngine } from './memory-engine.js';
-import { effectiveMixSeconds, orderForMix, runCrossfade, MIX_STYLE_IDS } from './automix.js';
+import { effectiveMixSeconds, orderForMix, runCrossfade, MIX_STYLE_IDS, MIX_CURVES } from './automix.js';
+import { SpotifyPlaybackProvider } from './playback/spotify-provider.js';
 
 export const AUDIO_CACHE = 'spotplus-audio-v1';
 
@@ -63,13 +64,14 @@ let plainSpare = null;
 let continueQueue = null, onSkip = () => {}, onFinish = () => {}, resumeAt = () => 0;
 export function setQueueHooks(hooks) { ({ continueQueue = continueQueue, onSkip = onSkip, onFinish = onFinish, resumeAt = resumeAt } = hooks); }
 /* Mix / AutoMix: equal-power DJ transitions via Web Audio (works on iPhone/iPad!) or 60fps element volume. */
-let mixSeconds = 0, mixStyle = 'smart', mixing = false, activeCrossfade = null;
+let mixSeconds = 0, mixStyle = 'smart', mixCurve = 'equal-power', mixing = false, activeCrossfade = null;
 const elementVolumeSupported = (() => { try { const a = new Audio(); a.volume = 0.5; return a.volume === 0.5; } catch { return false; } })();
 const webAudioSupported = !!(globalThis.AudioContext || globalThis.webkitAudioContext);
 export const crossfadeSupported = elementVolumeSupported || webAudioSupported;
-export function setAutoMix(seconds, style) {
+export function setAutoMix(seconds, style, curve) {
   mixSeconds = crossfadeSupported ? Math.max(0, Math.min(12, Number(seconds) || 0)) : 0;
   if (typeof style === 'string' && MIX_STYLE_IDS.includes(style)) mixStyle = style;
+  if (typeof curve === 'string' && MIX_CURVES.some((c) => c.id === curve)) mixCurve = curve;
   emit('state');
 }
 export function mixConfig() {
@@ -78,6 +80,7 @@ export function mixConfig() {
     seconds: mixSeconds,
     style: mixSeconds > 0 ? mixStyle : 'off',
     preferredStyle: mixStyle,
+    curve: mixCurve,
     supported: crossfadeSupported,
     elementVolume: elementVolumeSupported,
     webAudio: webAudioSupported,
@@ -120,16 +123,17 @@ function setPhase(phase) {
 
 export const current = () => state.queue[state.index] || null;
 export const isEmbed = () => state.source?.kind === 'youtube-embed' && yt.active;
-export const isPlaying = () => (yt.active ? !yt.paused : (!audio.paused && isRealSrc())) && !!current();
+export const isSpotifyOfficial = () => state.source?.kind === 'spotify-official' && spotifyPlayback.active;
+export const isPlaying = () => (isSpotifyOfficial() ? !spotifyPlayback.paused : yt.active ? !yt.paused : (!audio.paused && isRealSrc())) && !!current();
 // YouTube's audio files are built for streaming (fragmented MP4/WebM), and Safari guesses their length from the
 // file size: 6-9 minutes for a 3-minute song. For relay songs YouTube already told us the real length, so the
 // progress bar, the lock screen, SponsorBlock and crossfade use that. The song still ends when its audio does.
 const knownLength = () => (state.source?.kind === 'ytrelay' && Number(state.source.duration) > 0 ? Number(state.source.duration) : 0);
 const mediaLength = () => knownLength() || (isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0);
-export const duration = () => (yt.active ? (isFinite(yt.duration) && yt.duration > 0 ? yt.duration : current()?.duration || 0) : (isRealSrc() && mediaLength() ? mediaLength() : current()?.duration || 0));
-export const position = () => (yt.active ? yt.currentTime : (audio.currentTime || 0));
-export const isPaused = () => (yt.active ? yt.paused : audio.paused);
-export const canSeek = () => !state.loading && !state.error && (yt.active ? yt.ready : isRealSrc());
+export const duration = () => (isSpotifyOfficial() ? (spotifyPlayback.duration > 0 ? spotifyPlayback.duration : current()?.duration || 0) : yt.active ? (isFinite(yt.duration) && yt.duration > 0 ? yt.duration : current()?.duration || 0) : (isRealSrc() && mediaLength() ? mediaLength() : current()?.duration || 0));
+export const position = () => (isSpotifyOfficial() ? spotifyPlayback.currentTime : yt.active ? yt.currentTime : (audio.currentTime || 0));
+export const isPaused = () => (isSpotifyOfficial() ? spotifyPlayback.paused : yt.active ? yt.paused : audio.paused);
+export const canSeek = () => !state.loading && !state.error && (isSpotifyOfficial() ? spotifyPlayback.active : yt.active ? yt.ready : isRealSrc());
 export function pause() {
   userPaused = true;
   pendingPlay = false;
@@ -140,7 +144,9 @@ export function pause() {
     clearStall();
     setPhase(STATES.IDLE);
   }
-  if (yt.active) yt.pause(); else audio.pause();
+  if (isSpotifyOfficial()) spotifyPlayback.pause();
+  else if (yt.active) yt.pause();
+  else audio.pause();
   silenceOthers();
 }
 export function hideEmbed(hidden = true) { state.ytHidden = !!hidden; emit('state'); }
@@ -626,12 +632,68 @@ export async function fallbackToPreview(reason = '', { allowPreview = false } = 
   emit('state');
 }
 
+let spotifyToken = 0;
+export const spotifyPlayback = new SpotifyPlaybackProvider({
+  getSettings: () => store.getSettings(),
+  onPlay: () => {
+    if (spotifyToken !== token) return;
+    setPhase(STATES.PLAYING);
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+    emit('state');
+    positionState();
+  },
+  onPause: () => {
+    if (spotifyToken !== token) return;
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+    emit('state');
+    save();
+  },
+  onTime: (t) => {
+    if (spotifyToken !== token) return;
+    if (t > 0) restorePos = 0;
+    emit('time');
+    const now = Date.now();
+    if (now - lastPos > 1000) { lastPos = now; positionState(); }
+    if (now - lastSave > 10000) { lastSave = now; save(); }
+  },
+  onEnded: () => {
+    if (spotifyToken !== token) return;
+    if (userPaused) {
+      setPhase(STATES.IDLE);
+      emit('state');
+      return;
+    }
+    if (state.repeat === 'one') {
+      state.playbackId = (state.playbackId || 0) + 1;
+      pendingPlay = true;
+      userPaused = false;
+      spotifyPlayback.seek(0);
+      spotifyPlayback.play();
+      emit('state');
+    } else {
+      onFinish(current());
+      next(false);
+    }
+  },
+  onError: (msg) => {
+    if (spotifyToken !== token) return;
+    spotifyPlayback.stop();
+    spotifyToken = 0;
+    const t = current();
+    if (t) {
+      emit('notice', `Spotify playback interrupted (${msg || 'error'}) — switching to Spot+ YouTube Relay.`);
+      load({ keepSkip: true, startAt: position() || 0, skipSpotify: true, trigger: 'spotify-fallback' });
+    }
+  },
+});
+
 const ducks = new Set();
 export function duck(reason, enabled) {
   if (enabled) ducks.add(reason); else ducks.delete(reason);
   const v = volumeLevel * (ducks.size ? .18 : 1);
   audio.volume = v;
   yt.setVolume(v);
+  spotifyPlayback.setVolume(v);
 }
 
 /* ---------- iOS/Safari: unlock audio on the first tap ---------- */
@@ -733,6 +795,8 @@ async function load(opts = {}) {
   telemetry.noteListeningStop();
   yt.stop();
   ytToken = 0;
+  spotifyPlayback.stop();
+  spotifyToken = 0;
   state.needsTap = false;
   state.ytHidden = false;
   startedAt = performance.now();
@@ -794,6 +858,7 @@ async function load(opts = {}) {
           targetVolume: target,
           seconds: opts.mixSeconds,
           style: opts.mixStyle || mixStyle,
+          curve: mixCurve,
           elementVolumeSupported,
           webAudioFade: useWebAudio ? crossfadeElements : null,
           onCleanupOutgoing: cleanupOut,
@@ -872,6 +937,35 @@ async function load(opts = {}) {
       telemetry.markStage(my, 'resolveEnd', { cacheLayer: 'offline-cache', sourceKind: 'offline-blob', instance: 'device', cold: false });
     } else {
       if (objUrl) { URL.revokeObjectURL(objUrl); objUrl = null; }
+      // Official Spotify Playback path when selected by the listener; failures fall back cleanly to YouTube Relay.
+      if (!t.local && !t.direct && store.getSettings().source === 'spotify' && !opts.sourceOverride && !opts.skipSpotify) {
+        try {
+          const spSource = await spotifyPlayback.loadAndPlay(t, {
+            startAt: opts.startAt || 0,
+            autoplay: pendingPlay,
+            volume: volumeLevel * (ducks.size ? .18 : 1),
+          });
+          if (my !== token) { spotifyPlayback.stop(); return; }
+          audio.pause();
+          audio.removeAttribute('src');
+          audio.load();
+          spotifyToken = my;
+          state.source = spSource;
+          setPhase(pendingPlay ? STATES.PLAYING : STATES.IDLE);
+          failStreak = 0;
+          store.addRecent(t);
+          emit('state');
+          emit('time');
+          positionState();
+          save();
+          return;
+        } catch (spErr) {
+          if (my !== token) return;
+          spotifyPlayback.stop();
+          spotifyToken = 0;
+          emit('notice', `Spotify Official Playback unavailable (${spErr?.message || 'check Settings'}) — playing via Spot+ YouTube Relay.`);
+        }
+      }
       telemetry.markStage(my, 'resolveStart');
       // Auto may fall back to YouTube's official player (full songs) before a 30-second preview.
       // No ads: YouTube's player (which plays the uploader's ads) is used only when chosen in Settings.
@@ -1394,6 +1488,11 @@ export function toggle() {
     emit('state');
     return;
   }
+  if (isSpotifyOfficial()) {
+    if (spotifyPlayback.paused) { userPaused = false; pendingPlay = true; spotifyPlayback.play(); }
+    else { userPaused = true; pendingPlay = false; spotifyPlayback.pause(); }
+    return;
+  }
   if (isEmbed()) {
     if (yt.paused) { userPaused = false; pendingPlay = true; yt.play(); }
     else { userPaused = true; pendingPlay = false; yt.pause(); }
@@ -1419,7 +1518,7 @@ export function toggle() {
   }
 }
 export function next(fromUser = true) {
-  if (fromUser && current() && (isRealSrc() || isEmbed())) {
+  if (fromUser && current() && (isRealSrc() || isEmbed() || isSpotifyOfficial())) {
     skipTracker.record();
     onSkip(current(), position());
   }
@@ -1453,6 +1552,12 @@ export function prev() {
 }
 export function seek(sec) {
   if (!isFinite(sec)) return;
+  if (isSpotifyOfficial()) {
+    const target = Math.max(0, Math.min(sec, duration()));
+    spotifyPlayback.seek(target);
+    positionState();
+    return;
+  }
   if (isEmbed()) {
     const target = Math.max(0, Math.min(sec, duration()));
     yt.seek(target);
@@ -1470,6 +1575,7 @@ export function setVolume(v) {
   const scaled = volumeLevel * (ducks.size ? .18 : 1);
   audio.volume = scaled;
   yt.setVolume(scaled);
+  spotifyPlayback.setVolume(scaled);
   save();
 }
 export function playNext(t) {

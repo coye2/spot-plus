@@ -12,6 +12,12 @@ import {fetchSnapshot,newSyncKey,validSyncKey} from './relay-sync.js';
 import * as api from './api.js';
 import * as notify from './notify.js';
 import * as fx from './fx.js';
+import * as dsp from './dsp.js';
+import * as autoeq from './autoeq.js';
+import * as uiEngine from './ui-engine.js';
+import * as lyricsEngine from './lyrics-engine.js';
+import { MusicVisualizer } from './visualizer.js';
+import { renderAudioStudio, renderEQCurveSVG } from './audio-studio-ui.js';
 import * as automix from './automix.js';
 import * as live from './live-stats.js';
 import * as mixes from './mixes.js';
@@ -277,7 +283,9 @@ player.setQueueHooks({
   resumeAt:t=>spoken.resumeAt(t),
 });
 const initMix = automix.normalizeMixSettings(store.getSettings());
-player.setAutoMix(initMix.seconds, initMix.preferredStyle);
+player.setAutoMix(initMix.seconds, initMix.preferredStyle, initMix.curve);
+player.spotifyPlayback.onStatusChange = () => { if (location.hash.startsWith('#/settings')) route({ keepScroll: true }); };
+player.spotifyPlayback.init().catch(() => {});
 
 /* ---------------- Your devices & shared playlists ---------------- */
 const appBase=()=>new URL('./',location.href).href;
@@ -825,17 +833,44 @@ async function viewSettings() {
   <section class="box"><h2>Your devices</h2><p class="settings-note">${libsync.syncState()?'Your library syncs with your other devices.':'Keep your likes and playlists the same on your phone and computer. No account.'}</p><button class="btn primary small" data-act="link-devices">${libsync.syncState()?'Link another device':'Link a device'}</button></section>
   <section class="box"><h2>Notifications</h2>${notify.permission()==='unsupported'?'<p class="settings-note">This browser can’t show notifications. On iPhone, add Spot+ to your Home Screen first.</p>':notify.permission()==='granted'?'':`<p class="settings-note">${notify.permission()==='denied'?'Notifications are blocked for Spot+. Allow them in your browser or phone settings.':'Get a heads-up about new music and updates. Never more than two a day, and nothing at night.'}</p>${notify.permission()==='default'?'<button class="btn primary small" data-act="notify-enable">Turn on notifications</button>':''}`}
   ${toggle('notifyReleases','New releases','When an artist you follow drops a song or album.')}${toggle('notifyStats','Weekly recap','Sunday evening: your minutes and most-played artist.')}${toggle('notifyUpdates','App updates','When a new version of Spot+ is ready.')}</section>
-  <section class="box"><h2>Appearance</h2>${themeModeSwitch(s)}<p class="settings-note">Light, dark, automatic, or clear. Clear keeps your wallpaper in view while panels stay readable.</p><div class="row-btns"><a class="btn" href="#/themes">Themes</a><a class="btn" href="#/backgrounds">Background</a></div><label class="field"><span>Library and track spacing</span>${sel('density',[['comfortable','Comfortable'],['compact','Compact']])}</label><label class="field"><span>Text size</span>${sel('textSize',[['normal','Default'],['large','Larger']])}</label><label class="field"><span>Motion</span>${sel('motion',[['system','Follow system'],['reduced','Reduced']])}</label></section>
+  <section class="box"><h2>Appearance</h2>${themeModeSwitch(s)}<p class="settings-note">Light, dark, automatic, or clear. Switch between Original Spot+ and Spot+ UI anytime with zero music interruption.</p><label class="field"><span>Interface style<small>Spot+ UI brings Liquid Glass navigation and an Apple Music-inspired player.</small></span>${sel('uiStyle',[['original','Original Spot+'],['spotplus','Spot+ UI']])}</label><div class="row-btns"><a class="btn" href="#/themes">Themes &amp; UI</a><a class="btn" href="#/backgrounds">Background</a></div><label class="field"><span>Library and track spacing</span>${sel('density',[['comfortable','Comfortable'],['compact','Compact']])}</label><label class="field"><span>Text size</span>${sel('textSize',[['normal','Default'],['large','Larger']])}</label><label class="field"><span>Motion</span>${sel('motion',[['system','Follow system'],['reduced','Reduced']])}</label></section>
   <section class="box"><h2>Playback</h2>
-    <label class="field"><span>Audio source<small>Spot+ YouTube Relay plays full songs from YouTube in Spot+’s own player, with no ads. Automatic tries it first and switches to another full-song source when a song isn’t available there.</small></span>${((cur) => `<select data-setting="source">${[['ytrelay', 'Spot+ YouTube Relay'], ['auto', 'Automatic'], ...(api.soundcloudAvailable() || cur === 'soundcloud' ? [['soundcloud', 'SoundCloud']] : []), ['hifi', 'HiFi / Monochrome'], ['jiosaavn', 'JioSaavn'], ['audius', 'Audius']].map(([v, l]) => `<option value="${v}"${cur === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`)(s.source)}</label>
+    <label class="field"><span>Audio source<small>Spot+ YouTube Relay plays full songs from YouTube in Spot+’s own player, with no ads. Automatic tries it first and switches to another full-song source when a song isn’t available there. Spotify — Official Playback uses authorized PKCE + Web Playback SDK / Connect (Spotify Premium required; falls back to YouTube Relay if unavailable).</small></span>${((cur) => `<select data-setting="source">${[['ytrelay', 'Spot+ YouTube Relay'], ['auto', 'Automatic'], ['spotify', 'Spotify — Official Playback'], ...(api.soundcloudAvailable() || cur === 'soundcloud' ? [['soundcloud', 'SoundCloud']] : []), ['hifi', 'HiFi / Monochrome'], ['jiosaavn', 'JioSaavn'], ['audius', 'Audius']].map(([v, l]) => `<option value="${v}"${cur === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`)(s.source)}</label>
+    ${(() => {
+      const sp = player.spotifyPlayback.getStatusSnapshot();
+      const caps = sp.capabilities;
+      const capLine = caps
+        ? (caps.sdkSupported
+            ? `Browser SDK: Supported (${caps.supportedKeySystems.join(', ') || 'EME'})`
+            : `Browser SDK: Unsupported (${caps.sdkCaveat || 'No EME'})`)
+        : 'Checking browser EME & Web Playback SDK capabilities…';
+      return `<div class="settings-card" id="spotifyOfficialBox" style="margin:10px 0 14px;padding:14px;border-radius:14px;border:1px solid var(--line);background:var(--bg2)">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <b>Spotify — Official Playback</b>
+          <span class="badge" data-spotify-status="${esc(sp.status)}">${esc(sp.label)}</span>
+        </div>
+        <p class="settings-note" style="margin:6px 0">${esc(sp.detail || capLine)}</p>
+        ${sp.profile ? `<p class="settings-note" style="margin:4px 0">Account: <b>${esc(sp.profile.displayName)}</b> · Plan: <b>${esc(sp.profile.isPremium ? 'Premium' : sp.profile.product || 'Free')}</b>${sp.deviceName ? ` · Device: <b>${esc(sp.deviceName)}</b>` : ''}</p>` : ''}
+        <p class="settings-note" style="margin:4px 0;opacity:.85">Direct server-side Spotify audio proxying is not supported (Spotify streams are DRM-protected). Official playback runs client-side via Web Playback SDK or Spotify Connect; failures fall back to Spot+ YouTube Relay.</p>
+        <label class="field"><span>Spotify App Client ID<small>Public PKCE Client ID from developer.spotify.com (no client secret needed).</small></span><input maxlength="64" data-setting="spotifyClientId" value="${esc(s.spotifyClientId || '')}" placeholder="32-char Spotify Client ID"></label>
+        <div class="settings-note" style="margin:6px 0;word-break:break-all">Redirect URI: <code>${esc(sp.redirectUri)}</code></div>
+        <div class="row-btns" style="margin-top:8px">
+          <button type="button" class="btn small primary" data-act="spotify-pkce-connect">${sp.profile ? 'Reconnect Spotify' : 'Connect Spotify (PKCE)'}</button>
+          ${sp.profile || sp.status === 'auth-expired' ? '<button type="button" class="btn small" data-act="spotify-pkce-disconnect">Disconnect</button>' : ''}
+          <button type="button" class="btn small" data-act="spotify-copy-redirect">Copy Redirect URI</button>
+        </div>
+      </div>`;
+    })()}
     <label class="field"><span>Streaming quality</span>${sel('quality', [['high', 'High'], ['low', 'Data saver']])}</label>
     ${toggle('smartRadio','Smart Radio','When your queue ends, keep playing similar songs. It learns from what you skip.')}
     <label class="field"><span>Song Mix &amp; Crossfade<small>${player.crossfadeSupported?'Blend songs together smoothly like a DJ — including on iPhone &amp; iPad via equal-power Web Audio transitions.':'Your browser does not support audio crossfading.'}</small></span>${sel('automix',[['0','Off'],['3','3 seconds'],['6','6 seconds'],['9','9 seconds'],['12','12 seconds']])}</label>
     <label class="field"><span>Mix style<small>Smart Mix adapts to song lengths; DJ Blend adds a bass-swap EQ crossover so beats never clash.</small></span>${sel('mixStyle',[['smart','Smart Mix'],['blend','DJ Blend'],['fade','Smooth Fade']])}</label>
+    <label class="field"><span>Transition curve<small>Shape of the volume crossfade between outgoing and incoming songs.</small></span>${sel('mixCurve',[['equal-power','Equal Power'],['smooth-s','Smooth S-Curve'],['linear','Linear']])}</label>
     ${toggle('preloadNext','Prepare the next song','Buffers the beginning of the next song after your current music has enough buffered audio. Skipped on data-saving connections.')}
     ${toggle('showExplicit','Allow explicit content','When off, explicit tracks are excluded from discovery and new playback queues.')}
-    <button class="btn small" data-act="sleep-timer">Sleep timer</button>
+    <div class="row-btns"><button class="btn small primary" data-act="np-fx">Equalizer, AutoEq &amp; DSP</button><button class="btn small" data-act="sleep-timer">Sleep timer</button></div>
     <details class="connection-help"><summary>Advanced audio options</summary>
+    <label class="field col"><span>Spotify Control-Plane Relay URL <small>(optional Cloudflare Worker URL for PKCE/URI assist)</small></span><input data-setting="spotifyRelayUrl" value="${esc(s.spotifyRelayUrl || '')}" placeholder="https://spot-plus-spotify-relay.workers.dev"></label>
     <label class="field col"><span>Your own HiFi / Lossless servers <small>(hifi-api URLs, one per line)</small></span><textarea data-setting="customHifi" rows="2" placeholder="https://hifi-api.example.com">${esc(s.customHifi)}</textarea></label>
     <label class="field col"><span>Your own Piped API servers <small>(one per line, tried first)</small></span><textarea data-setting="customPiped" rows="2" placeholder="https://pipedapi.example.com">${esc(s.customPiped)}</textarea></label>
     <label class="field col"><span>Your own Invidious servers</span><textarea data-setting="customInvidious" rows="2" placeholder="https://invidious.example.com">${esc(s.customInvidious)}</textarea></label>
@@ -858,7 +893,7 @@ async function viewSettings() {
   </section>
   <section class="box"><h2>DJ</h2>${toggle('djVoice','DJ voice','Choose your host in DJ preferences.')}<a class="btn small" href="#/dj">Open DJ</a><p class="settings-note">Turn on live conversation from the DJ screen (one-time 600 MB download).</p><button class="btn small" data-act="dj-live-remove">Remove DJ downloads</button></section>
   <details class="box settings-more"><summary>About, shortcuts and what’s supported</summary>
-  <section class="box"><h2>What’s supported</h2><div class="capability"><span>Music discovery<small>Deezer public catalog</small></span><span>Available</span></div><div class="capability"><span>Audio playback<small>Full songs through Spot+ YouTube Relay, Monochrome backup, or your own files</small></span><span>Available</span></div><div class="capability"><span>Spotify stats & profile<small>Updates by itself once connected</small></span><span>${spotifyAccount||cachedLinks()?'Connected':'Not connected'}</span></div><div class="capability"><span>Jam<small>Listen together in real time</small></span><span>Spot+ Jam</span></div><div class="capability"><span>Spotify Connect & Blend</span><span class="unavailable">Not supported</span></div><div class="capability"><span>DJ</span><span>Spot+ DJ</span></div><div class="capability"><span>Podcasts & audiobooks</span><span>Available</span></div><p class="settings-note">Spot+ is independent of Spotify. It reads your public Spotify playlists and profile; Spotify’s own audio and Premium features aren’t included.</p></section>
+  <section class="box"><h2>What’s supported</h2><div class="capability"><span>Music discovery<small>Deezer public catalog</small></span><span>Available</span></div><div class="capability"><span>Audio playback<small>Full songs through Spot+ YouTube Relay, Monochrome backup, or your own files</small></span><span>Available</span></div><div class="capability"><span>Spotify — Official Playback<small>Authorized OAuth PKCE + Web Playback SDK (EME desktop browsers) or Spotify Connect Remote (Spotify Premium required; direct audio proxying unsupported)</small></span><span>${esc(player.spotifyPlayback.getStatusSnapshot().label)}</span></div><div class="capability"><span>Parametric EQ, AutoEq &amp; DSP<small>Real-time Web Audio filter bank, compressor, stereo width &amp; crossfeed</small></span><span>Available</span></div><div class="capability"><span>Audio-reactive visualizers<small>Real Web Audio FFT spectrum, Fluid Hills, waveform &amp; glow</small></span><span>Available</span></div><div class="capability"><span>Spotify stats & profile<small>Updates by itself once connected</small></span><span>${spotifyAccount||cachedLinks()?'Connected':'Not connected'}</span></div><div class="capability"><span>Jam<small>Listen together in real time</small></span><span>Spot+ Jam</span></div><div class="capability"><span>Live Activities, CarPlay &amp; Watch<small>Requires a native iOS/watchOS companion app (not available to web PWAs)</small></span><span class="unavailable">Native-only</span></div><div class="capability"><span>DJ</span><span>Spot+ DJ</span></div><div class="capability"><span>Podcasts & audiobooks</span><span>Available</span></div><p class="settings-note">Spot+ is independent of Spotify. Official Spotify playback requires your own Spotify Premium account and authorized PKCE sign-in.</p></section>
   <section class="box"><h2>Keyboard shortcuts</h2><p class="settings-note">Space: play/pause · Alt + Right/Left: next/previous · Ctrl/⌘ + K: search · Escape: close overlay. Use Tab and arrow keys for controls.</p></section>
   <section class="box"><h2>About Spot+</h2>
     <div class="community" data-live-box hidden><div><b data-live="listening">0</b><span>listening now</span></div><div><b data-live="installs">0</b><span>installs</span></div><div><span data-live="rating-stars">${rating.starsHtml(0)}</span><b data-live="rating">–</b><span data-live="rating-count">rating</span></div></div>
@@ -1282,6 +1317,86 @@ async function handleAct(act, el) {
     case 'like-current': { const t = player.current(); if (t) toast(store.toggleLike(t) ? 'Added to Liked Songs' : 'Removed from Liked Songs'); break; }
     case 'np-open': openNP(); break;
     case 'np-close': closeNP(); break;
+    case 'ui-style': {
+      const style = el.dataset.style === 'spotplus' ? 'spotplus' : 'original';
+      store.setSettings({ uiStyle: style });
+      applyPreferences();
+      $$('.ui-style-card').forEach((c) => {
+        const on = c.dataset.style === style;
+        c.classList.toggle('selected', on);
+        c.setAttribute('aria-pressed', String(on));
+        const badge = c.querySelector('.ui-style-badge');
+        if (badge) badge.textContent = on ? 'Active' : (c.dataset.style === 'spotplus' ? 'Liquid Glass' : 'Classic');
+      });
+      toast(style === 'spotplus' ? 'Spot+ UI active' : 'Original Spot+ active');
+      break;
+    }
+    case 'np-fx': fxSheet(); break;
+    case 'dsp-tab': audioStudioState.tab = el.dataset.tab || 'eq'; fxSheet(true); break;
+    case 'eq-select-band': audioStudioState.selectedBand = Number(el.dataset.band) || 0; fxSheet(true); break;
+    case 'eq-preset': dsp.applyEQPreset(el.dataset.preset); fxSheet(true); break;
+    case 'eq-reset': dsp.applyEQPreset('flat'); fxSheet(true); toast('Equalizer reset to flat'); break;
+    case 'eq-save-preset': {
+      const name = await ask({ title: 'Save EQ preset', placeholder: 'e.g. Late Night Bass', ok: 'Save' });
+      if (name) { dsp.saveUserEQPreset(name, dsp.getDSP().bands); fxSheet(true); toast(`Saved "${name}"`); }
+      break;
+    }
+    case 'autoeq-form': audioStudioState.autoEqForm = el.dataset.form || ''; fxSheet(true); break;
+    case 'autoeq-pick': {
+      const id = el.dataset.id;
+      const cur = dsp.getDSP();
+      if (cur.autoEqEnabled && cur.autoEqId === id) {
+        dsp.applyAutoEqProfile('');
+        toast('Headphone correction off');
+      } else {
+        dsp.applyAutoEqProfile(id);
+        const p = autoeq.findProfile(id);
+        if (p) toast(`Applied ${p.name}`);
+      }
+      fxSheet(true);
+      break;
+    }
+    case 'autoeq-clear': dsp.applyAutoEqProfile(''); fxSheet(true); toast('Headphone correction off'); break;
+    case 'autoeq-import': {
+      const raw = await ask({ title: 'Import AutoEq ParametricEQ.txt', message: 'Paste Preamp and Filter lines from any AutoEq profile.', placeholder: 'Preamp: -4.2 dB\nFilter 1: ON PK Fc 105 Hz Gain -2.0 dB Q 0.7', ok: 'Import' });
+      if (raw) {
+        try {
+          const parsed = autoeq.parseParametricEQText(raw, 'Custom Headphones');
+          const saved = autoeq.saveCustomProfile(parsed);
+          dsp.applyAutoEqProfile(saved.id);
+          fxSheet(true);
+          toast(`Imported ${saved.name}`);
+        } catch (err) { toast(err.message); }
+      }
+      break;
+    }
+    case 'dsp-reset': dsp.resetDSP(); fxSheet(true); toast('All DSP settings reset'); break;
+    case 'ly-translate': {
+      const cur = store.getSettings().lyricsTranslation || 'off';
+      const next = cur === 'off' ? 'bilingual' : cur === 'bilingual' ? 'translated' : 'off';
+      store.setSettings({ lyricsTranslation: next });
+      applyPreferences();
+      await renderActiveLyricsBody();
+      break;
+    }
+    case 'ly-delay': {
+      const steps = [-200, 0, 200, 400, 600];
+      const cur = Number(store.getSettings().lyricsDelayMs) || 0;
+      const next = steps[(steps.indexOf(cur) + 1) % steps.length];
+      store.setSettings({ lyricsDelayMs: next });
+      applyPreferences();
+      await renderActiveLyricsBody();
+      toast(next ? `Lyrics offset: ${next > 0 ? '+' : ''}${next} ms` : 'Lyrics timing synced');
+      break;
+    }
+    case 'ly-size': {
+      const sizes = ['small', 'medium', 'large', 'xlarge'];
+      const cur = store.getSettings().lyricsSize || 'medium';
+      const next = sizes[(sizes.indexOf(cur) + 1) % sizes.length];
+      store.setSettings({ lyricsSize: next });
+      applyPreferences();
+      break;
+    }
     case 'fx-preset': fx.usePreset(el.dataset.preset); fxSheet(true); break;
     case 'fx-room': fx.set({room:el.dataset.room}); fxSheet(true); break;
     case 'fx-toggle': fx.set({[el.dataset.key]:!fx.get()[el.dataset.key]}); fxSheet(true); break;
@@ -1289,14 +1404,21 @@ async function handleAct(act, el) {
     case 'mix-toggle': {
       const cur = automix.normalizeMixSettings(store.getSettings());
       const nextSec = cur.enabled ? 0 : (lastMixSec || 6);
-      applyMixSettings(nextSec, cur.preferredStyle);
+      applyMixSettings(nextSec, cur.preferredStyle, cur.curve);
       mixSheet(el.dataset.key || '', true);
       break;
     }
     case 'mix-style': {
       const cur = automix.normalizeMixSettings(store.getSettings());
       const nextSec = cur.enabled ? cur.seconds : (lastMixSec || 6);
-      applyMixSettings(nextSec, el.dataset.style);
+      applyMixSettings(nextSec, el.dataset.style, cur.curve);
+      mixSheet(el.dataset.key || '', true);
+      break;
+    }
+    case 'mix-curve': {
+      const cur = automix.normalizeMixSettings(store.getSettings());
+      const nextSec = cur.enabled ? cur.seconds : (lastMixSec || 6);
+      applyMixSettings(nextSec, cur.preferredStyle, el.dataset.curve);
       mixSheet(el.dataset.key || '', true);
       break;
     }
@@ -1462,6 +1584,34 @@ async function handleAct(act, el) {
       }
       break;
     }
+    case 'spotify-pkce-connect': {
+      const clientId = (store.getSettings().spotifyClientId || '').trim();
+      try {
+        const res = await player.spotifyPlayback.connectAccount({ clientId });
+        if (res?.flow !== 'redirect') {
+          toast(`Spotify: ${res.label}`);
+          route({ keepScroll: true });
+        }
+      } catch (err) {
+        toast(err?.message || 'Could not connect Spotify.');
+      }
+      break;
+    }
+    case 'spotify-pkce-disconnect':
+      player.spotifyPlayback.disconnectAccount();
+      toast('Spotify Official Playback disconnected');
+      route({ keepScroll: true });
+      break;
+    case 'spotify-copy-redirect': {
+      const uri = player.spotifyPlayback.getStatusSnapshot().redirectUri;
+      try {
+        await navigator.clipboard?.writeText(uri);
+        toast('Redirect URI copied');
+      } catch {
+        toast(uri);
+      }
+      break;
+    }
   }
 }
 
@@ -1487,7 +1637,7 @@ document.addEventListener('change', async (e) => {
     t.disabled=true;const status=$('#rewindImportStatus');
     try{const n=await importRewind([...t.files],message=>{status.textContent=message;});await route({keepScroll:true});toast(`Added ${n.toLocaleString()} listens. Duplicates skipped.`);}catch(error){status.textContent=error.message;t.disabled=false;t.value='';}return;
   }
-  if (t.dataset.setting) { try { store.setSettings({ [t.dataset.setting]: t.type==='checkbox'?t.checked:t.value.trim() }); if(t.dataset.setting==='automix'||t.dataset.setting==='mixStyle'){const m=automix.normalizeMixSettings(store.getSettings());player.setAutoMix(m.seconds,m.preferredStyle);mixBadge();} applyPreferences(); toast('Saved'); } catch(err) { toast(err.message); } }
+  if (t.dataset.setting) { try { const val = t.type==='checkbox'?t.checked:(t.type==='range'||t.type==='number'?Number(t.value):t.value.trim()); store.setSettings({ [t.dataset.setting]: val }); if(['automix','mixStyle','mixCurve'].includes(t.dataset.setting)){const m=automix.normalizeMixSettings(store.getSettings());player.setAutoMix(m.seconds,m.preferredStyle,m.curve);mixBadge();} applyPreferences(); toast('Saved'); } catch(err) { toast(err.message); } }
   if (['importFile','welcomeBackup'].includes(t.id) && t.files[0]) {
     try { if(t.id==='welcomeBackup')dismissWelcome();if(t.files[0].size>30*1024*1024)throw new Error('Choose a Spot+ backup smaller than 30 MB.');const result=store.importData(JSON.parse(await t.files[0].text()));toast(result.spotifyAccount==='different-account-kept'?'Backup imported. Your current Spotify account copy was kept; the backup belongs to another account.':result.spotifyAccount==='newer-copy-kept'?'Backup imported. Your newer Spotify library copy was kept.':'Backup imported'); }
     catch (err) { toast(`Import failed: ${err.message}`); }
@@ -1531,6 +1681,7 @@ function syncPlayer() {
     if (globalThis.requestIdleCallback) globalThis.requestIdleCallback(tint, {timeout: 500}); else setTimeout(tint, 0);
   }
   const playing = player.isPlaying();
+  np.dataset.playing = String(playing);
   $$('[data-role=play]').forEach((b) => setIcon(b, playing ? 'pause' : 'play'));
   $$('[data-role=like]').forEach((b) => { const on = store.isLiked(t.id); setIcon(b, on ? 'check' : 'plus'); b.classList.toggle('on', on);b.setAttribute('aria-pressed',String(on));b.setAttribute('aria-label',on?'Remove from Liked Songs':'Add to Liked Songs'); });
   $$('[data-role=shuffle]').forEach((b) => {b.classList.toggle('on', s.shuffle);b.setAttribute('aria-pressed',String(s.shuffle));});
@@ -1539,6 +1690,7 @@ function syncPlayer() {
   $$('.trow[data-id], .card[data-id]').forEach((r) => r.classList.toggle('playing', r.dataset.id === t.id));
   document.title = playing ? `${t.title} · ${t.artist}` : 'Spot+';
   if (npOpen) syncNP();
+  syncVisualizer();
 }
 let seeking = false;
 function syncTime() {
@@ -1597,12 +1749,14 @@ function openNP(mode) {
   setNPMode(mode || 'art');
   syncNP();
   syncStatusColor();
+  syncVisualizer();
 }
 function closeNP({ fromPop = false, nav = false } = {}) {
   if (!npOpen) return;
   npOpen = false;
   syncStatusColor();
   canvasPlayer.clear();
+  syncVisualizer();
   document.body.classList.remove('has-panel');
   $('.app').inert=false;
   np.removeAttribute('aria-modal');np.removeAttribute('role');
@@ -1617,22 +1771,33 @@ function setNPMode(mode,{retryCanvas=false}={}) {
   if (mode === npMode && mode !== 'art' && matchMedia(MOBILE_QUERY).matches && np.dataset.mode===mode && np.classList.contains('open')) mode = 'art';
   npMode = mode;
   np.dataset.mode = mode;
-  $('.np-label').textContent=mode==='queue'?'Queue':mode==='lyrics'?'Lyrics':'Now playing';
+  const curTrack = player.current();
+  const isSpUI = document.body.dataset.ui === 'spotplus';
+  $('.np-label').textContent = mode==='queue'?'Queue':mode==='lyrics'?(isSpUI && curTrack?.album ? curTrack.album : 'Lyrics'):(isSpUI && curTrack?.album ? curTrack.album : 'Now playing');
   $$('.np-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
   syncCanvas(retryCanvas);
+  syncVisualizer();
   if (mode === 'queue') renderQueue();
-  if (mode === 'lyrics') { loadLyrics(); lyrUserScroll = 0; lyr.active = -1; syncLyrics(); }
+  if (mode === 'lyrics') { loadLyrics(); lyrUserScroll = 0; lyr.active = -1; lyr.word = -1; syncLyrics(); }
 }
 function syncNP() {
   const t = player.current();
   if (!t) {if(npMode==='queue')renderQueue();return;}
   const s = player.state;
+  np.dataset.playing = String(player.isPlaying());
   if (np.dataset.id !== t.id) {
     np.dataset.id = t.id;
-    $('#npArt').src = t.coverXl || t.cover || 'icons/icon-512.png';
-    $('#npBg').style.backgroundImage = `url("${safeImage(t.coverXl || t.cover || 'icons/icon-512.png').replace(/"/g, '')}")`;
+    const artUrl = t.coverXl || t.cover || 'icons/icon-512.png';
+    $('#npArt').src = artUrl;
+    $('#npBg').style.backgroundImage = `url("${safeImage(artUrl).replace(/"/g, '')}")`;
     $('#npTitle').textContent = t.title;
     $('#npArtist').textContent = t.artist;
+    if ($('#npMiniArt')) $('#npMiniArt').src = t.cover || artUrl;
+    if ($('#npMiniTitle')) $('#npMiniTitle').textContent = t.title;
+    if ($('#npMiniArtist')) $('#npMiniArtist').textContent = t.artist;
+    if (document.body.dataset.ui === 'spotplus' && npMode !== 'queue') {
+      $('.np-label').textContent = t.album || 'Now playing';
+    }
     $('#npPlays').textContent='';
   }
   if (!s.loading && np.dataset.statsId !== t.id) {
@@ -1642,9 +1807,87 @@ function syncNP() {
   $('#npSrc').title = s.source ? 'Playback details' : '';
   $('#npSrc').textContent = s.offline ? (t.local?'Local audio · On this device':'Downloaded audio · On this device') : s.source?.preview ? `30-second preview · ${s.source.engineLabel || 'Deezer'}` : s.source?.kind === 'youtube-embed' ? (s.needsTap ? 'Tap ▶ in the YouTube box below once to unlock full songs' : 'Full track · YouTube player') : s.source?.kind === 'ytrelay' ? 'Spot+ YouTube Relay' : s.source?.engineLabel ? s.source.engineLabel : s.source ? `Audio · ${api.host(s.source.instance)}` : s.loading ? 'Finding audio… Tap play to cancel.' : s.error?'Audio unavailable. Retry or change audio source.':'Ready to play';
   syncCanvas();
+  syncVisualizer();
   if (npMode === 'queue') renderQueue();
   if (!s.loading) loadLyrics();
 }
+const visualizer = new MusicVisualizer({
+  canvas: $('#npViz'),
+  glowTarget: $('.np-art'),
+  ambientTarget: np,
+  getAnalyser: fx.getAnalyser,
+  isBlocked: fx.isBlocked,
+  isPlaying: () => player.isPlaying() && !player.state.loading,
+  getPalette: () => currentSongPalette,
+});
+visualizer.onStatusChange = (status) => {
+  const note = $('#npVizNote');
+  if (!note) return;
+  if (status === 'cors-blocked' && npOpen && visualizer.mode !== 'off') {
+    note.textContent = 'Live visualizer unavailable on this audio server';
+    note.hidden = false;
+  } else {
+    note.hidden = true;
+  }
+};
+function syncVisualizer() {
+  const s = uiEngine.normalizeUISettings(store.getSettings());
+  const effectiveMode = s.playerBg === 'visualizer'
+    ? (s.visualizerMode === 'off' ? 'hills' : s.visualizerMode)
+    : (s.uiStyle === 'spotplus' || s.visualizerMode !== 'hills' ? s.visualizerMode : 'off');
+  const shouldRun = npOpen && !document.hidden && npMode !== 'queue' && effectiveMode !== 'off';
+  fx.requestAnalyser(shouldRun);
+  visualizer.setMode(effectiveMode);
+  visualizer.setActive(shouldRun);
+}
+document.addEventListener('visibilitychange', () => syncVisualizer());
+// Artwork gestures: double-tap left/right to seek ±10s, press-and-hold for 2x speed preview.
+(() => {
+  const artWrap = $('.np-art');
+  if (!artWrap) return;
+  let lastTap = 0, holdTimer = 0, holding2x = false, prevSpeed = 1;
+  const endHold = () => {
+    clearTimeout(holdTimer);
+    if (holding2x) {
+      holding2x = false;
+      if ($('#npSpeedPill')) $('#npSpeedPill').hidden = true;
+      try { player.el.playbackRate = prevSpeed; } catch { /* ignore */ }
+    }
+  };
+  artWrap.addEventListener('pointerdown', (e) => {
+    if (e.button > 0 || npMode !== 'art' || !player.isPlaying()) return;
+    const ui = uiEngine.normalizeUISettings(store.getSettings());
+    if (ui.playerHold2x) {
+      clearTimeout(holdTimer);
+      holdTimer = setTimeout(() => {
+        if (!player.isPlaying()) return;
+        holding2x = true;
+        prevSpeed = player.el.playbackRate || fx.get().speed || 1;
+        try { player.el.playbackRate = 2; } catch { /* ignore */ }
+        if ($('#npSpeedPill')) $('#npSpeedPill').hidden = false;
+      }, 420);
+    }
+  });
+  artWrap.addEventListener('pointerup', (e) => {
+    const wasHold = holding2x;
+    endHold();
+    if (wasHold || npMode !== 'art') return;
+    const ui = uiEngine.normalizeUISettings(store.getSettings());
+    if (!ui.playerDoubleTapSeek) return;
+    const now = Date.now();
+    if (now - lastTap < 310) {
+      lastTap = 0;
+      const rect = artWrap.getBoundingClientRect();
+      const rel = (e.clientX - rect.left) / Math.max(1, rect.width);
+      if (rel < 0.35) { player.seek(Math.max(0, player.position() - 10)); toast('−10s'); }
+      else if (rel > 0.65) { player.seek(Math.min(player.duration() || 0, player.position() + 10)); toast('+10s'); }
+    } else {
+      lastTap = now;
+    }
+  });
+  artWrap.addEventListener('pointercancel', endHold);
+  artWrap.addEventListener('pointerleave', endHold);
+})();
 let canvasPreference=canvasEnabled({reducedMotion:matchMedia('(prefers-reduced-motion:reduce)').matches||document.body.dataset.motion==='reduced',saveData:navigator.connection?.saveData});
 const canvasPlayer=new CanvasPlayer($('#npCanvas'),{media:clipSource,lookup:(track,signal,options)=>findVisualLoop(track,signal,{...options,source:player.state.source}),onState:(state,clip)=>{
   // No loop for this song: show a living cover instead (slowly moving artwork), so every song has visuals.
@@ -1705,12 +1948,48 @@ function renderQueue() {
     ${up.length ? up.map((t, j) => qRow(t, index + 1 + j, false)).join('') : '<p class="muted pad">Nothing queued.</p>'}`;
 }
 
-let lyr = { id: null, lines: null, active: -1 };
+let lyr = { id: null, lines: null, translations: null, active: -1, word: -1 };
 let lyrUserScroll = 0;
+async function renderActiveLyricsBody() {
+  const box = $('#npLyrics');
+  if (!box || !lyr.lines?.length) return;
+  const ui = uiEngine.normalizeUISettings(store.getSettings());
+  const transMode = ui.lyricsTranslation;
+  if (transMode !== 'off' && !lyr.translations) {
+    const idAtStart = lyr.id;
+    const tr = await lyricsEngine.translateLines(lyr.lines, ui.lyricsTargetLang);
+    if (lyr.id !== idAtStart) return;
+    lyr.translations = tr;
+  }
+  const hasWords = lyricsEngine.hasWordTiming(lyr.lines);
+  const transLabel = transMode === 'off' ? 'Translate' : transMode === 'bilingual' ? 'Bilingual' : 'Translated';
+  const delayLabel = ui.lyricsDelayMs ? `${ui.lyricsDelayMs > 0 ? '+' : ''}${ui.lyricsDelayMs}ms` : 'Sync 0ms';
+  const toolbar = `<div class="ly-toolbar">
+    <button class="chip${fx.get().vocals>0?' on':''}" data-act="sing-along">${I.mic||''}<span>${fx.get().vocals>0?'Singing':'Sing along'}</span></button>
+    <button class="chip${transMode!=='off'?' on':''}" data-act="ly-translate">${transLabel}</button>
+    <button class="chip${ui.lyricsDelayMs?' on':''}" data-act="ly-delay">${delayLabel}</button>
+    <button class="chip" data-act="ly-size">Aa</button>
+    ${hasWords ? '<span class="chip on" aria-label="Word-by-word synced">Word sync</span>' : ''}
+  </div>`;
+  const linesHtml = lyr.lines.map((l, i) => {
+    const trText = lyr.translations?.[i] || '';
+    const mainHtml = Array.isArray(l.words) && l.words.length
+      ? l.words.map((w, wi) => `<span class="ly-word" data-wi="${wi}">${esc(w.text)}</span>`).join('')
+      : esc(l.text) || '♪';
+    const content = transMode === 'translated' && trText
+      ? esc(trText)
+      : (transMode === 'bilingual' && trText ? `${mainHtml}<span class="ly-trans">${esc(trText)}</span>` : mainHtml);
+    return `<p class="ly" data-act="ly-seek" data-t="${l.t}" data-li="${i}">${content}</p>`;
+  }).join('');
+  box.innerHTML = `${toolbar}<div class="ly-pad"></div>${linesHtml}<div class="ly-pad"></div>`;
+  lyr.active = -1;
+  lyr.word = -1;
+  syncLyrics();
+}
 async function loadLyrics() {
   const t = player.current();
   if (!t || !npOpen || lyr.id === t.id) return;
-  lyr = { id: t.id, lines: null, active: -1 };
+  lyr = { id: t.id, lines: null, translations: null, active: -1, word: -1 };
   const box = $('#npLyrics');
   if (spoken.isSpoken(t)) { box.innerHTML = `<div class="ly-plain"><h3>${t.kind==='episode'?'Episode notes':'About this book'}</h3>${esc(t.notes||'No notes for this one.')}</div>`; return; }
   box.innerHTML = '<p class="muted pad center">Loading lyrics…</p>';
@@ -1719,28 +1998,43 @@ async function loadLyrics() {
   if (!r) box.innerHTML = '<p class="muted pad center">No lyrics found for this song.</p>';
   else if (r.synced?.length) {
     lyr.lines = r.synced;
-    box.innerHTML = `<button class="sing-btn${fx.get().vocals>0?' on':''}" data-act="sing-along">${I.mic||''}<span>${fx.get().vocals>0?'Singing along':'Sing along'}</span></button><div class="ly-pad"></div>${r.synced.map((l, i) => `<p class="ly" data-act="ly-seek" data-t="${l.t}" data-li="${i}">${esc(l.text) || '♪'}</p>`).join('')}<div class="ly-pad"></div>`;
-    syncLyrics();
+    await renderActiveLyricsBody();
   } else if (r.plain) box.innerHTML = `<div class="ly-plain">${esc(r.plain).replace(/\n/g, '<br>')}</div><p class="muted center small">Lyrics aren’t time-synced for this one.</p>`;
   else box.innerHTML = '<p class="muted pad center">♪ Instrumental ♪</p>';
 }
 function syncLyrics() {
   if (!lyr.lines || !npOpen || npMode === 'queue' || player.current()?.id !== lyr.id) return;
-  const now = player.position() + 0.3;
-  let i = lyr.lines.findIndex((l) => l.t > now);
-  i = (i === -1 ? lyr.lines.length : i) - 1;
-  if (i === lyr.active) return;
+  const ui = uiEngine.normalizeUISettings(store.getSettings());
+  const { lineIndex: i, wordIndex: wi } = lyricsEngine.resolveActiveLyric(lyr.lines, player.position(), { delayMs: ui.lyricsDelayMs, lookaheadSec: 0.25 });
   const box = $('#npLyrics');
-  box.querySelector('.ly.on')?.classList.remove('on');
-  lyr.active = i;
-  const el = i >= 0 ? box.querySelector(`[data-li="${i}"]`) : null;
-  if (!el) return;
-  el.classList.add('on');
-  karaokeLoop();
-  if (Date.now() - lyrUserScroll > 3500) box.scrollTo({ top: el.offsetTop - box.clientHeight / 2 + el.clientHeight / 2, behavior: 'smooth' });
+  if (i !== lyr.active) {
+    box.querySelector('.ly.on')?.classList.remove('on');
+    $$('.ly.near', box).forEach((n) => n.classList.remove('near'));
+    lyr.active = i;
+    lyr.word = -1;
+    const el = i >= 0 ? box.querySelector(`[data-li="${i}"]`) : null;
+    if (el) {
+      el.classList.add('on');
+      box.querySelector(`[data-li="${i - 1}"]`)?.classList.add('near');
+      box.querySelector(`[data-li="${i + 1}"]`)?.classList.add('near');
+      karaokeLoop();
+      if (Date.now() - lyrUserScroll > 3500) box.scrollTo({ top: el.offsetTop - box.clientHeight / 2 + el.clientHeight / 2, behavior: 'smooth' });
+    }
+  }
+  // True per-word highlighting ONLY when genuine word timestamps exist in the LRC source.
+  if (i >= 0 && wi !== lyr.word && Array.isArray(lyr.lines[i]?.words)) {
+    lyr.word = wi;
+    const el = box.querySelector(`[data-li="${i}"]`);
+    if (el) {
+      $$('.ly-word', el).forEach((sp, idx) => {
+        sp.classList.toggle('sung', idx <= wi);
+        sp.classList.toggle('current', idx === wi);
+      });
+    }
+  }
 }
 ['wheel', 'touchmove'].forEach((ev) => $('#npLyrics').addEventListener(ev, () => { lyrUserScroll = Date.now(); }, { passive: true }));
-// Sing-along: the current line fills in word by word, timed across the line's length.
+// Sing-along: the current line fills in smoothly when vocal-remover mode is active.
 let karaokeFrame = 0;
 function karaokeLoop() {
   cancelAnimationFrame(karaokeFrame);
@@ -1814,8 +2108,10 @@ function applyPreferences(){
   const s=store.getSettings();
   document.body.dataset.density=s.density;delete document.body.dataset.accent;document.body.dataset.motion=s.motion;document.body.dataset.textSize=s.textSize;
   const palette=themes.applyTheme(s);
+  uiEngine.applyUIEngine(s);
   if(typeof syncStatusColor==='function')queueMicrotask(()=>syncStatusColor());
   syncStatusColor();
+  if(typeof syncVisualizer==='function')syncVisualizer();
   if($('#themeLiveName'))$('#themeLiveName').textContent=s.themeCustom?'Your mix':palette.name;
   if($('#themeContrast'))$('#themeContrast').textContent=themes.contrast(palette.accentText,palette.raised).toFixed(1)+':1 accent text contrast';
   const width=Math.max(224,Math.min(420,Number(s.sidebarWidth)||288));
@@ -1930,12 +2226,13 @@ function syncVoices(){syncDJVoice();}
 function createMenu(){openSheet({head:'<div class="sheet-title">Create</div>',items:[{icon:I.shuffle,label:'Generate a playlist',sub:'Pick artists, genres and a vibe. Spot+ builds it.',fn:()=>go('#/generate')},{icon:I.plus,label:'Create a playlist',sub:'Collect your favorite tracks',fn:()=>handleAct('new-playlist',{})},{icon:I.folder,label:'Create a folder',sub:'Organize playlists in your library',fn:()=>handleAct('new-folder',{})},{icon:I.library,label:'Spotify account & collections',sub:'Connect your account or explore playlists',fn:()=>go('#/spotify')},{icon:I.import,label:'Import a Deezer playlist',fn:()=>handleAct('import-playlist',{})},{icon:I.note,label:'Add local audio files',sub:'From this phone or computer',fn:()=>$('#localFilesInput').click()},{icon:I.dj,label:'Start a DJ session',fn:()=>go('#/dj')},{icon:I.jam,label:'Start a Jam',sub:'Listen together in real time',fn:()=>go('#/jam')}]});}
 function profileMenu(){openSheet({head:`<div class="sheet-title">${esc(store.getSettings().displayName)}</div>`,items:[{icon:I.person,label:'Profile',sub:'Your library on this device',fn:()=>go('#/profile')},{icon:I.history,label:'Your Rewind',sub:'Your listening, all year round',fn:()=>go('#/rewind')},{icon:I.history,label:'Listening history',fn:()=>go('#/recent')},{icon:I.settings,label:'Theme Studio',sub:'Make Spot+ yours',fn:()=>go('#/themes')},{icon:I.library,label:'Spotify account',fn:()=>go('#/spotify-account')},{icon:I.settings,label:'Settings',fn:()=>go('#/settings')},{icon:I.dj,label:'Spot+ DJ',fn:()=>go('#/dj')}]});}
 function deviceMenu(){openSheet({head:'<div class="sheet-title">Connect</div>',body:`<button class="jam-entry" data-act="jam-open">${I.jam}<div><b>${jam.active?'Jam · '+esc(jam.code):'Start a Jam'}</b><small>${jam.active?jam.members.length+' listening':'Listen together with friends, live'}</small></div>${I.arrow}</button><div class="device-card">${I.device}<div><b>This browser</b><small>Current audio output</small></div></div><p class="sheet-note">Use your phone or computer’s audio controls for Bluetooth or AirPlay. Spotify Connect is not available through these music sources.</p>`,items:typeof player.el.setSinkId==='function' && navigator.mediaDevices?.selectAudioOutput?[{icon:I.device,label:'Choose audio output',fn:async()=>{try{const d=await navigator.mediaDevices.selectAudioOutput();await player.el.setSinkId(d.deviceId);toast('Audio output changed');}catch(e){toast(e.name==='NotAllowedError'?'Audio output selection was cancelled.':e.message);}}}]:[]});}
-/* ---------------- Sound effects ---------------- */
+/* ---------------- Audio, Parametric EQ, AutoEq & DSP Studio ---------------- */
 const fxFmt={vocals:v=>v>0?'−'+Math.round(v*100)+'%':'Off',speed:v=>Number(v).toFixed(2).replace(/0$/,'')+'×',pitch:v=>(v>0?'+':'')+v+' st',reverb:v=>Math.round(v*100)+'%',bass:v=>(v>0?'+':'')+v+' dB'};
-function fxSheet(refresh=false){
+const audioStudioState={tab:'eq',selectedBand:0,autoEqQuery:'',autoEqForm:''};
+function buildFxBody(){
   const s=fx.get(),slider=(key,label,min,max,step)=>`<label class="fx-slider"><span>${label}<b id="fxv-${key}">${fxFmt[key](s[key])}</b></span><input type="range" data-fx="${key}" min="${min}" max="${max}" step="${step}" value="${s[key]}" aria-label="${label}"></label>`;
   const chip=(act,attr,label,on)=>`<button class="chip${on?' on':''}" data-act="${act}" ${attr}>${esc(label)}</button>`;
-  const body=`<div class="fx">
+  return `<div class="fx">
     <div class="fx-presets">${Object.entries(fx.PRESETS).map(([k,p])=>chip('fx-preset',`data-preset="${k}"`,p.label,s.preset===k)).join('')}</div>
     ${slider('speed','Speed',0.5,1.5,0.01)}
     ${slider('pitch','Pitch',-12,12,1)}
@@ -1944,13 +2241,22 @@ function fxSheet(refresh=false){
     <div class="fx-row">${Object.entries(fx.ROOMS).map(([k,room])=>chip('fx-room',`data-room="${k}"`,room.label,s.room===k)).join('')}</div>
     ${slider('bass','Bass',-6,12,1)}
     ${slider('vocals','Vocal remover',0,1,0.05)}
-    <div class="fx-row">${chip('fx-toggle','data-key="eightD"','8D audio',s.eightD)}${chip('fx-toggle','data-key="lofi"','Lo-fi',s.lofi)}</div>
-    <p class="settings-note fx-note">${fx.isBlocked()?'This song’s audio server doesn’t allow reverb, pitch or bass, so it plays normally. Speed still works, and effects come back on the next song that allows them.':'Effects stay on for every song until you choose Off. Headphones recommended for 8D.'}</p></div>`;
-  if(refresh&&!sheet.hidden&&$('#sheetPanel .fx')){syncFx();return;}
-  fx.warmUp();
-  openSheet({head:'<div class="sheet-title">Sound effects</div>',body});
+    <div class="fx-row">${chip('fx-toggle','data-key="eightD"','8D audio',s.eightD)}${chip('fx-toggle','data-key="lofi"','Lo-fi',s.lofi)}</div></div>`;
 }
-// Update the open panel in place (no redraw, so a slider being dragged is never interrupted).
+function fxSheet(refresh=false){
+  const body=renderAudioStudio({...audioStudioState,fxBodyHtml:buildFxBody()});
+  if(refresh&&!sheet.hidden&&$('#sheetPanel .dsp-studio')){
+    const curTab=$('#sheetPanel .dsp-studio').dataset.dspActiveTab;
+    if(curTab==='fx'&&audioStudioState.tab==='fx'&&$('#sheetPanel .fx')){syncFx();return;}
+    const activeEl=document.activeElement?.id==='autoEqSearch'?{selStart:document.activeElement.selectionStart}:null;
+    $('#sheetPanel .dsp-studio').outerHTML=body;
+    if(activeEl&&$('#autoEqSearch')){$('#autoEqSearch').focus();try{$('#autoEqSearch').setSelectionRange(activeEl.selStart,activeEl.selStart);}catch{/*ignore*/}}
+    return;
+  }
+  fx.warmUp();
+  openSheet({head:'<div class="sheet-title">Audio Studio</div>',body});
+}
+// Update the open Effects pane in place (no redraw, so a slider being dragged is never interrupted).
 function syncFx(){
   const s=fx.get(),panel=$('#sheetPanel .fx');if(!panel)return;
   for(const input of $$('input[data-fx]',panel)){const k=input.dataset.fx;if(document.activeElement!==input)input.value=s[k];const label=$('#fxv-'+k);if(label)label.textContent=fxFmt[k](s[k]);}
@@ -1960,23 +2266,71 @@ function syncFx(){
 }
 let fxFrame=0,fxPending={};
 document.addEventListener('input',e=>{
+  if(e.target.id==='autoEqSearch'){
+    audioStudioState.autoEqQuery=e.target.value;
+    fxSheet(true);
+    return;
+  }
+  if(e.target.dataset?.eqGain!==undefined){
+    const idx=Number(e.target.dataset.eqGain),val=Number(e.target.value);
+    const cur=dsp.getDSP();
+    const bands=cur.bands.map((b,i)=>i===idx?{...b,gain:val}:b);
+    dsp.setDSP({enabled:true,eqEnabled:true,eqPreset:'custom',bands});
+    const lbl=$(`#eqGain-${idx}`);if(lbl)lbl.textContent=`${val>0?'+':''}${val.toFixed(1)}`;
+    const curveBox=$('#sheetPanel .eq-curve-box');
+    if(curveBox)curveBox.outerHTML=renderEQCurveSVG(dsp.getDSP());
+    return;
+  }
+  if(e.target.dataset?.dspRange){
+    const key=e.target.dataset.dspRange,val=Number(e.target.value);
+    dsp.setDSP({enabled:true,[key]:val});
+    const lbl=$(`#dspv-${key}`);
+    if(lbl){
+      if(key==='preampDb'||key==='bassEnhanceDb')lbl.textContent=`${val>0?'+':''}${val.toFixed(1)} dB`;
+      else if(key==='compressorThreshold')lbl.textContent=`${Math.round(val)} dB`;
+      else if(key==='compressorRatio')lbl.textContent=`${val.toFixed(1)}:1`;
+      else if(key==='stereoWidth')lbl.textContent=val===0?'Mono':val===100?'Natural (100%)':`${Math.round(val)}%`;
+      else if(key==='crossfeedLevel')lbl.textContent=`${Math.round(val)}%`;
+      else if(key==='balance')lbl.textContent=Math.abs(val)<0.03?'Center':val<0?`${Math.round(-val*100)}% L`:`${Math.round(val*100)}% R`;
+    }
+    return;
+  }
   if(e.target.dataset?.mixSec!==undefined){
     const sec=Math.max(0,Math.min(12,Math.round(Number(e.target.value)||0)));
     const cur=automix.normalizeMixSettings(store.getSettings());
-    applyMixSettings(sec,cur.preferredStyle);
+    applyMixSettings(sec,cur.preferredStyle,cur.curve);
     const lbl=$('#mixSecVal');if(lbl)lbl.textContent=sec?`${sec}s`:'Off';
     const tog=$('#mixToggleInput');if(tog)tog.checked=sec>0;
     return;
   }
   const key=e.target.dataset?.fx;if(!key)return;const v=Number(e.target.value);fxPending[key]=v;if(!fxFrame)fxFrame=requestAnimationFrame(()=>{fxFrame=0;const patch=fxPending;fxPending={};fx.set(patch);});const label=$('#fxv-'+key);if(label)label.textContent=fxFmt[key](v);$$('.fx-presets .chip').forEach(c=>c.classList.remove('on'));
 });
+document.addEventListener('change',e=>{
+  const t=e.target;
+  if(t.dataset?.dspToggle){
+    const key=t.dataset.dspToggle,on=t.checked;
+    if(key==='enabled')dsp.setDSP({enabled:on});
+    else dsp.setDSP({enabled:on?true:dsp.getDSP().enabled,[key]:on});
+    fxSheet(true);
+    return;
+  }
+  if(t.dataset?.eqProp){
+    const idx=Number(t.dataset.band),prop=t.dataset.eqProp;
+    const cur=dsp.getDSP();
+    const val=prop==='type'?t.value:Number(t.value);
+    const bands=cur.bands.map((b,i)=>i===idx?{...b,[prop]:val}:b);
+    dsp.setDSP({enabled:true,eqEnabled:true,eqPreset:'custom',bands});
+    fxSheet(true);
+  }
+});
 let lastMixSec=6;
-function applyMixSettings(seconds, style='smart'){
+function applyMixSettings(seconds, style='smart', curve='equal-power'){
   const sec=Math.max(0,Math.min(12,Math.round(Number(seconds)||0)));
   if(sec>0)lastMixSec=sec;
   const cleanStyle=automix.MIX_STYLE_IDS.includes(style)?style:'smart';
-  store.setSettings({automix:String(sec),mixStyle:cleanStyle});
-  player.setAutoMix(sec,cleanStyle);
+  const cleanCurve=automix.MIX_CURVES.some(c=>c.id===curve)?curve:'equal-power';
+  store.setSettings({automix:String(sec),mixStyle:cleanStyle,mixCurve:cleanCurve});
+  player.setAutoMix(sec,cleanStyle,cleanCurve);
   mixBadge();
 }
 function mixBadge(){
@@ -2000,10 +2354,12 @@ function mixSheet(listKey='', refresh=false){
     const on=m.enabled&&m.preferredStyle===id;
     return `<button class="mix-mode${on?' on':''}" data-act="mix-style" data-style="${id}" data-key="${esc(listKey)}" aria-pressed="${on}"><b>${esc(mode.label)}</b><small>${esc(mode.short==='Smart'?'Auto timing':mode.short==='DJ Blend'?'Bass-swap EQ':'Equal-power')}</small></button>`;
   }).join('');
+  const curves=automix.MIX_CURVES.map(c=>`<button class="chip${m.curve===c.id?' on':''}" data-act="mix-curve" data-curve="${c.id}" data-key="${esc(listKey)}">${esc(c.label)}</button>`).join('');
   const body=`<div class="mix-sheet">
-    <div class="mix-toggle-row"><div><b>Smooth song transitions</b><small>${m.enabled?`${automix.MIX_MODES[m.preferredStyle]?.label||'Smart Mix'} · ${m.seconds}s overlap`:'Blend songs seamlessly like Spotify Premium Mix'}</small></div><input id="mixToggleInput" type="checkbox" role="switch" data-act="mix-toggle" data-key="${esc(listKey)}" ${m.enabled?'checked':''} aria-label="Toggle song mix transitions"></div>
+    <div class="mix-toggle-row"><div><b>Smooth song transitions</b><small>${m.enabled?`${automix.MIX_MODES[m.preferredStyle]?.label||'Smart Mix'} · ${m.seconds}s overlap`:'Blend songs seamlessly with smooth transitions'}</small></div><input id="mixToggleInput" type="checkbox" role="switch" data-act="mix-toggle" data-key="${esc(listKey)}" ${m.enabled?'checked':''} aria-label="Toggle song mix transitions"></div>
     <div class="mix-modes">${modes}</div>
     <label class="fx-slider"><span>Transition overlap<b id="mixSecVal">${m.enabled?`${m.seconds}s`:'Off'}</b></span><input type="range" data-mix-sec min="0" max="12" step="1" value="${m.seconds}" aria-label="Mix transition length in seconds"></label>
+    <div class="fx-row" aria-label="Fade curve">${curves}</div>
     <p class="settings-note">${esc(automix.MIX_MODES[m.enabled?m.preferredStyle:'smart'].desc)} Works on iPhone, iPad, Android, and desktop in the app; background/lock-screen playback keeps smooth gapless handoff.</p>
     <div class="mix-actions">
       ${hasList?`<button class="btn primary" data-act="mix-play-list" data-key="${esc(listKey)}">${I.mix}<span>Mix this playlist</span></button>`:''}
@@ -2020,15 +2376,15 @@ function mixSheet(listKey='', refresh=false){
 let fxEl=null;
 const fxBind=()=>{if(player.el!==fxEl){fxEl=player.el;fx.bind(player.el);}};
 player.setEffectsHooks({
-  effectsOn:()=>fx.needsGraph(fx.get()),
+  effectsOn:()=>fx.needsAudioGraph(fx.get()),
   isCaptured:fx.isCaptured,
   prepareElement:fx.prepare,
   corsKnown:fx.knownCors,
   canWebAudioCrossfade:fx.canWebAudioCrossfade,
   crossfadeElements:fx.crossfadeElements,
 });
-player.on('time',()=>{if(player.el===fxEl&&!fx.isCaptured(fxEl)&&fx.needsGraph(fx.get()))fx.bind(fxEl);});
-const fxBadge=()=>{$('.np-fx')?.classList.toggle('on',fx.isActive(fx.get()));const note=$('#sheetPanel .fx-note');if(note&&fx.isBlocked())note.textContent='This song’s audio server doesn’t allow reverb, pitch or bass, so it plays normally. Speed still works, and effects come back on the next song that allows them.';};
+player.on('time',()=>{if(player.el===fxEl&&!fx.isCaptured(fxEl)&&fx.needsAudioGraph(fx.get()))fx.bind(fxEl);});
+const fxBadge=()=>{$('.np-fx')?.classList.toggle('on',fx.isAnyAudioActive(fx.get()));const note=$('#sheetPanel .fx-note');if(note&&fx.isBlocked())note.textContent='This song’s audio server restricts cross-origin audio processing, so EQ/DSP is bypassed on this track and resumes automatically on the next compatible track.';};
 $('.np-fx')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();fxSheet();});
 player.on('state',fxBind);player.on('state',mixBadge);fx.onChange(fxBadge);fxBadge();mixBadge();
 addEventListener('spotplus:music-play',fx.resume);document.addEventListener('visibilitychange',()=>{if(!document.hidden){fx.resume();fx.restoreAfterBackground(player.el);}});
@@ -2293,10 +2649,43 @@ function viewBackgrounds(category = '') {
   return scene.page({ category, settings: store.getSettings(), uploads: scene.listUploads(), esc });
 }
 function viewThemes(){
-  const s=store.getSettings(),p=themes.palette(s);if(!themeUndo)themeUndo={...themeSettings(s),density:s.density,textSize:s.textSize,motion:s.motion};
-  return `<div class="studio-heading"><div><div class="kicker">Personalize</div><h1>Themes</h1><p class="muted">Pick a look or mix your own. Changes apply instantly.</p></div><div class="row-btns"><button class="btn" data-act="theme-undo">Undo this session</button><button class="btn primary" data-act="theme-save">Save theme</button></div></div><div class="studio-grid"><section class="studio-preview"><div class="studio-preview-top"><b id="themeLiveName">${s.themeCustom?'Your mix':p.name}</b><span>LIVE</span></div><div class="mini-workspace" aria-hidden="true"><div class="mini-sidebar"><span class="mini-dot"></span><i></i><i></i><i></i></div><div class="mini-main"><span class="mini-chip">Your library</span><h3>Made for your music</h3><div class="mini-art-row">${img(player.current()?.cover||'icons/icon-512.png')}${img(store.getLikes()[0]?.cover||'icons/icon-512.png')}</div><div class="mini-track"><span></span><b>Spot+</b><i>${I.play}</i></div></div></div><div class="studio-preview-bottom"><span id="themeContrast">${themes.contrast(p.accentText,p.raised).toFixed(1)}:1 accent text contrast</span><span>Auto contrast</span></div></section><section class="studio-controls"><h2>Make it yours</h2>${themeModeSwitch(s)}<label class="field"${p.mode==='light'?' hidden':''}><span>Pure black<small>True black backgrounds for OLED screens.</small></span><input type="checkbox" role="switch" data-setting="amoled" ${s.amoled!==false?'checked':''}></label><div class="color-controls">${[['accent','Accent',p.accent],['surface','Surface tint',p.surface],['raised','Control tint',p.raised]].map(([key,label,value])=>`<label><span>${label}</span><input type="color" data-theme-color="${key}" value="${value}" aria-label="${label} color"><small data-color-value="${key}">${value.toUpperCase()}</small></label>`).join('')}</div><label class="field"><span>Corner shape<small>Square to softly rounded.</small></span><input type="range" min="0" max="24" step="2" value="${p.radius}" data-setting="cornerRadius" aria-label="Corner roundness"></label><label class="field"><span>Album artwork</span><select data-setting="coverStyle"><option value="square" ${s.coverStyle!=='disc'?'selected':''}>Original square</option><option value="disc" ${s.coverStyle==='disc'?'selected':''}>Record circles</option></select></label><button class="btn" data-act="theme-remix">${I.shuffle}Remix a theme</button></section></div>${themePresetGroups(s,p)}<section class="box"><h2>Feel & readability</h2><div class="studio-comfort"><label class="field"><span>Spacing</span><select data-setting="density"><option value="comfortable" ${s.density==='comfortable'?'selected':''}>Comfortable</option><option value="compact" ${s.density==='compact'?'selected':''}>Compact</option></select></label><label class="field"><span>Text</span><select data-setting="textSize"><option value="normal" ${s.textSize==='normal'?'selected':''}>Default</option><option value="large" ${s.textSize==='large'?'selected':''}>Larger</option></select></label><label class="field"><span>Motion</span><select data-setting="motion"><option value="system" ${s.motion==='system'?'selected':''}>Follow system</option><option value="reduced" ${s.motion==='reduced'?'selected':''}>Reduced</option></select></label></div></section><section class="box"><div class="sec-head"><h2>Your theme collection</h2><div class="row-btns"><button class="btn small" data-act="theme-import">Import theme</button><button class="btn small" data-act="theme-export">Export current</button></div></div>${store.getThemes().length?`<div class="saved-themes">${store.getThemes().map(t=>`<button class="btn" data-act="theme-load" data-id="${esc(t.id)}">${esc(t.name)}</button>`).join('')}</div>`:'<p class="muted">Save a mix to keep it here. Theme files contain appearance settings only.</p>'}</section>`;
+  const s=store.getSettings(),p=themes.palette(s),ui=uiEngine.normalizeUISettings(s);
+  if(!themeUndo)themeUndo={...themeSettings(s),density:s.density,textSize:s.textSize,motion:s.motion,uiStyle:ui.uiStyle};
+  const selUI=(key,opts)=>`<select data-setting="${key}">${opts.map(([v,l])=>`<option value="${v}"${ui[key]===v?' selected':''}>${esc(l)}</option>`).join('')}</select>`;
+  const interfaceSwitcher=`<section class="ui-switcher-box" aria-label="Interface Style">
+    <div class="ui-switcher-head"><div><h2>Interface Style</h2><p>Switch instantly between Original Spot+ and Spot+ UI without reloading or interrupting your music.</p></div></div>
+    <div class="ui-style-cards">
+      <button type="button" class="ui-style-card${ui.uiStyle==='original'?' selected':''}" data-act="ui-style" data-style="original" aria-pressed="${ui.uiStyle==='original'}">
+        <div class="ui-mini-preview" aria-hidden="true"><div class="ui-mini-orig-tiles"><span></span><span></span><span></span><span></span></div><div class="ui-mini-orig-bar"></div><div class="ui-mini-orig-nav"><i></i><i></i><i></i><i></i></div></div>
+        <div class="ui-style-card-top"><strong>Original Spot+</strong><span class="ui-style-badge">${ui.uiStyle==='original'?'Active':'Classic'}</span></div>
+        <small>Preserves the classic Spot+ navigation, library workspace, and familiar player.</small>
+      </button>
+      <button type="button" class="ui-style-card${ui.uiStyle==='spotplus'?' selected':''}" data-act="ui-style" data-style="spotplus" aria-pressed="${ui.uiStyle==='spotplus'}">
+        <div class="ui-mini-preview" aria-hidden="true"><div class="ui-mini-sp-hero"></div><div class="ui-mini-sp-pill"></div><div class="ui-mini-sp-dock"><i></i><i></i><i></i></div></div>
+        <div class="ui-style-card-top"><strong>Spot+ UI</strong><span class="ui-style-badge">${ui.uiStyle==='spotplus'?'Active':'Liquid Glass'}</span></div>
+        <small>Liquid Glass floating navigation, Apple Music-inspired Now Playing, fluid artwork backdrops, and spring animations.</small>
+      </button>
+    </div>
+  </section>`;
+  const uiCustomSection=`<section class="box"><h2>Player, Glass &amp; Lyrics Customization</h2>
+    <div class="sp-custom-grid">
+      <label class="field"><span>Player background<small>Fluid art, frosted blur, loops, visualizer, or AMOLED.</small></span>${selUI('playerBg',uiEngine.PLAYER_BACKGROUNDS.map(b=>[b.id,b.label]))}</label>
+      <label class="field"><span>Music visualizer<small>Real-time Web Audio spectrum, Fluid Hills, or artwork glow.</small></span>${selUI('visualizerMode',uiEngine.VISUALIZER_MODES.map(v=>[v.id,v.label]))}</label>
+      <label class="field"><span>Typography<small>Font pairing across menus, titles, and lyrics.</small></span>${selUI('fontChoice',uiEngine.FONT_PAIRINGS.map(f=>[f.id,f.label]))}</label>
+      <label class="field"><span>Animation feel<small>Spring transitions and drifting backgrounds.</small></span>${selUI('animIntensity',[['full','Full fluid'],['subtle','Subtle'],['reduced','Reduced']])}</label>
+      <label class="field"><span>Artwork roundness<small>${ui.artRadius}px cover corners.</small></span><input type="range" min="0" max="28" step="2" value="${ui.artRadius}" data-setting="artRadius" aria-label="Artwork corner radius"></label>
+      <label class="field"><span>Glass tint strength<small>Opacity of floating Liquid Glass bars.</small></span><input type="range" min="20" max="100" step="4" value="${ui.glassIntensity}" data-setting="glassIntensity" aria-label="Glass intensity"></label>
+      <label class="field"><span>Glass blur radius<small>${ui.blurIntensity}px backdrop frost.</small></span><input type="range" min="4" max="44" step="2" value="${ui.blurIntensity}" data-setting="blurIntensity" aria-label="Glass blur radius"></label>
+      <label class="field"><span>Lyrics font size<small>Adjust live synced lyrics scale.</small></span>${selUI('lyricsSize',[['small','Compact'],['medium','Standard'],['large','Large'],['xlarge','Extra Large']])}</label>
+      <label class="field"><span>Lyrics soft focus blur<small>Gently softens inactive lines behind the active verse.</small></span><input type="checkbox" role="switch" data-setting="lyricsBlur" ${ui.lyricsBlur?'checked':''}></label>
+      <label class="field"><span>Tab bar labels<small>Show captions under icons in Spot+ UI’s floating bar.</small></span><input type="checkbox" role="switch" data-setting="tabBarLabels" ${ui.tabBarLabels?'checked':''}></label>
+      <label class="field"><span>Hold artwork for 2× speed<small>Press and hold Now Playing cover to fast-preview.</small></span><input type="checkbox" role="switch" data-setting="playerHold2x" ${ui.playerHold2x?'checked':''}></label>
+      <label class="field"><span>Double-tap artwork to seek<small>Double-tap left or right side of cover to jump ±10s.</small></span><input type="checkbox" role="switch" data-setting="playerDoubleTapSeek" ${ui.playerDoubleTapSeek?'checked':''}></label>
+    </div>
+  </section>`;
+  return `<div class="studio-heading"><div><div class="kicker">Personalize</div><h1>Themes</h1><p class="muted">Pick an interface style, color theme, or customize every glass and player detail. Changes apply instantly.</p></div><div class="row-btns"><button class="btn" data-act="theme-undo">Undo this session</button><button class="btn primary" data-act="theme-save">Save theme</button></div></div>${interfaceSwitcher}<div class="studio-grid"><section class="studio-preview"><div class="studio-preview-top"><b id="themeLiveName">${s.themeCustom?'Your mix':p.name}</b><span>LIVE</span></div><div class="mini-workspace" aria-hidden="true"><div class="mini-sidebar"><span class="mini-dot"></span><i></i><i></i><i></i></div><div class="mini-main"><span class="mini-chip">Your library</span><h3>Made for your music</h3><div class="mini-art-row">${img(player.current()?.cover||'icons/icon-512.png')}${img(store.getLikes()[0]?.cover||'icons/icon-512.png')}</div><div class="mini-track"><span></span><b>Spot+</b><i>${I.play}</i></div></div></div><div class="studio-preview-bottom"><span id="themeContrast">${themes.contrast(p.accentText,p.raised).toFixed(1)}:1 accent text contrast</span><span>Auto contrast</span></div></section><section class="studio-controls"><h2>Make it yours</h2>${themeModeSwitch(s)}<label class="field"${p.mode==='light'?' hidden':''}><span>Pure black<small>True black backgrounds for OLED screens.</small></span><input type="checkbox" role="switch" data-setting="amoled" ${s.amoled!==false?'checked':''}></label><div class="color-controls">${[['accent','Accent',p.accent],['surface','Surface tint',p.surface],['raised','Control tint',p.raised]].map(([key,label,value])=>`<label><span>${label}</span><input type="color" data-theme-color="${key}" value="${value}" aria-label="${label} color"><small data-color-value="${key}">${value.toUpperCase()}</small></label>`).join('')}</div><label class="field"><span>Corner shape<small>Square to softly rounded.</small></span><input type="range" min="0" max="24" step="2" value="${p.radius}" data-setting="cornerRadius" aria-label="Corner roundness"></label><label class="field"><span>Album artwork</span><select data-setting="coverStyle"><option value="square" ${s.coverStyle!=='disc'?'selected':''}>Original square</option><option value="disc" ${s.coverStyle==='disc'?'selected':''}>Record circles</option></select></label><button class="btn" data-act="theme-remix">${I.shuffle}Remix a theme</button></section></div>${uiCustomSection}${themePresetGroups(s,p)}<section class="box"><h2>Feel & readability</h2><div class="studio-comfort"><label class="field"><span>Spacing</span><select data-setting="density"><option value="comfortable" ${s.density==='comfortable'?'selected':''}>Comfortable</option><option value="compact" ${s.density==='compact'?'selected':''}>Compact</option></select></label><label class="field"><span>Text</span><select data-setting="textSize"><option value="normal" ${s.textSize==='normal'?'selected':''}>Default</option><option value="large" ${s.textSize==='large'?'selected':''}>Larger</option></select></label><label class="field"><span>Motion</span><select data-setting="motion"><option value="system" ${s.motion==='system'?'selected':''}>Follow system</option><option value="reduced" ${s.motion==='reduced'?'selected':''}>Reduced</option></select></label></div></section><section class="box"><div class="sec-head"><h2>Your theme collection</h2><div class="row-btns"><button class="btn small" data-act="theme-import">Import theme</button><button class="btn small" data-act="theme-export">Export current</button></div></div>${store.getThemes().length?`<div class="saved-themes">${store.getThemes().map(t=>`<button class="btn" data-act="theme-load" data-id="${esc(t.id)}">${esc(t.name)}</button>`).join('')}</div>`:'<p class="muted">Save a mix to keep it here. Theme files contain appearance settings only.</p>'}</section>`;
 }
-document.addEventListener('input',e=>{const input=e.target;if(input.dataset.themeColor){const s=store.getSettings(),p=themes.palette(s);store.setSettings({themeCustom:{accent:p.accent,surface:p.surface,raised:p.raised,[input.dataset.themeColor]:input.value}});const readout=$(`[data-color-value="${input.dataset.themeColor}"]`);if(readout)readout.textContent=input.value.toUpperCase();$$('.theme-preset').forEach(b=>{b.classList.remove('selected');b.setAttribute('aria-pressed','false');});}if(input.dataset.setting==='cornerRadius')store.setSettings({cornerRadius:Number(input.value)});});
+document.addEventListener('input',e=>{const input=e.target;if(input.dataset.themeColor){const s=store.getSettings(),p=themes.palette(s);store.setSettings({themeCustom:{accent:p.accent,surface:p.surface,raised:p.raised,[input.dataset.themeColor]:input.value}});const readout=$(`[data-color-value="${input.dataset.themeColor}"]`);if(readout)readout.textContent=input.value.toUpperCase();$$('.theme-preset').forEach(b=>{b.classList.remove('selected');b.setAttribute('aria-pressed','false');});}if(['cornerRadius','artRadius','glassIntensity','blurIntensity'].includes(input.dataset.setting))store.setSettings({[input.dataset.setting]:Number(input.value)});});
 document.addEventListener('submit',e=>{if(e.target.id==='spotifyLinkForm'){e.preventDefault();const parsed=spotify.parseSpotifyLink($('#spotifyLink').value);if(!parsed)return toast('Paste a full open.spotify.com playlist, artist, album or track link.');go(parsed.type==='playlist'?`#/linked/${parsed.id}`:`#/spotify/${parsed.type}/${parsed.id}`);}});
 
 /* ---------------- Automatic Spotify stats ----------------

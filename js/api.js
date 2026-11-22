@@ -11,6 +11,7 @@ import { router, validateSourceCandidate, isVerifiedEquivalent } from './source-
 import { memoryEngine } from './memory-engine.js';
 import { bufferEngine } from './buffer-engine.js';
 import { nameMatch } from './search-rank.js';
+import { parseEnhancedLRC } from './lyrics-engine.js';
 
 const DEEZER = 'https://api.deezer.com';
 const LRCLIB = 'https://lrclib.net/api';
@@ -1711,14 +1712,7 @@ export async function testInstances() {
 
 /* =========================== Lyrics (LRCLib) =========================== */
 function parseLRC(text) {
-  const out = [];
-  for (const line of String(text || '').split(/\r?\n/)) {
-    const stamps = [...line.matchAll(/\[(\d+):(\d+(?:\.\d+)?)\]/g)];
-    if (!stamps.length) continue;
-    const words = line.replace(/\[[^\]]*\]/g, '').trim();
-    for (const s of stamps) out.push({ t: +s[1] * 60 + +s[2], text: words });
-  }
-  return out.sort((a, b) => a.t - b.t);
+  return parseEnhancedLRC(text);
 }
 const lyricCache = new Map();
 export async function lyrics(t) {

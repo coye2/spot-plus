@@ -1,0 +1,7 @@
+name = "spot-plus-spotify-relay"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+
+[vars]
+# Optional comma-separated extra origins if deploying a custom staging domain.
+EXTRA_ALLOWED_ORIGINS = ""

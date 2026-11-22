@@ -30,16 +30,24 @@ export const MIX_MODES = Object.freeze({
 });
 
 export const MIX_STYLE_IDS = Object.freeze(['smart', 'blend', 'fade']);
+export const MIX_CURVES = Object.freeze([
+  { id: 'equal-power', label: 'Equal Power', desc: 'Constant perceived loudness throughout the blend.' },
+  { id: 'smooth-s', label: 'Smooth S-Curve', desc: 'Gentle ease-in and ease-out for calm phrasing.' },
+  { id: 'linear', label: 'Linear', desc: 'Steady straight-line crossfade.' },
+]);
 
 export function normalizeMixSettings(settings = {}) {
   const rawSeconds = Math.max(0, Math.min(12, Math.round(Number(settings.automix) || 0)));
   const rawStyle = typeof settings.mixStyle === 'string' ? settings.mixStyle.toLowerCase() : 'smart';
   const style = MIX_STYLE_IDS.includes(rawStyle) ? rawStyle : 'smart';
+  const rawCurve = typeof settings.mixCurve === 'string' ? settings.mixCurve.toLowerCase() : 'equal-power';
+  const curve = MIX_CURVES.some((c) => c.id === rawCurve) ? rawCurve : 'equal-power';
   return {
     enabled: rawSeconds > 0,
     seconds: rawSeconds,
     style: rawSeconds > 0 ? style : 'off',
     preferredStyle: style,
+    curve,
   };
 }
 
@@ -53,14 +61,25 @@ export function equalPowerGains(progress) {
   };
 }
 
-/** Generate a Float32Array equal-power gain curve for Web Audio setValueCurveAtTime. */
-export function buildGainCurve(direction, steps = 64, targetVolume = 1) {
+/** Compute outgoing/incoming gain pair for the selected transition curve shape. */
+export function curveGains(progress, curve = 'equal-power') {
+  const p = Math.max(0, Math.min(1, Number(progress) || 0));
+  if (curve === 'linear') return { outGain: 1 - p, inGain: p };
+  if (curve === 'smooth-s') {
+    const s = p * p * (3 - 2 * p);
+    return equalPowerGains(s);
+  }
+  return equalPowerGains(p);
+}
+
+/** Generate a Float32Array gain curve for Web Audio setValueCurveAtTime. */
+export function buildGainCurve(direction, steps = 64, targetVolume = 1, curveShape = 'equal-power') {
   const n = Math.max(4, Math.min(256, Math.round(steps) || 64));
   const curve = new Float32Array(n);
   const vol = Math.max(0, Math.min(1, Number(targetVolume) || 0));
   for (let i = 0; i < n; i++) {
     const p = i / (n - 1);
-    const { outGain, inGain } = equalPowerGains(p);
+    const { outGain, inGain } = curveGains(p, curveShape);
     curve[i] = (direction === 'in' ? inGain : outGain) * vol;
   }
   return curve;
@@ -164,6 +183,7 @@ export function runCrossfade({
   targetVolume = 1,
   seconds = 4,
   style = 'smart',
+  curve = 'equal-power',
   elementVolumeSupported = true,
   webAudioFade = null,
   onCleanupOutgoing = () => {},
@@ -182,7 +202,7 @@ export function runCrossfade({
   // Path 1: Sample-accurate Web Audio GainNode (+ DJ bass-swap EQ) crossfade — works on iOS Safari too!
   if (typeof webAudioFade === 'function') {
     try {
-      const handle = webAudioFade(outgoing, incoming, { seconds: dur, style, targetVolume: target });
+      const handle = webAudioFade(outgoing, incoming, { seconds: dur, style, curve, targetVolume: target });
       if (handle?.done) {
         const done = handle.done.then(() => { cleanupOut(); }).catch(() => { cleanupOut(); });
         return {
@@ -199,7 +219,7 @@ export function runCrossfade({
     } catch { /* fall through to element ramp */ }
   }
 
-  // Path 2: Smooth 60fps equal-power HTMLMediaElement.volume crossfade (Desktop / Android).
+  // Path 2: Smooth 60fps HTMLMediaElement.volume crossfade (Desktop / Android).
   if (elementVolumeSupported && outgoing && incoming) {
     const outStart = Math.max(0, Math.min(1, Number(outgoing.volume ?? target)));
     try { incoming.volume = 0; } catch { /* ignore */ }
@@ -221,7 +241,7 @@ export function runCrossfade({
       const tick = (now) => {
         if (cancelled) { resolve(); return; }
         const p = Math.min(1, Math.max(0, (now - start) / ms));
-        const { outGain, inGain } = equalPowerGains(p);
+        const { outGain, inGain } = curveGains(p, curve);
         try { outgoing.volume = Math.max(0, Math.min(1, outStart * outGain)); } catch { /* ignore */ }
         try { incoming.volume = Math.max(0, Math.min(1, target * inGain)); } catch { /* ignore */ }
         if (p < 1) {

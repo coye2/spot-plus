@@ -144,8 +144,9 @@ test('the source dropdown offers Spot+ YouTube Relay first and no retired source
   const app = await readFile(new URL('../js/app.js', import.meta.url), 'utf8');
   const select = app.slice(app.indexOf('<select data-setting="source">'), app.indexOf('</select>', app.indexOf('<select data-setting="source">')));
   const values = [...select.matchAll(/\['(\w+)', '/g)].map((m) => m[1]);
-  assert.deepEqual(values, ['ytrelay', 'auto', 'soundcloud', 'hifi', 'jiosaavn', 'audius']);
+  assert.deepEqual(values, ['ytrelay', 'auto', 'spotify', 'soundcloud', 'hifi', 'jiosaavn', 'audius']);
   assert.ok(select.includes("['ytrelay', 'Spot+ YouTube Relay']"));
+  assert.ok(select.includes("['spotify', 'Spotify — Official Playback']"));
   for (const gone of ['piped', 'invidious', 'youtube', 'deezer']) assert.ok(!values.includes(gone), gone);
   assert.ok(select.includes('api.soundcloudAvailable()'), 'SoundCloud only when set up');
   assert.ok(app.includes('data-setting="customHifi"'));

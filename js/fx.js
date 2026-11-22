@@ -1,6 +1,8 @@
 // Sound effects: speed, pitch, reverb, room size, bass, lo-fi and 8D, live on the device.
 // Speed works on any song. The rest uses the Web Audio graph below.
 import {corsOK, knownCors} from './cors-probe.js';
+import * as dsp from './dsp.js';
+import {buildGainCurve} from './automix.js';
 export {knownCors};
 const KEY = 'spotplus.fx';
 export const DEFAULTS = {preset: 'off', speed: 1, keepPitch: true, pitch: 0, reverb: 0, room: 'hall', bass: 0, lofi: false, eightD: false, vocals: 0};
@@ -64,9 +66,24 @@ let settings = load(), ctx = null, nodes = null;
 const sources = new WeakMap();
 const channels = new WeakMap();
 let current = null;
+let analyserWanted = false;
 const listeners = new Set();
 export const onChange = fn => listeners.add(fn);
 export const get = () => ({...settings});
+export const needsAudioGraph = (s = settings) => needsGraph(s) || dsp.isDSPActive();
+export const isAnyAudioActive = (s = settings) => isActive(s) || dsp.isDSPActive();
+export const getAnalyser = () => nodes?.analyser || null;
+const hasCors = (m) => m?.crossOrigin === 'anonymous' || m?.crossOrigin === 'use-credentials';
+export function requestAnalyser(want) {
+  const next = !!want;
+  if (analyserWanted === next) return;
+  analyserWanted = next;
+  // Never force a disruptive mid-song reload just for a visualizer unless effects/DSP
+  // are already active or the element is already CORS-enabled/captured.
+  if (next && current && (sources.has(current) || hasCors(current) || needsAudioGraph(settings))) {
+    route(current);
+  }
+}
 
 function build() {
   ctx = new (globalThis.AudioContext || globalThis.webkitAudioContext)({latencyHint: 'playback'});
@@ -91,10 +108,15 @@ function build() {
   wetVox.gain.value = 0; dryVox.gain.value = 1;
   gainB.gain.value = 0;
   voxOut.connect(dry).connect(pan); voxOut.connect(convA).connect(gainA).connect(wet); voxOut.connect(convB).connect(gainB).connect(wet); wet.connect(pan);
-  pan.connect(out).connect(ctx.destination);
-  // With every effect off, sound skips the effects completely (bit-for-bit the original).
-  const bypass = ctx.createGain(); input.connect(bypass).connect(ctx.destination); bypass.gain.value = 1; out.gain.value = 0;
-  nodes = {bypass, input, bass, lofi, dryVox, wetVox, midHighGain, dry, wet, convs: [convA, convB], gains: [gainA, gainB], active: 0, pan, depth, out, room: null, pitch: null};
+  const dspChain = dsp.buildDSPChain(ctx);
+  const analyser = ctx.createAnalyser();
+  analyser.fftSize = 512;
+  analyser.smoothingTimeConstant = 0.78;
+  pan.connect(dspChain.input);
+  dspChain.output.connect(out).connect(analyser).connect(ctx.destination);
+  // With every effect & DSP off, sound skips processing completely (bit-for-bit the original) while still feeding the analyser tap.
+  const bypass = ctx.createGain(); input.connect(bypass).connect(analyser); bypass.gain.value = 1; out.gain.value = 0;
+  nodes = {bypass, input, bass, lofi, dryVox, wetVox, midHighGain, dry, wet, convs: [convA, convB], gains: [gainA, gainB], active: 0, pan, depth, out, dspChain, analyser, room: null, pitch: null};
   // Reverb impulse responses are generated lazily only when reverb > 0, avoiding main-thread audio stutters.
   ctx.audioWorklet?.addModule(new URL('./pitch-worklet.js', import.meta.url)).then(() => {
     nodes.pitch = new AudioWorkletNode(ctx, 'spotplus-pitch', {outputChannelCount: [2]});
@@ -136,16 +158,17 @@ function attach(media, reload) {
 }
 export const isCaptured = media => sources.has(media);
 let blocked = false;
-export const isBlocked = () => blocked && needsGraph(settings);
+export const isBlocked = () => blocked && (needsAudioGraph(settings) || analyserWanted);
 function setBlocked(value) { if (blocked !== value) { blocked = value; listeners.forEach(fn => fn(get())); } }
 
 /** Called by the player before a new song is loaded. Returns false if this element can't play it. */
 export async function prepare(media, url) {
+  const wantGraph = needsAudioGraph(settings) || analyserWanted;
   if (inBackground() && !sources.has(media)) { media.removeAttribute('crossorigin'); return true; }
   const ok = await corsOK(url);
   if (sources.has(media)) { setBlocked(!ok); return ok; }
-  if (ok && needsGraph(settings)) media.crossOrigin = 'anonymous'; else media.removeAttribute('crossorigin');
-  setBlocked(!ok && needsGraph(settings));
+  if (ok && wantGraph) media.crossOrigin = 'anonymous'; else media.removeAttribute('crossorigin');
+  setBlocked(!ok && wantGraph);
   return true;
 }
 
@@ -154,7 +177,8 @@ function applyGraph() {
   const t = ctx.currentTime, s = settings, ramp = (param, value) => param.setTargetAtTime(value, t, 0.03);
   ramp(nodes.bass.gain, s.bass);
   ramp(nodes.lofi.frequency, s.lofi ? 3200 : ctx.sampleRate / 2 - 100);
-  const neutral = !needsGraph(s); ramp(nodes.bypass.gain, neutral ? 1 : 0); ramp(nodes.out.gain, neutral ? 0 : 1);
+  const neutral = !needsAudioGraph(s); ramp(nodes.bypass.gain, neutral ? 1 : 0); ramp(nodes.out.gain, neutral ? 0 : 1);
+  dsp.applyDSPChain();
   ramp(nodes.wet.gain, s.reverb * 1.1);
   ramp(nodes.dry.gain, 1 - s.reverb * 0.45);
   ramp(nodes.depth.gain, s.eightD ? 0.95 : 0);
@@ -200,17 +224,18 @@ let probing = null;
 const inBackground = () => !!globalThis.document?.hidden;
 async function route(media, warm = false) {
   if (!media) return;
+  const wantGraph = needsAudioGraph(settings) || analyserWanted;
   // Always resume a suspended AudioContext for an already-captured element so audio never goes silent.
   if (sources.has(media) && ctx && ctx.state !== 'running') ctx.resume().catch(() => {});
-  if (!needsGraph(settings) && !warm) { if (nodes) applyGraph(); return; }
+  if (!wantGraph && !warm) { if (nodes) applyGraph(); return; }
   if (inBackground() && !sources.has(media)) return;
   if (!ctx) build();
   if (ctx.state !== 'running') ctx.resume().catch(() => {});
   if (sources.has(media)) { applyGraph(); return; }
   const src = media.currentSrc || media.src;
   if (!src || src.startsWith('data:')) return;
-  if (media.crossOrigin === 'anonymous') { try { attach(media, false); } catch { /* already routed */ } applyGraph(); return; }
-  if (warm && !needsGraph(settings)) { corsOK(src); return; } // Just learn; never restart a song only because the panel opened.
+  if (hasCors(media)) { try { attach(media, false); } catch { /* already routed */ } applyGraph(); return; }
+  if (warm && !wantGraph) { corsOK(src); return; } // Just learn; never restart a song only because the panel opened.
   if (probing === media) return;
   probing = media;
   const ok = await corsOK(src);
@@ -226,7 +251,7 @@ export function canWebAudioCrossfade(outgoing, incoming) {
   const readyForGraph = (m) => {
     const src = m.currentSrc || m.src || '';
     if (!src || src.startsWith('data:')) return false;
-    return sources.has(m) || m.crossOrigin === 'anonymous' || src.startsWith('blob:');
+    return sources.has(m) || hasCors(m) || src.startsWith('blob:');
   };
   return readyForGraph(outgoing) && readyForGraph(incoming);
 }
@@ -235,7 +260,7 @@ export function canWebAudioCrossfade(outgoing, incoming) {
  * Sample-accurate equal-power Web Audio crossfade (with optional DJ Blend bass-swap EQ).
  * Works on iPhone & iPad Safari where HTMLMediaElement.volume is read-only.
  */
-export function crossfadeElements(outgoing, incoming, {seconds = 4, style = 'smart'} = {}) {
+export function crossfadeElements(outgoing, incoming, {seconds = 4, style = 'smart', curve = 'equal-power'} = {}) {
   if (!canWebAudioCrossfade(outgoing, incoming)) return null;
   if (!ctx) build();
   if (ctx.state !== 'running') ctx.resume().catch(() => {});
@@ -246,14 +271,8 @@ export function crossfadeElements(outgoing, incoming, {seconds = 4, style = 'sma
 
   const dur = Math.max(0.5, Math.min(12, Number(seconds) || 4));
   const now = ctx.currentTime;
-  const steps = 64;
-  const outCurve = new Float32Array(steps);
-  const inCurve = new Float32Array(steps);
-  for (let i = 0; i < steps; i++) {
-    const p = i / (steps - 1);
-    outCurve[i] = Math.cos(p * (Math.PI / 2));
-    inCurve[i] = Math.sin(p * (Math.PI / 2));
-  }
+  const outCurve = buildGainCurve('out', 64, 1, curve);
+  const inCurve = buildGainCurve('in', 64, 1, curve);
 
   outCh.gain.gain.cancelScheduledValues(now);
   inCh.gain.gain.cancelScheduledValues(now);
@@ -328,7 +347,7 @@ export function set(patch, storage = globalThis.localStorage) {
 }
 export const usePreset = name => set(fromPreset(name));
 /** Back in the app after background play: put the playing song through effects again. */
-export function restoreAfterBackground(media) { if (media && needsGraph(settings) && !sources.has(media)) { current = media; route(media); } }
+export function restoreAfterBackground(media) { if (media && (needsAudioGraph(settings) || analyserWanted) && !sources.has(media)) { current = media; route(media); } }
 /** Called when the effects panel opens: builds the sound engine without blocking the main thread. */
 export function warmUp() {
   if (!ctx) build();
@@ -336,3 +355,10 @@ export function warmUp() {
   if (current) route(current, true);
 }
 export const resume = () => { if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {}); };
+
+// Keep Web Audio routing synchronized whenever EQ / AutoEq / DSP settings change live.
+dsp.onDSPChange(() => {
+  if (current) route(current);
+  else if (nodes) applyGraph();
+  listeners.forEach(fn => fn(get()));
+});
