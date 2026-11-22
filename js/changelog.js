@@ -1,6 +1,13 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '2.2.1', date: '2026-11-22', title: 'Zero-hum pause, AirPlay audio, fast Lock Screen & iPhone speed', items: [
+    'Fixed the continuous buzzing/humming drone after pausing playback: Web Audio now hard-gates to zero, flushes pitch-shifter ring buffers, and suspends the AudioContext whenever audio pauses or stops.',
+    'Fixed AirPlay playing silently without Screen Mirroring: attached the active audio element to the DOM with native AirPlay attributes, added a direct AirPlay picker in Connect, and automatically bypasses Web Audio / crossOrigin whenever a wireless AirPlay target is active.',
+    'Eliminated brief audio dropouts when exiting or returning to Spot+: background handoff now runs only on iOS when effects are active (with brief overlap so there is no silence dip), returning to the app never triggers mid-song reloads, and unexpected OS visibility-switch pauses recover automatically.',
+    'Upgraded Lock Screen & Notification Bar controls: removed destructive audio teardown between skips, updated Media Session metadata & timestamps instantaneously on skip/seek, added smart Previous-track double-tap rewind, hardened mid-song stall detection so active streams never stop randomly, and accelerated iPhone song switching via fast Stage-A relay prewarming and hot-element reuse.',
+    'Added horizontal swipe left/right on Now Playing artwork to skip to the next or previous song.',
+  ]},
   {version: '2.2.0', date: '2026-11-21', title: 'Spotify — Official Playback & preview streaming fixes', items: [
     'Added Spotify — Official Playback in Audio sources using standards-compliant OAuth 2.0 PKCE (zero client secrets in browser bundles), official Spotify Web Playback SDK on supported EME browsers, and Spotify Connect remote control for Premium accounts — with truthful availability badges and automatic fallback to Spot+ YouTube Relay.',
     'Added a dedicated Cloudflare Worker control-plane service (workers/spotify-relay) with per-user & per-IP rate limiting, request coalescing, circuit breaker, bounded retries, short-lived metadata URI resolution, and strict refusal of unauthorized DRM audio proxying.',

@@ -1,10 +1,17 @@
 // Hand off the same preloaded media element (Player B), even when only its beginning is ready.
+function configureMedia(media) {
+  if (!media) return;
+  media.playsInline = true;
+  media.setAttribute?.('playsinline', '');
+  media.setAttribute?.('x-webkit-airplay', 'allow');
+  try { media.disableRemotePlayback = false; } catch { /* unsupported */ }
+}
+
 export class NextAudioBuffer {
   constructor(createAudio = () => new Audio()) {
     this.spare = createAudio();
     this.spare.preload = 'none';
-    this.spare.playsInline = true;
-    this.spare.setAttribute?.('playsinline', '');
+    configureMedia(this.spare);
     this.entry = null;
   }
   clear() {
@@ -31,8 +38,7 @@ export class NextAudioBuffer {
     if (this.entry?.key === key && this.entry?.source?.url === source.url && !this.entry.media.error && Date.now() - this.entry.created < 480000) return;
     this.clear();
     this.entry = { key, source, created: Date.now(), media: this.spare };
-    this.spare.playsInline = true;
-    this.spare.setAttribute?.('playsinline', '');
+    configureMedia(this.spare);
     if (cors) this.spare.crossOrigin = 'anonymous';
     else this.spare.removeAttribute?.('crossorigin');
     this.spare.preload = 'auto';
@@ -41,8 +47,7 @@ export class NextAudioBuffer {
   }
   recycle(media) {
     this.spare = media;
-    this.spare.playsInline = true;
-    this.spare.setAttribute?.('playsinline', '');
+    configureMedia(this.spare);
     this.clear();
   }
 }

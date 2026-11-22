@@ -5,8 +5,10 @@ import * as store from './store.js';
 import { NextAudioBuffer } from './audio-buffer.js';
 import {
   audioHasHeadroom,
+  bufferedAhead,
   mediaWarmHeadroom,
   KEEP_WARM_AFTER_PAUSE_MS,
+  prefersAac,
   seamlessHandoffWindow,
   stallBudget,
 } from './playback-policy.js';
@@ -34,11 +36,62 @@ export const STATES = Object.freeze({
   FAILED: 'FAILED',
 });
 
-let audio = new Audio();
+function configureAudioElement(media) {
+  if (!media) return media;
+  media.playsInline = true;
+  media.setAttribute?.('playsinline', '');
+  media.setAttribute?.('webkit-playsinline', '');
+  media.setAttribute?.('x-webkit-airplay', 'allow');
+  try { media.disableRemotePlayback = false; } catch { /* read-only in some environments */ }
+  return media;
+}
+
+let audioHost = null;
+function ensureAudioAttached(media) {
+  if (!media || typeof globalThis.document === 'undefined' || !globalThis.document.body?.appendChild) return;
+  try {
+    if (!audioHost || !audioHost.isConnected) {
+      audioHost = globalThis.document.getElementById?.('spotplusAudioHost') || globalThis.document.createElement?.('div');
+      if (!audioHost) return;
+      audioHost.id = 'spotplusAudioHost';
+      audioHost.setAttribute?.('aria-hidden', 'true');
+      if (audioHost.style) {
+        audioHost.style.position = 'fixed';
+        audioHost.style.width = '1px';
+        audioHost.style.height = '1px';
+        audioHost.style.opacity = '0';
+        audioHost.style.pointerEvents = 'none';
+        audioHost.style.overflow = 'hidden';
+        audioHost.style.left = '-9999px';
+        audioHost.style.top = '0';
+      }
+      globalThis.document.body.appendChild(audioHost);
+    }
+    if (media.parentNode !== audioHost && typeof audioHost.appendChild === 'function') {
+      audioHost.appendChild(media);
+    }
+  } catch { /* mocked DOM in tests */ }
+}
+
+let audio = configureAudioElement(new Audio());
 audio.preload = 'auto';
-audio.playsInline = true;
-audio.setAttribute?.('playsinline', '');
+ensureAudioAttached(audio);
 export let el = audio;
+
+let airPlayActive = false;
+export const isAirPlayActive = () => airPlayActive || !!audio?.webkitCurrentPlaybackTargetIsWireless;
+export const canAirPlay = () => typeof audio?.webkitShowPlaybackTargetPicker === 'function';
+export function showAirPlayPicker() {
+  if (!canAirPlay()) return false;
+  configureAudioElement(audio);
+  ensureAudioAttached(audio);
+  try {
+    audio.webkitShowPlaybackTargetPicker();
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const listeners = { state: new Set(), time: new Set(), error: new Set(), notice: new Set(), 'effects-skipped': new Set() };
 export const on = (ev, fn) => listeners[ev].add(fn);
@@ -46,7 +99,7 @@ export const on = (ev, fn) => listeners[ev].add(fn);
 export const mediaElements = () => [audio, nextBuffer.spare];
 /* Effects hooks (set by fx.js): which elements are routed through effects, and whether effects are on. */
 let effectsOn = () => false, isCaptured = () => false, prepareElement = async () => {}, corsKnown = () => undefined;
-let canWebAudioCrossfade = () => false, crossfadeElements = () => null;
+let canWebAudioCrossfade = () => false, crossfadeElements = () => null, syncPlaybackState = () => {};
 export function setEffectsHooks(hooks) {
   ({
     effectsOn,
@@ -55,7 +108,8 @@ export function setEffectsHooks(hooks) {
     corsKnown,
     canWebAudioCrossfade,
     crossfadeElements,
-  } = { effectsOn, isCaptured, prepareElement, corsKnown, canWebAudioCrossfade, crossfadeElements, ...hooks });
+    syncPlaybackState,
+  } = { effectsOn, isCaptured, prepareElement, corsKnown, canWebAudioCrossfade, crossfadeElements, syncPlaybackState, ...hooks });
 }
 // A plain element held in reserve (unlocked on the first tap, never routed through effects) for songs whose
 // server doesn't allow effects. A routed element would play them silently.
@@ -147,6 +201,7 @@ export function pause() {
   if (isSpotifyOfficial()) spotifyPlayback.pause();
   else if (yt.active) yt.pause();
   else audio.pause();
+  syncPlaybackState(false);
   silenceOthers();
 }
 export function hideEmbed(hidden = true) { state.ytHidden = !!hidden; emit('state'); }
@@ -215,21 +270,34 @@ function watchStall() {
   const ticket = mediaTicket;
   const netProfile = bufferEngine.profile(navigator.connection);
   const adaptiveMs = netProfile.stallTimeoutMs;
-  const midSong = (audio.currentTime || 0) > 0.35;
-  const budgetMs = stallBudget(audio.currentTime);
+  const startPos = audio.currentTime || 0;
+  const startBuf = bufferedAhead(audio);
+  const midSong = startPos > 0.35;
+  const budgetMs = stallBudget(startPos);
   let ms = (state.source?.fast || state.source?.alternatives?.length)
     ? Math.max(2500, Math.min(budgetMs, adaptiveMs + 1500))
     : Math.max(budgetMs, adaptiveMs);
-  // Mid-song stalls should give cellular networks a brief chance to recover natively instead of tearing down <audio> and re-seeking.
-  if (midSong) ms = Math.max(ms, netProfile.condition === 'unstable' ? 8000 : 6500);
+  // Mid-song stalls should give cellular & backgrounded networks time to recover natively instead of tearing down <audio>.
+  if (midSong) {
+    ms = Math.max(ms, netProfile.condition === 'unstable' ? 8500 : 7000);
+    if (globalThis.document?.hidden) ms = Math.max(ms, 9500);
+  }
   // The relay may try up to four uploads of the song before the first byte (each refusal takes about two
   // seconds), so its first start gets longer before it counts as stuck.
   // A region that already had the song ready (warmed) should answer at once, so it gets less time.
   const wait = state.source?.kind === 'ytrelay' && !midSong ? (state.source.warm ? 5000 : Math.max(ms, 12000)) : ms;
   stallTimer = setTimeout(() => {
     stallTimer = null;
-    if (generation !== token || !pendingPlay || !isRealSrc()) return;
-    if ((audio.readyState || 0) >= 2 && (audio.currentTime || 0) > 0.35) { clearStall(); return; }
+    if (generation !== token || !pendingPlay || userPaused || !isRealSrc()) return;
+    const nowPos = audio.currentTime || 0;
+    const nowBuf = bufferedAhead(audio);
+    // If playback position moved or buffer actively grew during the wait, data is flowing — don't kill the song.
+    if (midSong && (nowPos > startPos + 0.1 || nowBuf > startBuf + 1.0)) {
+      if (!audio.paused && (audio.readyState || 0) >= 2) { clearStall(); return; }
+      watchStall();
+      return;
+    }
+    if ((audio.readyState || 0) >= 2 && nowPos > 0.35 && !audio.paused) { clearStall(); return; }
     failAttempt(ticket);
   }, wait);
   stallTimer.unref?.();
@@ -238,8 +306,9 @@ function watchStall() {
 function playAssigned(nextSource) {
   state.source = nextSource;
   state.error = null;
-  // A preview (or non-effects failover) must not inherit a restrictive CORS mode from a failed link.
-  if (nextSource.preview || !effectsOn()) audio.removeAttribute('crossorigin');
+  // A preview, AirPlay stream, or non-effects failover must not inherit a restrictive CORS mode from a failed link.
+  if (nextSource.preview || !effectsOn() || isAirPlayActive()) audio.removeAttribute('crossorigin');
+  ensureAudioAttached(audio);
   const ticket = assignSrc(nextSource.url);
   if (nextSource.preview) { try { audio.currentTime = 0; } catch {} }
   if (!pendingPlay || userPaused) {
@@ -712,8 +781,7 @@ function silentWav() {
 const SILENT = silentWav();
 export function unlockElement(element) {
   if (!element) return;
-  element.playsInline = true;
-  element.setAttribute?.('playsinline', '');
+  configureAudioElement(element);
   if (element.src) return;
   element.src = SILENT;
   element.play().then(() => {
@@ -723,12 +791,11 @@ export function unlockElement(element) {
 }
 function unlock() {
   api.warmConnections();
+  ensureAudioAttached(audio);
   unlockElement(nextBuffer.spare);
   if (!plainSpare) {
-    plainSpare = new Audio();
+    plainSpare = configureAudioElement(new Audio());
     plainSpare.preload = 'auto';
-    plainSpare.playsInline = true;
-    plainSpare.setAttribute?.('playsinline', '');
     bindAudio(plainSpare);
     unlockElement(plainSpare);
   } else {
@@ -748,33 +815,93 @@ const isRealSrc = () => audio.src && !audio.src.startsWith('data:');
 // switched away from, so pausing there cut songs off. A truly closed app is ended by iOS itself.)
 window.addEventListener('pagehide', () => { telemetry.noteListeningStop(); });
 
+let lastVisibilityChangeAt = 0;
+let visibilityResumeAttempted = false;
+
 /**
- * iPhone pauses Web Audio (the effects engine) when the app goes to the background, which silences a song
- * routed through effects. When that is about to happen, hand the song to a plain, already-unlocked element
- * at the same spot so it keeps playing, without effects. The next song picks effects up again.
+ * Hand playback from a Web Audio-captured element (or CORS-tagged element) to a plain, uncaptured element
+ * while overlapping briefly so exiting the app on iOS or switching to AirPlay never causes a silence gap.
  */
-export function handOffForBackground() {
-  if (!isCaptured(audio) || audio.paused || !isRealSrc() || isEmbed() || !plainSpare) return false;
-  const old = audio, plain = plainSpare, at = old.currentTime || 0;
+function handOffToPlainElement(old, plain) {
+  const at = old.currentTime || 0;
+  const wasPlaying = !old.paused;
   const src = old.currentSrc || old.src;
-  plainSpare = null;
+  configureAudioElement(plain);
   plain.removeAttribute('crossorigin');
   plain.preload = 'auto';
   plain.volume = old.volume;
+  ensureAudioAttached(plain);
   // A media fragment starts the new element at the same second without waiting for metadata.
   plain.src = `${src.split('#')[0]}#t=${Math.max(0, at + 0.05).toFixed(2)}`;
   audio = plain;
   el = audio;
   bindAudio(audio);
-  const started = audio.play();
-  old.pause();
-  old.removeAttribute('src');
-  old.load();
-  started?.catch?.(() => {});
+  let retired = false;
+  const retireOld = () => {
+    if (retired) return;
+    retired = true;
+    clearTimeout(retireTimer);
+    plain.removeEventListener?.('playing', retireOld);
+    plain.removeEventListener?.('canplay', retireOld);
+    try { old.pause(); } catch { /* ignore */ }
+    old.removeAttribute?.('src');
+    try { old.load?.(); } catch { /* ignore */ }
+    syncPlaybackState(false);
+  };
+  const retireTimer = setTimeout(retireOld, 260);
+  retireTimer.unref?.();
+  if (wasPlaying) {
+    plain.addEventListener?.('playing', retireOld, { once: true });
+    plain.addEventListener?.('canplay', retireOld, { once: true });
+    const started = audio.play();
+    started?.catch?.(() => retireOld());
+  } else {
+    retireOld();
+  }
   emit('state');
   return true;
 }
-globalThis.document?.addEventListener?.('visibilitychange', () => { if (globalThis.document.hidden) handOffForBackground(); });
+
+/**
+ * iPhone pauses Web Audio (the effects engine) when the app goes to the background, which silences a song
+ * routed through effects. When that is about to happen on iOS, hand the song to a plain, already-unlocked
+ * element at the same spot so it keeps playing seamlessly. Android & desktop keep Web Audio alive in the
+ * background, so they do not hand off and avoid any brief audio dip when switching apps.
+ */
+export function handOffForBackground() {
+  if (!isCaptured(audio) || audio.paused || !isRealSrc() || isEmbed() || !plainSpare) return false;
+  const old = audio, plain = plainSpare;
+  plainSpare = null;
+  return handOffToPlainElement(old, plain);
+}
+
+/**
+ * iOS AirPlay 2 outputs silence when audio is captured by Web Audio or carries a restrictive crossOrigin
+ * attribute on a non-AirPlay-friendly pipeline. Automatically switch to an uncaptured plain DOM element.
+ */
+export function handOffForAirPlay() {
+  if (!isRealSrc() || isEmbed() || isSpotifyOfficial()) return false;
+  if (!isCaptured(audio) && !audio.crossOrigin) {
+    configureAudioElement(audio);
+    ensureAudioAttached(audio);
+    return false;
+  }
+  const old = audio;
+  const plain = plainSpare || configureAudioElement(new Audio());
+  plainSpare = null;
+  return handOffToPlainElement(old, plain);
+}
+
+globalThis.document?.addEventListener?.('visibilitychange', () => {
+  lastVisibilityChangeAt = performance.now();
+  visibilityResumeAttempted = false;
+  if (globalThis.document.hidden) {
+    // Only iOS suspends Web Audio in the background; avoid unnecessary app-switch hiccups on Android/Desktop.
+    if (prefersAac()) handOffForBackground();
+    // Make sure the next song is prewarmed before the current song ends while screen is locked.
+    if (isPlaying() && !state.loading && !nextBuffer.entry) prefetch();
+  }
+});
 
 /* ---------- Loading a track ---------- */
 async function load(opts = {}) {
@@ -811,13 +938,17 @@ async function load(opts = {}) {
   api.cancelPrewarm(t);
 
   const inBackground = !!globalThis.document?.hidden;
-  const allowWarmTake = !opts.keepSkip && (!effectsOn() || !!opts.mixSeconds || inBackground);
+  const isIOS = prefersAac();
+  const allowWarmTake = !opts.keepSkip && (!effectsOn() || !!opts.mixSeconds || inBackground) && !isAirPlayActive();
   const streamKeyForTrack = allowWarmTake ? api.streamKey(t) : '';
   const warmed = streamKeyForTrack ? nextBuffer.take(streamKeyForTrack) : null;
-  const bgSource = inBackground && !isCaptured(audio)
+  // On iOS Safari, secondary <audio> elements often stay at readyState 0 until played; swapping to a cold
+  // element spins up a brand new AVPlayer (+300-600ms lag). Reuse the hot active element with the warmed URL instead.
+  const reuseHotOnIOS = isIOS && !!warmed && !opts.mixSeconds && (warmed.media.readyState || 0) < 2 && !isCaptured(audio);
+  const bgSource = (inBackground || reuseHotOnIOS) && !isCaptured(audio)
     ? (warmed?.source || (streamKeyForTrack && !t.local ? memoryEngine.getStream(streamKeyForTrack) : null))
     : null;
-  const reuseActiveInBackground = inBackground && !isCaptured(audio);
+  const reuseActiveElement = (inBackground || reuseHotOnIOS) && !isCaptured(audio);
   telemetry.beginGeneration(my, {
     trackId: t.id,
     trigger: opts.keepSkip ? 'recover' : (opts.trigger || 'play'),
@@ -828,21 +959,22 @@ async function load(opts = {}) {
   // Always cancel any earlier in-flight crossfade before starting a new transition or skip.
   cancelActiveCrossfade();
 
-  if (reuseActiveInBackground) {
-    // On iOS/Safari lock screen or background, keep the active <audio> element alive so the OS
-    // background audio session is never torn down by swapping to a spare element or blanking src.
-    nextBuffer.clear();
+  if (reuseActiveElement) {
+    // Keep the hot active <audio> element alive so iOS AVAudioSession & Lock Screen stay uninterrupted.
+    if (warmed?.media && warmed.media !== audio) nextBuffer.recycle(warmed.media);
+    else nextBuffer.clear();
   } else {
     if (!(opts.mixSeconds && warmed)) audio.pause();
     if (warmed) {
       const previous = audio, target = volumeLevel * (ducks.size ? .18 : 1);
-      audio = warmed.media;
+      audio = configureAudioElement(warmed.media);
       el = audio;
+      ensureAudioAttached(audio);
       bindAudio(audio);
       if (opts.mixSeconds) {
         // Spotify-style equal-power crossfade: uses hardware-timed Web Audio GainNodes (+ DJ bass-swap EQ)
         // on iPhone/iPad & CORS streams, or smooth 60fps requestAnimationFrame volume ramps otherwise.
-        const useWebAudio = canWebAudioCrossfade(previous, audio);
+        const useWebAudio = !isAirPlayActive() && canWebAudioCrossfade(previous, audio);
         if (useWebAudio) {
           audio.volume = target;
         }
@@ -864,10 +996,8 @@ async function load(opts = {}) {
           onCleanupOutgoing: cleanupOut,
         });
         activeCrossfade.done.finally(() => { activeCrossfade = null; });
-        const spare = new Audio();
+        const spare = configureAudioElement(new Audio());
         spare.preload = 'none';
-        spare.playsInline = true;
-        spare.setAttribute?.('playsinline', '');
         bindAudio(spare);
         unlockElement(spare);
         nextBuffer.recycle(spare);
@@ -878,10 +1008,8 @@ async function load(opts = {}) {
           previous.pause();
           previous.removeAttribute('src');
           previous.load();
-          const freshSpare = new Audio();
+          const freshSpare = configureAudioElement(new Audio());
           freshSpare.preload = 'none';
-          freshSpare.playsInline = true;
-          freshSpare.setAttribute?.('playsinline', '');
           bindAudio(freshSpare);
           unlockElement(freshSpare);
           nextBuffer.recycle(freshSpare);
@@ -893,8 +1021,24 @@ async function load(opts = {}) {
       suppressError = false;
     } else {
       nextBuffer.clear();
-      audio.removeAttribute('src');
-      audio.load();
+      // If effects were turned off (or AirPlay is active) while holding a Web Audio-captured element,
+      // swap cleanly back to a plain element on track change so normal playback stays lightweight & AirPlay-safe.
+      if (isCaptured(audio) && (!effectsOn() || isAirPlayActive())) {
+        const previous = audio;
+        previous.pause();
+        previous.removeAttribute('src');
+        previous.load();
+        syncPlaybackState(false);
+        audio = configureAudioElement(plainSpare || new Audio());
+        plainSpare = null;
+        el = audio;
+        audio.preload = 'auto';
+        audio.volume = volumeLevel * (ducks.size ? .18 : 1);
+        ensureAudioAttached(audio);
+        bindAudio(audio);
+      }
+      // Do NOT run removeAttribute('src') + audio.load() between normal track skips:
+      // blanking src tears down iOS AVAudioSession and causes Lock Screen/Control Center flicker & skip lag.
     }
   }
 
@@ -911,6 +1055,11 @@ async function load(opts = {}) {
   emit('state');
   emit('time');
   updateSession(t);
+  sessionHandlers();
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.playbackState = (pendingPlay && !userPaused) ? 'playing' : 'paused';
+  }
+  positionState(restorePos);
 
   try {
     let src;
@@ -1004,29 +1153,33 @@ async function load(opts = {}) {
     }
 
     setPhase(STATES.PREPARING);
-    if (!warmed || reuseActiveInBackground) {
-      if (isCaptured(audio) && (globalThis.document?.hidden || !(await prepareElement(audio, src)))) {
-        // This song's server doesn't allow effects: switch to the plain element so it still plays.
+    if (!warmed || reuseActiveElement) {
+      const airPlay = isAirPlayActive();
+      if (isCaptured(audio) && (airPlay || globalThis.document?.hidden || !(await prepareElement(audio, src)))) {
+        // This song's server doesn't allow effects (or AirPlay/background requires plain playback): switch to plain element.
         if (my !== token) return;
-        const plain = plainSpare || new Audio();
+        const plain = configureAudioElement(plainSpare || new Audio());
         plainSpare = null;
         audio.removeAttribute('src');
         audio.load();
+        syncPlaybackState(false);
         audio = plain;
         el = audio;
+        ensureAudioAttached(audio);
         bindAudio(audio);
         audio.preload = 'auto';
         audio.volume = volumeLevel * (ducks.size ? .18 : 1);
-        emit('effects-skipped');
-      } else if (!isCaptured(audio) && effectsOn() && !inBackground) {
+        if (!airPlay) emit('effects-skipped');
+      } else if (!isCaptured(audio) && !airPlay && effectsOn() && !inBackground) {
         await prepareElement(audio, src);
-      } else if (!isCaptured(audio) && !inBackground && (corsKnown(src) === true || (mixSeconds > 0 && sourceAllowsCors(state.source)))) {
+      } else if (!isCaptured(audio) && !airPlay && !inBackground && (corsKnown(src) === true || (mixSeconds > 0 && sourceAllowsCors(state.source)))) {
         // Pre-enable CORS on relay/offline/CORS streams when Mix is on so iOS Web Audio crossfades never reload mid-song.
         audio.crossOrigin = 'anonymous';
       } else if (!isCaptured(audio)) {
         audio.removeAttribute('crossorigin');
       }
       if (my !== token) return;
+      ensureAudioAttached(audio);
       assignSrc(src);
     }
 
@@ -1182,40 +1335,51 @@ function prefetch() {
   if (!skipTracker.isRapidSkipping() && netProfile.maxPreloadAhead >= 2) {
     api.prewarmAhead(upcoming.slice(0, 2).map((u) => u.track));
   }
-  const delay = skipTracker.stageBDelayMs();
+  const stageADelay = Math.min(skipTracker.stageBDelayMs(), 220);
+
+  const scheduleStageB = (source) => {
+    const attemptStageB = () => {
+      if (generation !== warmGeneration || !isPlaying() || state.loading || !source) return;
+      if (source.kind === 'youtube-embed') { yt.preload(source.videoId); return; }
+      const allowStageB = netProfile.preloadStageB && (!effectsOn() || mixSeconds > 0) && !isAirPlayActive() && !skipTracker.isRapidSkipping();
+      if (!allowStageB) return;
+      if (!isEmbed() && !audioHasHeadroom(audio, Math.max(3, needHeadroom - 1))) {
+        prefetchTimer = setTimeout(attemptStageB, 1000);
+        prefetchTimer.unref?.();
+        return;
+      }
+      const wantCors = corsKnown(source.url) === true || (mixSeconds > 0 && sourceAllowsCors(source));
+      nextBuffer.warm(api.streamKey(next), source, { cors: wantCors });
+    };
+    attemptStageB();
+  };
+
   prefetchTimer = setTimeout(async () => {
     try {
       if (generation !== warmGeneration || !isPlaying() || state.loading) return;
-      if (!isEmbed() && !audioHasHeadroom(audio, needHeadroom)) {
-        // Poll gently (1000ms) while waiting for the current song's buffer to build.
-        prefetchTimer = setTimeout(() => { if (generation === warmGeneration && isPlaying() && !state.loading) prefetch(); }, 1000);
+      // Fast Stage A (especially critical on iPhone where navigator.connection is absent):
+      // Pre-resolve and warm the relay region as soon as the current song has >= 2s buffer or >= 0.4s playback.
+      const stageAReady = isEmbed() || audioHasHeadroom(audio, 2) || (audio.currentTime || 0) >= 0.4;
+      if (!stageAReady) {
+        prefetchTimer = setTimeout(() => { if (generation === warmGeneration && isPlaying() && !state.loading) prefetch(); }, 650);
         prefetchTimer.unref?.();
         return;
       }
 
-      // Now that the current song has solid buffered headroom, look up the next song's backup too.
       if (next && !next.local && store.getSettings().source === 'auto') api.prefetchBackup(next);
 
-      // Stage A: resolve candidate sources for next track (and subsequent track on fast connections).
+      // Stage A: resolve candidate sources for next track and warm the relay edge early.
       let source = await (api.prewarm(next) || api.resolve(next));
-      // Relay: find a region that already has the next song before buffering it, so it starts instantly.
       if (source?.kind === 'ytrelay') source = await api.warmRelaySource(next, source);
       if (netProfile.maxPreloadAhead >= 2 && upcoming[1]?.track && !skipTracker.isRapidSkipping()) {
         api.prewarm(upcoming[1].track);
       }
 
       if (generation !== warmGeneration || !isPlaying() || state.loading) return;
-      if (!isEmbed() && !audioHasHeadroom(audio, Math.max(6, needHeadroom - 2))) return;
-
-      // Stage B: prepare Player B when permitted, non-embed, and not rapid-skipping.
-      if (source.kind === 'youtube-embed') yt.preload(source.videoId);
-      const allowStageB = netProfile.preloadStageB && (!effectsOn() || mixSeconds > 0) && source.kind !== 'youtube-embed' && !skipTracker.isRapidSkipping();
-      if (allowStageB) {
-        const wantCors = corsKnown(source.url) === true || (mixSeconds > 0 && sourceAllowsCors(source));
-        nextBuffer.warm(api.streamKey(next), source, { cors: wantCors });
-      }
+      // Stage B: prepare Player B once full buffer headroom is met.
+      scheduleStageB(source);
     } catch { /* Foreground playback retains its own retry path. */ }
-  }, delay);
+  }, stageADelay);
   prefetchTimer.unref?.();
 }
 
@@ -1313,6 +1477,7 @@ function songFinished() {
 function bindAudio(media) {
   if (boundAudio.has(media)) return;
   boundAudio.add(media);
+  configureAudioElement(media);
   allMedia.add(globalThis.WeakRef ? new WeakRef(media) : media);
   const listen = (event, fn) => media.addEventListener(event, () => { if (media === audio) fn(); });
   // Only the current track may make sound: a spare/preloaded element that starts on its own is stopped at once.
@@ -1320,8 +1485,18 @@ function bindAudio(media) {
     if (media !== audio && media.src && !media.src.startsWith('data:')) media.pause();
     else if (media === audio) window.dispatchEvent?.(new Event('spotplus:music-play'));
   });
+  // Native AirPlay 2 wireless target detection: switch off Web Audio / crossOrigin immediately so AirPlay has sound.
+  media.addEventListener('webkitcurrentplaybacktargetiswirelesschanged', () => {
+    if (media !== audio) return;
+    const wireless = !!media.webkitCurrentPlaybackTargetIsWireless;
+    airPlayActive = wireless;
+    if (wireless) handOffForAirPlay();
+    emit('state');
+  });
   listen('loadedmetadata', () => {
     telemetry.markStage(activeGen, 'metadataLoaded');
+    sessionHandlers();
+    positionState();
   });
   listen('canplay', () => {
     telemetry.markStage(activeGen, 'canPlay');
@@ -1333,6 +1508,8 @@ function bindAudio(media) {
   });
   listen('playing', () => {
     sessionHandlers();
+    syncPlaybackState(true);
+    visibilityResumeAttempted = false;
     if (state.source?.kind === 'ytrelay') { api.noteRelaySong(true); api.noteRelayRegion(state.source.relayRegion, true); }
     if (!mixing) silenceOthers(); // one song at a time (AutoMix overlaps on purpose)
     unavailableRun = 0;
@@ -1345,19 +1522,38 @@ function bindAudio(media) {
     if (state.startupMs == null && startedAt && isRealSrc()) state.startupMs = Math.round((first || performance.now()) - startedAt);
     telemetry.noteListeningStart();
     api.reportPlaybackSource(state.source, true, { startupMs: state.startupMs || 0 });
+    positionState();
     emit('state');
     prefetch();
   });
   listen('play', () => {
     clearTimeout(pauseClearTimer);
+    if (isRealSrc()) syncPlaybackState(true);
+    sessionHandlers();
     if ('mediaSession' in navigator) { navigator.mediaSession.playbackState = 'playing'; updateSession(current()); }
+    positionState();
     emit('state');
   });
   listen('pause', () => {
     clearStall();
+    syncPlaybackState(false);
     telemetry.noteListeningStop();
+    // Guard against brief OS-induced pauses right as the user exits or returns to the PWA.
+    const nearVisibilitySwitch = lastVisibilityChangeAt > 0 && (performance.now() - lastVisibilityChangeAt) < 1800;
+    if (nearVisibilitySwitch && !userPaused && pendingPlay && !audio.ended && isRealSrc() && !state.loading && !visibilityResumeAttempted) {
+      visibilityResumeAttempted = true;
+      const myGen = token;
+      const t = setTimeout(() => {
+        if (myGen !== token || userPaused || !pendingPlay || !audio.paused || audio.ended || !isRealSrc()) return;
+        audio.play().catch(() => {});
+      }, 120);
+      t.unref?.();
+    }
     if (state.phase === STATES.PLAYING || state.phase === STATES.STALLED) setPhase(STATES.IDLE);
-    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+    if ('mediaSession' in navigator) {
+      // Keep Lock Screen showing 'playing' during active track loads/skips so controls never drop out.
+      navigator.mediaSession.playbackState = (state.loading && pendingPlay && !userPaused) ? 'playing' : 'paused';
+    }
     emit('state');
     save();
     ++warmGeneration;
@@ -1471,7 +1667,7 @@ const linkExpired = () => { const exp = Number(String(state.source?.url || '').m
 export function toggle() {
   if (!current()) return;
   // The screen said paused but music was still playing from an older element: this tap stops it.
-  if (audio.paused && silenceOthers()) { userPaused = true; pendingPlay = false; emit('state'); return; }
+  if (audio.paused && silenceOthers()) { userPaused = true; pendingPlay = false; syncPlaybackState(false); emit('state'); return; }
   if (state.loading) {
     cancelLoad?.abort();
     ++token;
@@ -1483,6 +1679,7 @@ export function toggle() {
     pendingPlay = false;
     userPaused = true;
     audio.pause();
+    syncPlaybackState(false);
     audio.removeAttribute('src');
     audio.load();
     emit('state');
@@ -1505,6 +1702,7 @@ export function toggle() {
     else {
       userPaused = false;
       pendingPlay = true;
+      syncPlaybackState(true);
       audio.play().then(() => {
         activation.markUnlocked(audio);
         unlockedPrimary = audio;
@@ -1514,10 +1712,12 @@ export function toggle() {
     userPaused = true;
     pendingPlay = false;
     audio.pause();
+    syncPlaybackState(false);
     silenceOthers();
   }
 }
 export function next(fromUser = true) {
+  lastPrevAt = 0;
   if (fromUser && current() && (isRealSrc() || isEmbed() || isSpotifyOfficial())) {
     skipTracker.record();
     onSkip(current(), position());
@@ -1543,8 +1743,20 @@ async function radioContinue() {
   pause();
   emit('state');
 }
+let lastPrevAt = 0;
 export function prev() {
-  if (position() > 3 || state.index <= 0) { seek(0); return; }
+  const now = performance.now();
+  const doubleTapped = lastPrevAt > 0 && (now - lastPrevAt) <= 1800;
+  // First tap past 3s cleanly restarts the current song; a second tap within 1.8s (or <= 3s) skips to previous track.
+  if ((!doubleTapped && position() > 3) || state.index <= 0) {
+    lastPrevAt = now;
+    seek(0);
+    if (pendingPlay && !userPaused && !isEmbed() && !isSpotifyOfficial() && isRealSrc() && audio.paused) {
+      audio.play().catch(() => {});
+    }
+    return;
+  }
+  lastPrevAt = 0;
   skipTracker.record();
   state.index--;
   errRetries = 0;
@@ -1555,12 +1767,15 @@ export function seek(sec) {
   if (isSpotifyOfficial()) {
     const target = Math.max(0, Math.min(sec, duration()));
     spotifyPlayback.seek(target);
-    positionState();
+    emit('time');
+    positionState(target);
     return;
   }
   if (isEmbed()) {
     const target = Math.max(0, Math.min(sec, duration()));
     yt.seek(target);
+    emit('time');
+    positionState(target);
     return;
   }
   if (!isRealSrc()) return;
@@ -1568,7 +1783,8 @@ export function seek(sec) {
   telemetry.beginSeek(info.targetSec);
   audio.currentTime = info.targetSec;
   if (info.inBuffer) telemetry.endSeek();
-  positionState();
+  emit('time');
+  positionState(info.targetSec);
 }
 export function setVolume(v) {
   volumeLevel = Math.max(0, Math.min(1, v));
@@ -1683,23 +1899,25 @@ function updateSession(t) {
     });
   } catch {}
 }
-function positionState() {
+function positionState(overridePos = null) {
   if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
   const d = duration();
   if (!d) return;
-  try { navigator.mediaSession.setPositionState({ duration: d, playbackRate: isEmbed() ? 1 : (audio.playbackRate || 1), position: Math.min(position(), d) }); } catch {}
+  const rawPos = typeof overridePos === 'number' && Number.isFinite(overridePos) ? overridePos : position();
+  const pos = Math.max(0, Math.min(rawPos, d));
+  try { navigator.mediaSession.setPositionState({ duration: d, playbackRate: isEmbed() ? 1 : (audio.playbackRate || 1), position: pos }); } catch {}
 }
 // Lock screen and Control Center: previous/next song, like Spotify. iOS shows ±10-second buttons instead when
 // it has seek handlers, or when it lost ours after the app switched audio elements (preloading, background
-// play), so they are registered again every time a song starts playing.
+// play), so they are registered again every time a song loads or starts playing.
 function sessionHandlers() {
   if (!('mediaSession' in navigator)) return;
   const h = (a, fn) => { try { navigator.mediaSession.setActionHandler(a, fn); } catch {} };
   h('play', () => { updateSession(current()); if (isPaused()) toggle(); });
-  h('pause', () => { pause(); updateSession(current()); });
-  h('previoustrack', () => { prev(); updateSession(current()); positionState(); });
-  h('nexttrack', () => { next(true); updateSession(current()); positionState(); });
-  h('seekto', (d) => { if (d && typeof d.seekTime === 'number') { seek(d.seekTime); positionState(); } });
+  h('pause', () => { pause(); updateSession(current()); positionState(); });
+  h('previoustrack', () => { prev(); updateSession(current()); });
+  h('nexttrack', () => { next(true); updateSession(current()); });
+  h('seekto', (d) => { if (d && typeof d.seekTime === 'number') { seek(d.seekTime); } });
   h('seekbackward', null);
   h('seekforward', null);
 }

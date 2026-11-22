@@ -6,12 +6,51 @@ class SpotPlusPitch extends AudioWorkletProcessor {
     super();
     this.size = Math.round(sampleRate * 0.06); // 60 ms window
     this.buffers = [new Float32Array(this.size * 4), new Float32Array(this.size * 4)];
-    this.write = 0; this.phase = 0;
+    this.write = 0;
+    this.phase = 0;
+    this.silentBlocks = 0;
+    this.port.onmessage = (event) => {
+      if (event?.data === 'reset') this.clearBuffers();
+    };
+  }
+  clearBuffers() {
+    this.buffers[0].fill(0);
+    this.buffers[1].fill(0);
+    this.write = 0;
+    this.phase = 0;
+    this.silentBlocks = 0;
   }
   process(inputs, outputs, params) {
     const input = inputs[0], output = outputs[0], ratio = params.ratio[0], length = this.buffers[0].length, size = this.size;
-    if (!input.length) return true;
+    if (!output || !output.length) return true;
     const frames = output[0].length;
+    if (!input || !input.length || !input[0] || !input[0].length) {
+      for (let c = 0; c < output.length; c++) output[c].fill(0);
+      if (this.silentBlocks < 4) {
+        this.silentBlocks++;
+        if (this.silentBlocks >= 2) this.clearBuffers();
+      }
+      return true;
+    }
+
+    // Detect completely silent input so paused/stopped streams never leave a humming tail in the ring buffer.
+    let peak = 0;
+    const in0 = input[0];
+    for (let i = 0; i < frames; i++) {
+      const a = Math.abs(in0[i]);
+      if (a > peak) peak = a;
+    }
+    if (peak < 1e-6) {
+      this.silentBlocks++;
+      if (this.silentBlocks > 6) {
+        for (let c = 0; c < output.length; c++) output[c].fill(0);
+        if (this.silentBlocks === 7) this.clearBuffers();
+        return true;
+      }
+    } else {
+      this.silentBlocks = 0;
+    }
+
     if (Math.abs(ratio - 1) < 1e-3) { // Bypass: copy straight through, keep the buffer fresh.
       for (let c = 0; c < output.length; c++) {
         const src = input[c] || input[0], buf = this.buffers[c] || this.buffers[0];

@@ -63,8 +63,16 @@ self.addEventListener('install', () => { self.skipWaiting(); });
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k.startsWith('spotplus-shell-')).map((k) => caches.delete(k))))
-      .then(() => self.clients.claim())
+      .then((keys) => {
+        const stale = keys.filter((k) => k.startsWith('spotplus-shell-'));
+        return Promise.all(stale.map((k) => caches.delete(k))).then(() => stale.length > 0);
+      })
+      .then((cleared) => self.clients.claim().then(() => {
+        if (!cleared) return;
+        return self.clients.matchAll({ type: 'window' }).then((clients) => {
+          clients.forEach((c) => { try { c.postMessage({ type: 'preview-updated' }); } catch {} });
+        });
+      }))
   );
 });
 self.addEventListener('fetch', () => {});
@@ -72,31 +80,47 @@ self.addEventListener('fetch', () => {});
 
 // Dev/preview-only runtime shim (never included in dist/ or GitHub Pages):
 // 1. AI Studio preview URLs (https://ais-dev-*.run.app) sit behind an auth proxy that
-//    requires same-origin session cookies. Spot+ passes credentials:'omit' and
-//    crossOrigin:'anonymous' for cross-origin production workers; in preview those
-//    same-origin /__preview_worker/* requests must send credentials:'same-origin' /
-//    crossOrigin:'use-credentials' so the preview proxy does not reject them.
-// 2. Clears any stale service workers, shell caches, and poisoned relay scores left
-//    over from earlier preview sessions.
+//    requires same-origin session cookies. WebKit/iOS CoreMedia (AVPlayer) runs out-of-process
+//    and cannot attach iframe auth cookies to /__preview_worker/* <audio> requests, causing
+//    302 login redirects on every song. Because Spot+ Cloudflare Workers allow requests with
+//    no Origin header (!origin || ALLOWED_ORIGINS.includes(origin)), non-CORS <audio> elements
+//    stream directly from https://spot-plus-*.workers.dev/yta?... with zero IAP friction!
+// 2. fetch() and CORS-enabled <audio> (when EQ/FX are active) send an Origin header, so they
+//    continue routing through /__preview_worker/* with credentials:'same-origin' / 'use-credentials'.
+// 3. Purges stale shell caches from older preview sessions and resets poisoned relay scores.
 const PREVIEW_SHIM = `(function(){
+  window.__SPOTPLUS_PREVIEW__ = true;
   try {
-    if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistrations) {
-      navigator.serviceWorker.getRegistrations().then(function(regs){
-        regs.forEach(function(r){ try { r.unregister(); } catch(e){} });
-      }).catch(function(){});
-    }
     if ('caches' in window && caches.keys) {
       caches.keys().then(function(keys){
-        keys.forEach(function(k){ if (k.indexOf('spotplus-shell-') === 0) caches.delete(k); });
+        var stale = keys.filter(function(k){ return k.indexOf('spotplus-shell-') === 0; });
+        if (!stale.length) return;
+        return Promise.all(stale.map(function(k){ return caches.delete(k); })).then(function(){
+          if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistrations) {
+            return navigator.serviceWorker.getRegistrations().then(function(regs){
+              return Promise.all(regs.map(function(r){ return r.unregister().catch(function(){}); }));
+            });
+          }
+        }).then(function(){
+          try {
+            if (!sessionStorage.getItem('spotplus.previewSwReset')) {
+              sessionStorage.setItem('spotplus.previewSwReset', '1');
+              location.reload();
+            }
+          } catch (e) {}
+        });
       }).catch(function(){});
     }
-    if (!localStorage.getItem('spotplus.previewShimV1')) {
+    if (!localStorage.getItem('spotplus.previewShimV2')) {
       localStorage.removeItem('spotplus.relayRegions');
       localStorage.removeItem('spotplus.regionsChecked');
       localStorage.removeItem('spotplus.instanceSpeed');
-      localStorage.setItem('spotplus.previewShimV1', '1');
+      localStorage.setItem('spotplus.previewShimV2', '1');
     }
   } catch (e) {}
+
+  var PREVIEW_WORKER_RE = /\\/__preview_worker\\/(spot-plus-(?:canvas|relay-(?:eu|de|asia|west))\\.pwr97pnmkn\\.workers\\.dev)(\\/.*)$/;
+  var DIRECT_WORKER_RE = /^https:\\/\\/(spot-plus-(?:canvas|relay-(?:eu|de|asia|west))\\.pwr97pnmkn\\.workers\\.dev)(\\/.*)$/;
 
   function isPreviewRoute(u) {
     if (!u) return false;
@@ -104,13 +128,31 @@ const PREVIEW_SHIM = `(function(){
     return s.indexOf('/__preview_worker/') !== -1 || s.indexOf('/__spotify_relay/') !== -1;
   }
 
+  function toDirectWorkerUrl(u) {
+    if (!u) return u;
+    var m = String(u).match(PREVIEW_WORKER_RE);
+    return m ? ('https://' + m[1] + m[2]) : u;
+  }
+
+  function toPreviewWorkerUrl(u) {
+    if (!u) return u;
+    var m = String(u).match(DIRECT_WORKER_RE);
+    return m ? ((location.origin || '') + '/__preview_worker/' + m[1] + m[2]) : u;
+  }
+
   if (typeof window.fetch === 'function') {
     var origFetch = window.fetch.bind(window);
     window.fetch = function(input, init) {
       var url = typeof input === 'string' ? input : (input instanceof URL ? input.href : (input && input.url) || '');
-      if (isPreviewRoute(url)) {
+      if (DIRECT_WORKER_RE.test(url)) {
+        var wrapped = toPreviewWorkerUrl(url);
+        var nextInput = typeof input === 'string' || input instanceof URL ? wrapped : new Request(wrapped, input);
         var nextInit = init ? Object.assign({}, init, { credentials: 'same-origin' }) : { credentials: 'same-origin' };
-        return origFetch(input, nextInit);
+        return origFetch(nextInput, nextInit);
+      }
+      if (isPreviewRoute(url)) {
+        var nextInit2 = init ? Object.assign({}, init, { credentials: 'same-origin' }) : { credentials: 'same-origin' };
+        return origFetch(input, nextInit2);
       }
       return origFetch(input, init);
     };
@@ -122,19 +164,38 @@ const PREVIEW_SHIM = `(function(){
     var corsDesc = Object.getOwnPropertyDescriptor(proto, 'crossOrigin');
     var origSetAttr = Element.prototype.setAttribute;
 
+    function resolveMediaSrc(el, val) {
+      if (!val) return val;
+      var s = String(val);
+      var cur = el.getAttribute('crossorigin');
+      if (cur !== null) {
+        // CORS mode (EQ/FX/AutoMix): must go through preview proxy with credentials so Origin is allowed.
+        if (DIRECT_WORKER_RE.test(s)) {
+          if (cur === 'anonymous' || cur === '') origSetAttr.call(el, 'crossorigin', 'use-credentials');
+          return toPreviewWorkerUrl(s);
+        }
+        if (isPreviewRoute(s) && (cur === 'anonymous' || cur === '')) {
+          origSetAttr.call(el, 'crossorigin', 'use-credentials');
+        } else if (!isPreviewRoute(s) && cur === 'use-credentials') {
+          origSetAttr.call(el, 'crossorigin', 'anonymous');
+        }
+        return val;
+      }
+      // Standard playback (no crossOrigin): unwrap to direct Cloudflare Worker URL so iOS AVPlayer /
+      // CoreMedia streams audio directly without needing AI Studio preview iframe auth cookies.
+      if (PREVIEW_WORKER_RE.test(s)) {
+        return toDirectWorkerUrl(s);
+      }
+      return val;
+    }
+
     if (srcDesc && srcDesc.set) {
       Object.defineProperty(proto, 'src', {
         configurable: true,
         enumerable: true,
         get: srcDesc.get,
         set: function(val) {
-          var cur = this.getAttribute('crossorigin');
-          if (isPreviewRoute(val) && cur === 'anonymous') {
-            origSetAttr.call(this, 'crossorigin', 'use-credentials');
-          } else if (!isPreviewRoute(val) && cur === 'use-credentials') {
-            origSetAttr.call(this, 'crossorigin', 'anonymous');
-          }
-          return srcDesc.set.call(this, val);
+          return srcDesc.set.call(this, resolveMediaSrc(this, val));
         }
       });
     }
@@ -145,7 +206,8 @@ const PREVIEW_SHIM = `(function(){
         enumerable: true,
         get: corsDesc.get,
         set: function(val) {
-          if (val === 'anonymous' && isPreviewRoute(this.getAttribute('src') || this.currentSrc || '')) {
+          var curSrc = this.getAttribute('src') || this.currentSrc || '';
+          if ((val === 'anonymous' || val === '') && (isPreviewRoute(curSrc) || DIRECT_WORKER_RE.test(curSrc))) {
             return corsDesc.set.call(this, 'use-credentials');
           }
           return corsDesc.set.call(this, val);
@@ -156,14 +218,12 @@ const PREVIEW_SHIM = `(function(){
     proto.setAttribute = function(name, value) {
       var lower = String(name || '').toLowerCase();
       if (lower === 'src') {
-        var cur = this.getAttribute('crossorigin');
-        if (isPreviewRoute(value) && cur === 'anonymous') {
-          origSetAttr.call(this, 'crossorigin', 'use-credentials');
-        } else if (!isPreviewRoute(value) && cur === 'use-credentials') {
-          origSetAttr.call(this, 'crossorigin', 'anonymous');
+        value = resolveMediaSrc(this, value);
+      } else if (lower === 'crossorigin' && (value === 'anonymous' || value === '')) {
+        var curSrc = this.getAttribute('src') || this.currentSrc || '';
+        if (isPreviewRoute(curSrc) || DIRECT_WORKER_RE.test(curSrc)) {
+          value = 'use-credentials';
         }
-      } else if (lower === 'crossorigin' && value === 'anonymous' && isPreviewRoute(this.getAttribute('src') || this.currentSrc || '')) {
-        value = 'use-credentials';
       }
       return origSetAttr.call(this, name, value);
     };

@@ -2,6 +2,15 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 2.2.1 — Zero-hum pause, AirPlay audio, fast Lock Screen & iPhone speed
+_2026-11-22_
+
+- Fixed the continuous buzzing/humming drone after pausing playback: Web Audio now hard-gates to zero, flushes pitch-shifter ring buffers, and suspends the AudioContext whenever audio pauses or stops.
+- Fixed AirPlay playing silently without Screen Mirroring: attached the active audio element to the DOM with native AirPlay attributes, added a direct AirPlay picker in Connect, and automatically bypasses Web Audio / crossOrigin whenever a wireless AirPlay target is active.
+- Eliminated brief audio dropouts when exiting or returning to Spot+: background handoff now runs only on iOS when effects are active (with brief overlap so there is no silence dip), returning to the app never triggers mid-song reloads, and unexpected OS visibility-switch pauses recover automatically.
+- Upgraded Lock Screen & Notification Bar controls: removed destructive audio teardown between skips, updated Media Session metadata & timestamps instantaneously on skip/seek, added smart Previous-track double-tap rewind, hardened mid-song stall detection so active streams never stop randomly, and accelerated iPhone song switching via fast Stage-A relay prewarming and hot-element reuse.
+- Added horizontal swipe left/right on Now Playing artwork to skip to the next or previous song.
+
 ## 2.2.0 — Spotify — Official Playback & preview streaming fixes
 _2026-11-21_
 

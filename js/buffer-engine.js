@@ -155,7 +155,7 @@ export class AdaptiveBufferEngine {
       condition = 'constrained';
     } else if (stalls5m >= 2 || failures3m >= 4 || this.rttEwmaMs >= 650 || (this.throughputBps > 0 && this.throughputBps < 200_000)) {
       condition = 'unstable';
-    } else if ((this.rttEwmaMs < 160 && stalls5m === 0) || downlinkMbps >= 6) {
+    } else if ((this.rttEwmaMs < 160 && stalls5m === 0) || downlinkMbps >= 6 || (!connection && stalls5m === 0 && failures3m <= 1 && this.rttEwmaMs < 450)) {
       condition = 'fast';
     }
 
@@ -166,9 +166,9 @@ export class AdaptiveBufferEngine {
       return { condition, headroomSec: 14, preloadStageA: true, preloadStageB: true, maxPreloadAhead: 1, stallTimeoutMs: 4800 };
     }
     if (condition === 'fast') {
-      return { condition, headroomSec: 6, preloadStageA: true, preloadStageB: true, maxPreloadAhead: 2, stallTimeoutMs: 2600 };
+      return { condition, headroomSec: 5, preloadStageA: true, preloadStageB: true, maxPreloadAhead: 2, stallTimeoutMs: 2600 };
     }
-    return { condition, headroomSec: 9, preloadStageA: true, preloadStageB: true, maxPreloadAhead: 1, stallTimeoutMs: 3400 };
+    return { condition, headroomSec: 7, preloadStageA: true, preloadStageB: true, maxPreloadAhead: 2, stallTimeoutMs: 3400 };
   }
 
   reset() {

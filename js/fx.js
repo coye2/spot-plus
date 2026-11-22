@@ -85,9 +85,71 @@ export function requestAnalyser(want) {
   }
 }
 
+const capturedSet = new Set();
+let suspendTimer = 0;
+let pitchLoading = false;
+const isWirelessAirPlay = (media) => !!media?.webkitCurrentPlaybackTargetIsWireless;
+
+function hasAnyPlayingCaptured() {
+  for (const ref of capturedSet) {
+    const m = ref.deref?.() ?? ref;
+    if (!m) { capturedSet.delete(ref); continue; }
+    if (!m.paused && !m.ended && m.src && !String(m.src).startsWith('data:')) return true;
+  }
+  return false;
+}
+
+/**
+ * Hard-gate & suspend Web Audio whenever playback pauses or stops.
+ * Eliminates the Android Chrome / WebKit MediaElementAudioSourceNode humming/buzzing drone
+ * where a running AudioContext loops the last ~128/256-sample PCM frame on pause.
+ */
+export function syncPlaybackState(playing = null) {
+  if (!ctx || !nodes?.masterGate) return;
+  const active = playing === null ? hasAnyPlayingCaptured() : !!playing;
+  const now = ctx.currentTime;
+  if (active) {
+    clearTimeout(suspendTimer);
+    suspendTimer = 0;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    try {
+      nodes.masterGate.gain.cancelScheduledValues(now);
+      nodes.masterGate.gain.setTargetAtTime(1, now, 0.008);
+    } catch { /* ignore */ }
+  } else {
+    try {
+      nodes.masterGate.gain.cancelScheduledValues(now);
+      nodes.masterGate.gain.setTargetAtTime(0, now, 0.004);
+    } catch { /* ignore */ }
+    clearTimeout(suspendTimer);
+    suspendTimer = setTimeout(() => {
+      suspendTimer = 0;
+      if (!ctx || hasAnyPlayingCaptured()) return;
+      try { nodes?.pitch?.port?.postMessage?.('reset'); } catch { /* ignore */ }
+      if (ctx.state === 'running') ctx.suspend().catch(() => {});
+    }, 65);
+    suspendTimer.unref?.();
+  }
+}
+
+function ensurePitchWorklet() {
+  if (!ctx || !nodes || nodes.pitch || pitchLoading || !ctx.audioWorklet) return;
+  pitchLoading = true;
+  ctx.audioWorklet.addModule(new URL('./pitch-worklet.js', import.meta.url)).then(() => {
+    if (!ctx || !nodes) return;
+    nodes.pitch = new AudioWorkletNode(ctx, 'spotplus-pitch', {outputChannelCount: [2]});
+    nodes.input.disconnect();
+    nodes.input.connect(nodes.pitch).connect(nodes.bass);
+    nodes.input.connect(nodes.bypass);
+    applyGraph();
+  }).catch(() => {}).finally(() => { pitchLoading = false; });
+}
+
 function build() {
   ctx = new (globalThis.AudioContext || globalThis.webkitAudioContext)({latencyHint: 'playback'});
   const input = ctx.createGain(), bass = ctx.createBiquadFilter(), lofi = ctx.createBiquadFilter(), dry = ctx.createGain(), wet = ctx.createGain(), convA = ctx.createConvolver(), convB = ctx.createConvolver(), gainA = ctx.createGain(), gainB = ctx.createGain(), pan = ctx.createStereoPanner(), lfo = ctx.createOscillator(), depth = ctx.createGain(), out = ctx.createGain();
+  const masterGate = ctx.createGain();
+  masterGate.gain.value = 1;
   bass.type = 'lowshelf'; bass.frequency.value = 110;
   lofi.type = 'lowpass'; lofi.frequency.value = ctx.sampleRate / 2 - 100; lofi.Q.value = 0.707;
   lfo.frequency.value = 0.11; depth.gain.value = 0; lfo.connect(depth).connect(pan.pan); lfo.start();
@@ -113,17 +175,12 @@ function build() {
   analyser.fftSize = 512;
   analyser.smoothingTimeConstant = 0.78;
   pan.connect(dspChain.input);
-  dspChain.output.connect(out).connect(analyser).connect(ctx.destination);
+  dspChain.output.connect(out).connect(analyser).connect(masterGate).connect(ctx.destination);
   // With every effect & DSP off, sound skips processing completely (bit-for-bit the original) while still feeding the analyser tap.
   const bypass = ctx.createGain(); input.connect(bypass).connect(analyser); bypass.gain.value = 1; out.gain.value = 0;
-  nodes = {bypass, input, bass, lofi, dryVox, wetVox, midHighGain, dry, wet, convs: [convA, convB], gains: [gainA, gainB], active: 0, pan, depth, out, dspChain, analyser, room: null, pitch: null};
-  // Reverb impulse responses are generated lazily only when reverb > 0, avoiding main-thread audio stutters.
-  ctx.audioWorklet?.addModule(new URL('./pitch-worklet.js', import.meta.url)).then(() => {
-    nodes.pitch = new AudioWorkletNode(ctx, 'spotplus-pitch', {outputChannelCount: [2]});
-    input.disconnect(); input.connect(nodes.pitch).connect(bass);
-    input.connect(bypass);
-    applyGraph();
-  }).catch(() => {});
+  nodes = {bypass, input, bass, lofi, dryVox, wetVox, midHighGain, dry, wet, convs: [convA, convB], gains: [gainA, gainB], active: 0, pan, depth, out, dspChain, analyser, masterGate, room: null, pitch: null};
+  // Only load pitch AudioWorklet when pitch shifting is actually requested (zero overhead & zero buffer-loop risk otherwise).
+  if (Math.abs(settings.pitch) > 0.01) ensurePitchWorklet();
 }
 
 function ensureChannel(media) {
@@ -139,13 +196,24 @@ function ensureChannel(media) {
   gain.gain.value = 1;
   source.connect(eq).connect(gain).connect(nodes.input);
   sources.set(media, source);
+  capturedSet.add(globalThis.WeakRef ? new WeakRef(media) : media);
+  // Automatically gate & suspend AudioContext whenever captured media pauses/ends so no hum can ever play.
+  const onStop = () => syncPlaybackState();
+  const onGo = () => syncPlaybackState(true);
+  media.addEventListener?.('play', onGo);
+  media.addEventListener?.('playing', onGo);
+  media.addEventListener?.('pause', onStop);
+  media.addEventListener?.('ended', onStop);
+  media.addEventListener?.('emptied', onStop);
   const ch = {source, eq, gain};
   channels.set(media, ch);
+  syncPlaybackState();
   return ch;
 }
 
 function attach(media, reload) {
   if (!media || sources.has(media)) return channels.get(media) || null;
+  if (isWirelessAirPlay(media)) return null;
   if (reload) {
     // Switching on mid-song: reload once at the same spot, now with cross-origin access.
     const at = media.currentTime, playing = !media.paused, src = media.src;
@@ -164,6 +232,8 @@ function setBlocked(value) { if (blocked !== value) { blocked = value; listeners
 /** Called by the player before a new song is loaded. Returns false if this element can't play it. */
 export async function prepare(media, url) {
   const wantGraph = needsAudioGraph(settings) || analyserWanted;
+  // Never force CORS or Web Audio capture during AirPlay wireless routing or background iOS playback.
+  if (isWirelessAirPlay(media)) { media.removeAttribute('crossorigin'); return !sources.has(media); }
   if (inBackground() && !sources.has(media)) { media.removeAttribute('crossorigin'); return true; }
   const ok = await corsOK(url);
   if (sources.has(media)) { setBlocked(!ok); return ok; }
@@ -194,6 +264,7 @@ function applyGraph() {
     }
     nodes.room = s.room;
   }
+  if (Math.abs(s.pitch) > 0.01 && !nodes.pitch) ensurePitchWorklet();
   nodes.pitch?.parameters.get('ratio').setTargetAtTime(Math.pow(2, s.pitch / 12), t, 0.02);
 }
 
@@ -224,14 +295,18 @@ let probing = null;
 const inBackground = () => !!globalThis.document?.hidden;
 async function route(media, warm = false) {
   if (!media) return;
+  if (isWirelessAirPlay(media)) return;
   const wantGraph = needsAudioGraph(settings) || analyserWanted;
-  // Always resume a suspended AudioContext for an already-captured element so audio never goes silent.
-  if (sources.has(media) && ctx && ctx.state !== 'running') ctx.resume().catch(() => {});
+  // Always sync gate/AudioContext state for an already-captured element so paused audio never hums.
+  if (sources.has(media)) {
+    syncPlaybackState();
+    applyGraph();
+    return;
+  }
   if (!wantGraph && !warm) { if (nodes) applyGraph(); return; }
-  if (inBackground() && !sources.has(media)) return;
+  if (inBackground()) return;
   if (!ctx) build();
-  if (ctx.state !== 'running') ctx.resume().catch(() => {});
-  if (sources.has(media)) { applyGraph(); return; }
+  if (ctx.state !== 'running' && !media.paused) ctx.resume().catch(() => {});
   const src = media.currentSrc || media.src;
   if (!src || src.startsWith('data:')) return;
   if (hasCors(media)) { try { attach(media, false); } catch { /* already routed */ } applyGraph(); return; }
@@ -240,7 +315,7 @@ async function route(media, warm = false) {
   probing = media;
   const ok = await corsOK(src);
   probing = null;
-  if (media !== current) return;
+  if (media !== current || isWirelessAirPlay(media)) return;
   setBlocked(!ok);
   if (ok) { try { attach(media, true); } catch { /* already routed */ } applyGraph(); }
 }
@@ -248,6 +323,7 @@ async function route(media, warm = false) {
 /** True when both media elements can be crossfaded via hardware-timed Web Audio GainNodes (including iOS Safari). */
 export function canWebAudioCrossfade(outgoing, incoming) {
   if (!hasWebAudioSupport || inBackground() || !outgoing || !incoming) return false;
+  if (isWirelessAirPlay(outgoing) || isWirelessAirPlay(incoming)) return false;
   const readyForGraph = (m) => {
     const src = m.currentSrc || m.src || '';
     if (!src || src.startsWith('data:')) return false;
@@ -346,15 +422,25 @@ export function set(patch, storage = globalThis.localStorage) {
   listeners.forEach(fn => fn(get()));
 }
 export const usePreset = name => set(fromPreset(name));
-/** Back in the app after background play: put the playing song through effects again. */
-export function restoreAfterBackground(media) { if (media && (needsAudioGraph(settings) || analyserWanted) && !sources.has(media)) { current = media; route(media); } }
-/** Called when the effects panel opens: builds the sound engine without blocking the main thread. */
+/** Back in the app after background play: never force a mid-song reload; attach silently only if already CORS-ready. */
+export function restoreAfterBackground(media) {
+  if (!media || isWirelessAirPlay(media)) return;
+  if (sources.has(media)) { syncPlaybackState(); return; }
+  if ((needsAudioGraph(settings) || analyserWanted) && hasCors(media)) {
+    current = media;
+    route(media);
+  }
+}
+/** Called when the effects panel opens: builds the sound engine without waking paused audio. */
 export function warmUp() {
   if (!ctx) build();
-  if (ctx.state !== 'running') ctx.resume().catch(() => {});
+  syncPlaybackState();
   if (current) route(current, true);
 }
-export const resume = () => { if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {}); };
+export const resume = () => {
+  if (!ctx) return;
+  if (hasAnyPlayingCaptured()) syncPlaybackState(true);
+};
 
 // Keep Web Audio routing synchronized whenever EQ / AutoEq / DSP settings change live.
 dsp.onDSPChange(() => {

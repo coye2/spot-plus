@@ -1469,16 +1469,24 @@ async function handleAct(act, el) {
     case 'changelog': whatsNew(CHANGELOG_ALL); break;
     case 'check-update': {
       const t=toast('Checking for updates…',{sticky:true});
+      const isNewer=(a,b)=>{const pa=String(a||'').split('.').map(Number),pb=String(b||'').split('.').map(Number);for(let i=0;i<Math.max(pa.length,pb.length);i++){const d=(pa[i]||0)-(pb[i]||0);if(d)return d>0;}return false;};
       try{
-        // The newest version number straight from GitHub (the app's own copy may be cached).
-        const latest=await fetch('https://raw.githubusercontent.com/coye2/spot-plus/main/js/changelog.js',{cache:'no-store',credentials:'omit'}).then(r=>r.text()).then(x=>x.match(/version:\s*'([\d.]+)'/)?.[1]).catch(()=>null);
+        const parseVer=txt=>txt.match(/version:\s*'([\d.]+)'/)?.[1]||null;
+        const [localVer,remoteVer]=await Promise.all([
+          fetch('./js/changelog.js',{cache:'no-store'}).then(r=>r.ok?r.text():'').then(parseVer).catch(()=>null),
+          fetch('https://raw.githubusercontent.com/coye2/spot-plus/main/js/changelog.js',{cache:'no-store',credentials:'omit'}).then(r=>r.ok?r.text():'').then(parseVer).catch(()=>null),
+        ]);
+        const latest=[localVer,remoteVer].filter(Boolean).sort((a,b)=>isNewer(a,b)?-1:isNewer(b,a)?1:0)[0]||null;
         const reg=await navigator.serviceWorker?.getRegistration();
-        if(latest&&latest!==APP_VERSION){
+        if(latest&&isNewer(latest,APP_VERSION)){
           t.set(`Updating to ${latest}…`);
-          const ready=new Promise(res=>{navigator.serviceWorker?.addEventListener('controllerchange',res,{once:true});setTimeout(res,8000);});
+          if('caches' in window){const ks=await caches.keys().catch(()=>[]);await Promise.all(ks.filter(k=>k.startsWith('spotplus-shell-')).map(k=>caches.delete(k).catch(()=>{})));}
+          const ready=new Promise(res=>{navigator.serviceWorker?.addEventListener('controllerchange',res,{once:true});setTimeout(res,window.__SPOTPLUS_PREVIEW__?1200:8000);});
           await reg?.update().catch(()=>{});await ready;location.reload();
-        }
-        else{t.set(`You’re up to date (${APP_VERSION})`);t.close(2500);}
+        }else if(window.__SPOTPLUS_PREVIEW__){
+          await reg?.update().catch(()=>{});
+          t.set(`You’re on the latest preview (${APP_VERSION})`);t.close(2500);
+        }else{t.set(`You’re up to date (${APP_VERSION})`);t.close(2500);}
       }catch{t.set('Couldn’t check right now. Try again in a moment.');t.close(3000);}
       break;}
     case 'follow-show': {const s=await spoken.show(el.dataset.feed).catch(()=>null);if(s){const on=spoken.toggleFollow({...s,feed:el.dataset.feed});toast(on?'Following':'Unfollowed');route({keepScroll:true});}break;}
@@ -2225,7 +2233,7 @@ function syncVoices(){syncDJVoice();}
 
 function createMenu(){openSheet({head:'<div class="sheet-title">Create</div>',items:[{icon:I.shuffle,label:'Generate a playlist',sub:'Pick artists, genres and a vibe. Spot+ builds it.',fn:()=>go('#/generate')},{icon:I.plus,label:'Create a playlist',sub:'Collect your favorite tracks',fn:()=>handleAct('new-playlist',{})},{icon:I.folder,label:'Create a folder',sub:'Organize playlists in your library',fn:()=>handleAct('new-folder',{})},{icon:I.library,label:'Spotify account & collections',sub:'Connect your account or explore playlists',fn:()=>go('#/spotify')},{icon:I.import,label:'Import a Deezer playlist',fn:()=>handleAct('import-playlist',{})},{icon:I.note,label:'Add local audio files',sub:'From this phone or computer',fn:()=>$('#localFilesInput').click()},{icon:I.dj,label:'Start a DJ session',fn:()=>go('#/dj')},{icon:I.jam,label:'Start a Jam',sub:'Listen together in real time',fn:()=>go('#/jam')}]});}
 function profileMenu(){openSheet({head:`<div class="sheet-title">${esc(store.getSettings().displayName)}</div>`,items:[{icon:I.person,label:'Profile',sub:'Your library on this device',fn:()=>go('#/profile')},{icon:I.history,label:'Your Rewind',sub:'Your listening, all year round',fn:()=>go('#/rewind')},{icon:I.history,label:'Listening history',fn:()=>go('#/recent')},{icon:I.settings,label:'Theme Studio',sub:'Make Spot+ yours',fn:()=>go('#/themes')},{icon:I.library,label:'Spotify account',fn:()=>go('#/spotify-account')},{icon:I.settings,label:'Settings',fn:()=>go('#/settings')},{icon:I.dj,label:'Spot+ DJ',fn:()=>go('#/dj')}]});}
-function deviceMenu(){openSheet({head:'<div class="sheet-title">Connect</div>',body:`<button class="jam-entry" data-act="jam-open">${I.jam}<div><b>${jam.active?'Jam · '+esc(jam.code):'Start a Jam'}</b><small>${jam.active?jam.members.length+' listening':'Listen together with friends, live'}</small></div>${I.arrow}</button><div class="device-card">${I.device}<div><b>This browser</b><small>Current audio output</small></div></div><p class="sheet-note">Use your phone or computer’s audio controls for Bluetooth or AirPlay. Spotify Connect is not available through these music sources.</p>`,items:typeof player.el.setSinkId==='function' && navigator.mediaDevices?.selectAudioOutput?[{icon:I.device,label:'Choose audio output',fn:async()=>{try{const d=await navigator.mediaDevices.selectAudioOutput();await player.el.setSinkId(d.deviceId);toast('Audio output changed');}catch(e){toast(e.name==='NotAllowedError'?'Audio output selection was cancelled.':e.message);}}}]:[]});}
+function deviceMenu(){const airPlayOn=player.isAirPlayActive();const items=[];if(player.canAirPlay())items.push({icon:I.device,label:'AirPlay & wireless speakers',sub:airPlayOn?'Connected via AirPlay':'Stream directly to HomePod, Apple TV, or AirPlay speakers',fn:()=>{if(!player.showAirPlayPicker())toast('Open Control Center to choose an AirPlay speaker.');}});if(typeof player.el.setSinkId==='function' && navigator.mediaDevices?.selectAudioOutput)items.push({icon:I.device,label:'Choose audio output',fn:async()=>{try{const d=await navigator.mediaDevices.selectAudioOutput();await player.el.setSinkId(d.deviceId);toast('Audio output changed');}catch(e){toast(e.name==='NotAllowedError'?'Audio output selection was cancelled.':e.message);}}});openSheet({head:'<div class="sheet-title">Connect</div>',body:`<button class="jam-entry" data-act="jam-open">${I.jam}<div><b>${jam.active?'Jam · '+esc(jam.code):'Start a Jam'}</b><small>${jam.active?jam.members.length+' listening':'Listen together with friends, live'}</small></div>${I.arrow}</button><div class="device-card">${I.device}<div><b>${airPlayOn?'AirPlay speaker':'This device'}</b><small>${airPlayOn?'Streaming wirelessly via AirPlay (direct audio)':'Current audio output'}</small></div></div><p class="sheet-note">${player.canAirPlay()?'Tap AirPlay & wireless speakers below, or use Control Center on iPhone and iPad. Audio effects pause automatically during AirPlay so sound streams directly without Screen Mirroring.':'Use your phone or computer’s audio controls for Bluetooth or AirPlay.'}</p>`,items});}
 /* ---------------- Audio, Parametric EQ, AutoEq & DSP Studio ---------------- */
 const fxFmt={vocals:v=>v>0?'−'+Math.round(v*100)+'%':'Off',speed:v=>Number(v).toFixed(2).replace(/0$/,'')+'×',pitch:v=>(v>0?'+':'')+v+' st',reverb:v=>Math.round(v*100)+'%',bass:v=>(v>0?'+':'')+v+' dB'};
 const audioStudioState={tab:'eq',selectedBand:0,autoEqQuery:'',autoEqForm:''};
@@ -2382,12 +2390,13 @@ player.setEffectsHooks({
   corsKnown:fx.knownCors,
   canWebAudioCrossfade:fx.canWebAudioCrossfade,
   crossfadeElements:fx.crossfadeElements,
+  syncPlaybackState:fx.syncPlaybackState,
 });
-player.on('time',()=>{if(player.el===fxEl&&!fx.isCaptured(fxEl)&&fx.needsAudioGraph(fx.get()))fx.bind(fxEl);});
+player.on('time',()=>{if(player.el===fxEl&&!fx.isCaptured(fxEl)&&!player.isAirPlayActive()&&fx.needsAudioGraph(fx.get()))fx.bind(fxEl);});
 const fxBadge=()=>{$('.np-fx')?.classList.toggle('on',fx.isAnyAudioActive(fx.get()));const note=$('#sheetPanel .fx-note');if(note&&fx.isBlocked())note.textContent='This song’s audio server restricts cross-origin audio processing, so EQ/DSP is bypassed on this track and resumes automatically on the next compatible track.';};
 $('.np-fx')?.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();fxSheet();});
 player.on('state',fxBind);player.on('state',mixBadge);fx.onChange(fxBadge);fxBadge();mixBadge();
-addEventListener('spotplus:music-play',fx.resume);document.addEventListener('visibilitychange',()=>{if(!document.hidden){fx.resume();fx.restoreAfterBackground(player.el);}});
+addEventListener('spotplus:music-play',fx.resume);document.addEventListener('visibilitychange',()=>{if(!document.hidden&&player.isPlaying()){fx.resume();fx.restoreAfterBackground(player.el);}});
 function sleepMenu(){openSheet({head:'<div class="sheet-title">Sleep timer</div>',items:[...[5,15,30,60].map(minutes=>({icon:I.history,label:`${minutes} minutes`,fn:()=>{clearTimeout(sleepTimer);sleepTimer=setTimeout(()=>{player.pause();dj.stop();toast('Sleep timer ended');},minutes*60000);toast(`Playback will pause in ${minutes} minutes`);}})),{icon:I.close,label:'Turn off timer',fn:()=>{clearTimeout(sleepTimer);sleepTimer=null;toast('Sleep timer off');}}]});}
 function trapFocus(e,root){if(e.key!=='Tab')return;const focusable=$$('button:not(:disabled),a[href],input:not(:disabled),select,textarea,[tabindex="0"]',root).filter(el=>el.getClientRects().length);if(!focusable.length)return;const first=focusable[0],last=focusable.at(-1);if(e.shiftKey&&(document.activeElement===first||!root.contains(document.activeElement))){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}
 document.addEventListener('keydown',e=>{if(!sheet.hidden)trapFocus(e,sheet);else if(npOpen&&matchMedia(MOBILE_QUERY).matches)trapFocus(e,np);if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();go('#/search');}if(!e.target.closest('input,textarea,select,button')&&e.altKey){if(e.key==='ArrowRight'){e.preventDefault();player.next();}if(e.key==='ArrowLeft'){e.preventDefault();player.prev();}}});
@@ -2815,7 +2824,7 @@ navigator.serviceWorker?.addEventListener('controllerchange',()=>{
   if(document.hidden){let st=notify.loadState();if(notify.canSend(st,'update')){notify.show({title:'Spot+ was updated',body:'Open Spot+ to get the newest version.'},'update');notify.saveState(notify.markSent(st,'update'));}}
   else toast('A new version of Spot+ is ready.',{sticky:true,action:{label:'Update',run:()=>location.reload()}});
 });
-navigator.serviceWorker?.addEventListener('message',e=>{if(e.data?.type==='open'&&e.data.url)go(e.data.url);});
+navigator.serviceWorker?.addEventListener('message',e=>{if(e.data?.type==='open'&&e.data.url)go(e.data.url);else if(e.data?.type==='preview-updated')location.reload();});
 async function deliver(kind,msg){
   if(!msg)return;
   let st=notify.loadState();const visible=!document.hidden;
@@ -2907,7 +2916,7 @@ document.addEventListener('pointerdown',event=>{const target=event.target.closes
 
 setTimeout(()=>dj.voice.warmVoice(),1200);
 
-bindPlayerDismiss(document.getElementById('np'),()=>closeNP());
+bindPlayerDismiss(document.getElementById('np'),()=>closeNP(),{onNext:()=>player.next(true),onPrev:()=>player.prev()});
 
 // Desktop: drag any sideways row (shelves, chips, collections) with the mouse, like Spotify. A drag never opens
 // the card it started on, and links/images inside rows can't be picked up as browser drags.
