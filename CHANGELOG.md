@@ -2,6 +2,13 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 2.2.2 — Pro Spot+ UI chrome & Theme Changer layout
+_2026-11-23_
+
+- Fixed the Spot+ UI floating Liquid Glass navigation dock on mobile so the active tab pill sits cleanly inside the capsule with zero bottom overflow, matched mini-player and dock widths, switched mini-player cover art to concentric rounded corners, and added a soft bottom fade scrim.
+- Redesigned the Themes & Interface Style changer: centered Undo/Save action buttons with reliable contrast on pure-black OLED accents, side-by-side Original Spot+ vs Spot+ UI comparison cards with live miniature previews and circular checkmarks, and cleanly grouped Player, Glass & Lyrics controls with live px/% readouts.
+- Restored card, chip, avatar, and DJ bar contrast on pure-black OLED and custom dark themes, fixed mobile select label truncation, and gave desktop floating player bar proper breathing room with smooth sidebar filter fades.
+
 ## 2.2.1 — Zero-hum pause, AirPlay audio, fast Lock Screen & iPhone speed
 _2026-11-22_
 

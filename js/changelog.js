@@ -1,6 +1,11 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '2.2.2', date: '2026-11-23', title: 'Pro Spot+ UI chrome & Theme Changer layout', items: [
+    'Fixed the Spot+ UI floating Liquid Glass navigation dock on mobile so the active tab pill sits cleanly inside the capsule with zero bottom overflow, matched mini-player and dock widths, switched mini-player cover art to concentric rounded corners, and added a soft bottom fade scrim.',
+    'Redesigned the Themes & Interface Style changer: centered Undo/Save action buttons with reliable contrast on pure-black OLED accents, side-by-side Original Spot+ vs Spot+ UI comparison cards with live miniature previews and circular checkmarks, and cleanly grouped Player, Glass & Lyrics controls with live px/% readouts.',
+    'Restored card, chip, avatar, and DJ bar contrast on pure-black OLED and custom dark themes, fixed mobile select label truncation, and gave desktop floating player bar proper breathing room with smooth sidebar filter fades.',
+  ]},
   {version: '2.2.1', date: '2026-11-22', title: 'Zero-hum pause, AirPlay audio, fast Lock Screen & iPhone speed', items: [
     'Fixed the continuous buzzing/humming drone after pausing playback: Web Audio now hard-gates to zero, flushes pitch-shifter ring buffers, and suspends the AudioContext whenever audio pauses or stops.',
     'Fixed AirPlay playing silently without Screen Mirroring: attached the active audio element to the DOM with native AirPlay attributes, added a direct AirPlay picker in Connect, and automatically bypasses Web Audio / crossOrigin whenever a wireless AirPlay target is active.',
