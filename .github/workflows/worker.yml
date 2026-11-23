@@ -22,7 +22,7 @@ jobs:
       - name: Skip when Cloudflare isn't connected yet
         if: env.HAS_TOKEN != 'true'
         run: echo "Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets to enable automatic deploys."
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         if: env.HAS_TOKEN == 'true'
         with:
           node-version: 24
