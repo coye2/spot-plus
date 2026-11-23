@@ -2661,40 +2661,89 @@ function viewThemes(){
   const s=store.getSettings(),p=themes.palette(s),ui=uiEngine.normalizeUISettings(s);
   if(!themeUndo)themeUndo={...themeSettings(s),density:s.density,textSize:s.textSize,motion:s.motion,uiStyle:ui.uiStyle};
   const selUI=(key,opts)=>`<select data-setting="${key}">${opts.map(([v,l])=>`<option value="${v}"${ui[key]===v?' selected':''}>${esc(l)}</option>`).join('')}</select>`;
+  const checkMark=`<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.55 18 3.85 12.3l1.425-1.425L9.55 15.15l9.175-9.175L20.15 7.4Z"/></svg>`;
   const interfaceSwitcher=`<section class="ui-switcher-box" aria-label="Interface Style">
-    <div class="ui-switcher-head"><div><h2>Interface Style</h2><p>Switch instantly between Original Spot+ and Spot+ UI without reloading or interrupting your music.</p></div></div>
+    <div class="ui-switcher-head">
+      <div><h2>Interface Style</h2><p>Switch between Original Spot+ and Spot+ UI without interrupting playback.</p></div>
+    </div>
     <div class="ui-style-cards">
       <button type="button" class="ui-style-card${ui.uiStyle==='original'?' selected':''}" data-act="ui-style" data-style="original" aria-pressed="${ui.uiStyle==='original'}">
-        <div class="ui-mini-preview" aria-hidden="true"><div class="ui-mini-orig-tiles"><span></span><span></span><span></span><span></span></div><div class="ui-mini-orig-bar"></div><div class="ui-mini-orig-nav"><i></i><i></i><i></i><i></i></div></div>
-        <div class="ui-style-card-top"><strong>Original Spot+</strong><span class="ui-style-badge">${ui.uiStyle==='original'?'Active':'Classic'}</span></div>
-        <small>Preserves the classic Spot+ navigation, library workspace, and familiar player.</small>
+        <div class="ui-mini-preview ui-mini-original" aria-hidden="true">
+          <div class="ui-mini-orig-chips"><span class="on"></span><span></span><span></span></div>
+          <div class="ui-mini-orig-tiles"><span></span><span></span><span></span><span></span></div>
+          <div class="ui-mini-orig-bottom">
+            <div class="ui-mini-orig-bar"><i></i><b></b></div>
+            <div class="ui-mini-orig-nav"><i class="on"></i><i></i><i></i><i></i></div>
+          </div>
+        </div>
+        <div class="ui-style-card-meta">
+          <div class="ui-style-card-top">
+            <strong>Original Spot+</strong>
+            <span class="ui-style-check" aria-hidden="true">${checkMark}</span>
+          </div>
+          <small>Classic workspace, bottom dock, and familiar player.</small>
+        </div>
       </button>
       <button type="button" class="ui-style-card${ui.uiStyle==='spotplus'?' selected':''}" data-act="ui-style" data-style="spotplus" aria-pressed="${ui.uiStyle==='spotplus'}">
-        <div class="ui-mini-preview" aria-hidden="true"><div class="ui-mini-sp-hero"></div><div class="ui-mini-sp-pill"></div><div class="ui-mini-sp-dock"><i></i><i></i><i></i></div></div>
-        <div class="ui-style-card-top"><strong>Spot+ UI</strong><span class="ui-style-badge">${ui.uiStyle==='spotplus'?'Active':'Liquid Glass'}</span></div>
-        <small>Liquid Glass floating navigation, Apple Music-inspired Now Playing, fluid artwork backdrops, and spring animations.</small>
+        <div class="ui-mini-preview ui-mini-spotplus" aria-hidden="true">
+          <div class="ui-mini-sp-glow"></div>
+          <div class="ui-mini-sp-stage">
+            <div class="ui-mini-sp-hero"></div>
+            <div class="ui-mini-sp-lines"><span></span><i></i></div>
+          </div>
+          <div class="ui-mini-sp-bottom">
+            <div class="ui-mini-sp-pill"><i></i><span></span><b></b></div>
+            <div class="ui-mini-sp-dock"><i class="on"></i><i></i><i></i><i></i></div>
+          </div>
+        </div>
+        <div class="ui-style-card-meta">
+          <div class="ui-style-card-top">
+            <strong>Spot+ UI</strong>
+            <span class="ui-style-check" aria-hidden="true">${checkMark}</span>
+          </div>
+          <small>Liquid Glass floating bar, fluid player, and spring motion.</small>
+        </div>
       </button>
     </div>
   </section>`;
-  const uiCustomSection=`<section class="box"><h2>Player, Glass &amp; Lyrics Customization</h2>
-    <div class="sp-custom-grid">
-      <label class="field"><span>Player background<small>Fluid art, frosted blur, loops, visualizer, or AMOLED.</small></span>${selUI('playerBg',uiEngine.PLAYER_BACKGROUNDS.map(b=>[b.id,b.label]))}</label>
-      <label class="field"><span>Music visualizer<small>Real-time Web Audio spectrum, Fluid Hills, or artwork glow.</small></span>${selUI('visualizerMode',uiEngine.VISUALIZER_MODES.map(v=>[v.id,v.label]))}</label>
-      <label class="field"><span>Typography<small>Font pairing across menus, titles, and lyrics.</small></span>${selUI('fontChoice',uiEngine.FONT_PAIRINGS.map(f=>[f.id,f.label]))}</label>
-      <label class="field"><span>Animation feel<small>Spring transitions and drifting backgrounds.</small></span>${selUI('animIntensity',[['full','Full fluid'],['subtle','Subtle'],['reduced','Reduced']])}</label>
-      <label class="field"><span>Artwork roundness<small>${ui.artRadius}px cover corners.</small></span><input type="range" min="0" max="28" step="2" value="${ui.artRadius}" data-setting="artRadius" aria-label="Artwork corner radius"></label>
-      <label class="field"><span>Glass tint strength<small>Opacity of floating Liquid Glass bars.</small></span><input type="range" min="20" max="100" step="4" value="${ui.glassIntensity}" data-setting="glassIntensity" aria-label="Glass intensity"></label>
-      <label class="field"><span>Glass blur radius<small>${ui.blurIntensity}px backdrop frost.</small></span><input type="range" min="4" max="44" step="2" value="${ui.blurIntensity}" data-setting="blurIntensity" aria-label="Glass blur radius"></label>
-      <label class="field"><span>Lyrics font size<small>Adjust live synced lyrics scale.</small></span>${selUI('lyricsSize',[['small','Compact'],['medium','Standard'],['large','Large'],['xlarge','Extra Large']])}</label>
-      <label class="field"><span>Lyrics soft focus blur<small>Gently softens inactive lines behind the active verse.</small></span><input type="checkbox" role="switch" data-setting="lyricsBlur" ${ui.lyricsBlur?'checked':''}></label>
-      <label class="field"><span>Tab bar labels<small>Show captions under icons in Spot+ UI’s floating bar.</small></span><input type="checkbox" role="switch" data-setting="tabBarLabels" ${ui.tabBarLabels?'checked':''}></label>
-      <label class="field"><span>Hold artwork for 2× speed<small>Press and hold Now Playing cover to fast-preview.</small></span><input type="checkbox" role="switch" data-setting="playerHold2x" ${ui.playerHold2x?'checked':''}></label>
-      <label class="field"><span>Double-tap artwork to seek<small>Double-tap left or right side of cover to jump ±10s.</small></span><input type="checkbox" role="switch" data-setting="playerDoubleTapSeek" ${ui.playerDoubleTapSeek?'checked':''}></label>
+  const uiCustomSection=`<section class="box sp-custom-box">
+    <div class="sp-custom-head">
+      <h2>Player, Glass &amp; Lyrics</h2>
+      <p class="muted">Fine-tune Now Playing visuals, Liquid Glass surfaces, and touch gestures.</p>
+    </div>
+    <div class="sp-custom-groups">
+      <div class="sp-custom-group">
+        <h3>Player &amp; Visuals</h3>
+        <div class="sp-custom-grid">
+          <label class="field"><span>Player background<small>Fluid art, frosted blur, loops, visualizer, or AMOLED.</small></span>${selUI('playerBg',uiEngine.PLAYER_BACKGROUNDS.map(b=>[b.id,b.label]))}</label>
+          <label class="field"><span>Music visualizer<small>Web Audio spectrum, Fluid Hills, or artwork glow.</small></span>${selUI('visualizerMode',uiEngine.VISUALIZER_MODES.map(v=>[v.id,v.label]))}</label>
+          <label class="field"><span>Artwork roundness<small><b data-range-value="artRadius">${ui.artRadius}px</b> cover corners.</small></span><input type="range" min="0" max="28" step="2" value="${ui.artRadius}" data-setting="artRadius" aria-label="Artwork corner radius"></label>
+        </div>
+      </div>
+      <div class="sp-custom-group">
+        <h3>Glass &amp; Interface</h3>
+        <div class="sp-custom-grid">
+          <label class="field"><span>Typography<small>Font pairing across menus, titles, and lyrics.</small></span>${selUI('fontChoice',uiEngine.FONT_PAIRINGS.map(f=>[f.id,f.label]))}</label>
+          <label class="field"><span>Animation feel<small>Spring transitions and drifting backgrounds.</small></span>${selUI('animIntensity',[['full','Full fluid'],['subtle','Subtle'],['reduced','Reduced']])}</label>
+          <label class="field"><span>Glass tint strength<small><b data-range-value="glassIntensity">${ui.glassIntensity}%</b> surface opacity.</small></span><input type="range" min="20" max="100" step="4" value="${ui.glassIntensity}" data-setting="glassIntensity" aria-label="Glass intensity"></label>
+          <label class="field"><span>Glass blur radius<small><b data-range-value="blurIntensity">${ui.blurIntensity}px</b> backdrop frost.</small></span><input type="range" min="4" max="44" step="2" value="${ui.blurIntensity}" data-setting="blurIntensity" aria-label="Glass blur radius"></label>
+          <label class="field"><span>Tab bar labels<small>Show captions under icons in Spot+ UI’s floating bar.</small></span><input type="checkbox" role="switch" data-setting="tabBarLabels" ${ui.tabBarLabels?'checked':''}></label>
+        </div>
+      </div>
+      <div class="sp-custom-group">
+        <h3>Lyrics &amp; Gestures</h3>
+        <div class="sp-custom-grid">
+          <label class="field"><span>Lyrics font size<small>Live synced lyrics text scale.</small></span>${selUI('lyricsSize',[['small','Compact'],['medium','Standard'],['large','Large'],['xlarge','Extra Large']])}</label>
+          <label class="field"><span>Lyrics soft focus blur<small>Softens inactive lines behind the active verse.</small></span><input type="checkbox" role="switch" data-setting="lyricsBlur" ${ui.lyricsBlur?'checked':''}></label>
+          <label class="field"><span>Hold artwork for 2× speed<small>Press and hold cover art to fast-preview.</small></span><input type="checkbox" role="switch" data-setting="playerHold2x" ${ui.playerHold2x?'checked':''}></label>
+          <label class="field"><span>Double-tap cover to seek<small>Double-tap left or right edge to jump ±10s.</small></span><input type="checkbox" role="switch" data-setting="playerDoubleTapSeek" ${ui.playerDoubleTapSeek?'checked':''}></label>
+        </div>
+      </div>
     </div>
   </section>`;
-  return `<div class="studio-heading"><div><div class="kicker">Personalize</div><h1>Themes</h1><p class="muted">Pick an interface style, color theme, or customize every glass and player detail. Changes apply instantly.</p></div><div class="row-btns"><button class="btn" data-act="theme-undo">Undo this session</button><button class="btn primary" data-act="theme-save">Save theme</button></div></div>${interfaceSwitcher}<div class="studio-grid"><section class="studio-preview"><div class="studio-preview-top"><b id="themeLiveName">${s.themeCustom?'Your mix':p.name}</b><span>LIVE</span></div><div class="mini-workspace" aria-hidden="true"><div class="mini-sidebar"><span class="mini-dot"></span><i></i><i></i><i></i></div><div class="mini-main"><span class="mini-chip">Your library</span><h3>Made for your music</h3><div class="mini-art-row">${img(player.current()?.cover||'icons/icon-512.png')}${img(store.getLikes()[0]?.cover||'icons/icon-512.png')}</div><div class="mini-track"><span></span><b>Spot+</b><i>${I.play}</i></div></div></div><div class="studio-preview-bottom"><span id="themeContrast">${themes.contrast(p.accentText,p.raised).toFixed(1)}:1 accent text contrast</span><span>Auto contrast</span></div></section><section class="studio-controls"><h2>Make it yours</h2>${themeModeSwitch(s)}<label class="field"${p.mode==='light'?' hidden':''}><span>Pure black<small>True black backgrounds for OLED screens.</small></span><input type="checkbox" role="switch" data-setting="amoled" ${s.amoled!==false?'checked':''}></label><div class="color-controls">${[['accent','Accent',p.accent],['surface','Surface tint',p.surface],['raised','Control tint',p.raised]].map(([key,label,value])=>`<label><span>${label}</span><input type="color" data-theme-color="${key}" value="${value}" aria-label="${label} color"><small data-color-value="${key}">${value.toUpperCase()}</small></label>`).join('')}</div><label class="field"><span>Corner shape<small>Square to softly rounded.</small></span><input type="range" min="0" max="24" step="2" value="${p.radius}" data-setting="cornerRadius" aria-label="Corner roundness"></label><label class="field"><span>Album artwork</span><select data-setting="coverStyle"><option value="square" ${s.coverStyle!=='disc'?'selected':''}>Original square</option><option value="disc" ${s.coverStyle==='disc'?'selected':''}>Record circles</option></select></label><button class="btn" data-act="theme-remix">${I.shuffle}Remix a theme</button></section></div>${uiCustomSection}${themePresetGroups(s,p)}<section class="box"><h2>Feel & readability</h2><div class="studio-comfort"><label class="field"><span>Spacing</span><select data-setting="density"><option value="comfortable" ${s.density==='comfortable'?'selected':''}>Comfortable</option><option value="compact" ${s.density==='compact'?'selected':''}>Compact</option></select></label><label class="field"><span>Text</span><select data-setting="textSize"><option value="normal" ${s.textSize==='normal'?'selected':''}>Default</option><option value="large" ${s.textSize==='large'?'selected':''}>Larger</option></select></label><label class="field"><span>Motion</span><select data-setting="motion"><option value="system" ${s.motion==='system'?'selected':''}>Follow system</option><option value="reduced" ${s.motion==='reduced'?'selected':''}>Reduced</option></select></label></div></section><section class="box"><div class="sec-head"><h2>Your theme collection</h2><div class="row-btns"><button class="btn small" data-act="theme-import">Import theme</button><button class="btn small" data-act="theme-export">Export current</button></div></div>${store.getThemes().length?`<div class="saved-themes">${store.getThemes().map(t=>`<button class="btn" data-act="theme-load" data-id="${esc(t.id)}">${esc(t.name)}</button>`).join('')}</div>`:'<p class="muted">Save a mix to keep it here. Theme files contain appearance settings only.</p>'}</section>`;
+  return `<div class="studio-heading"><div><div class="kicker">Personalize</div><h1>Themes</h1><p class="muted">Pick an interface style, color palette, or glass finish. Changes apply live.</p></div><div class="row-btns"><button class="btn" data-act="theme-undo">Undo changes</button><button class="btn primary" data-act="theme-save">Save theme</button></div></div>${interfaceSwitcher}<div class="studio-grid"><section class="studio-preview"><div class="studio-preview-top"><b id="themeLiveName">${s.themeCustom?'Your mix':p.name}</b><span class="studio-live-label">Live preview</span></div><div class="mini-workspace" aria-hidden="true"><div class="mini-sidebar"><span class="mini-dot"></span><i></i><i></i><i></i></div><div class="mini-main"><span class="mini-chip">Your library</span><h3>Made for your music</h3><div class="mini-art-row">${img(player.current()?.cover||'icons/icon-512.png')}${img(store.getLikes()[0]?.cover||'icons/icon-512.png')}</div><div class="mini-track"><span></span><b>Spot+</b><i>${I.play}</i></div></div></div><div class="studio-preview-bottom"><span id="themeContrast">${themes.contrast(p.accentText,p.raised).toFixed(1)}:1 contrast</span><span>Auto readable</span></div></section><section class="studio-controls"><h2>Color &amp; Surface</h2>${themeModeSwitch(s)}<label class="field"${p.mode==='light'?' hidden':''}><span>Pure black<small>True black backgrounds for OLED screens.</small></span><input type="checkbox" role="switch" data-setting="amoled" ${s.amoled!==false?'checked':''}></label><div class="color-controls">${[['accent','Accent',p.accent],['surface','Surface tint',p.surface],['raised','Control tint',p.raised]].map(([key,label,value])=>`<label><span>${label}</span><input type="color" data-theme-color="${key}" value="${value}" aria-label="${label} color"><small data-color-value="${key}">${value.toUpperCase()}</small></label>`).join('')}</div><label class="field"><span>Corner shape<small><b data-range-value="cornerRadius">${p.radius}px</b> roundness.</small></span><input type="range" min="0" max="24" step="2" value="${p.radius}" data-setting="cornerRadius" aria-label="Corner roundness"></label><label class="field"><span>Album artwork</span><select data-setting="coverStyle"><option value="square" ${s.coverStyle!=='disc'?'selected':''}>Original square</option><option value="disc" ${s.coverStyle==='disc'?'selected':''}>Record circles</option></select></label><button class="btn studio-remix-btn" data-act="theme-remix">${I.shuffle}Remix a theme</button></section></div>${uiCustomSection}${themePresetGroups(s,p)}<section class="box"><h2>Feel &amp; readability</h2><div class="studio-comfort"><label class="field"><span>Spacing</span><select data-setting="density"><option value="comfortable" ${s.density==='comfortable'?'selected':''}>Comfortable</option><option value="compact" ${s.density==='compact'?'selected':''}>Compact</option></select></label><label class="field"><span>Text</span><select data-setting="textSize"><option value="normal" ${s.textSize==='normal'?'selected':''}>Default</option><option value="large" ${s.textSize==='large'?'selected':''}>Larger</option></select></label><label class="field"><span>Motion</span><select data-setting="motion"><option value="system" ${s.motion==='system'?'selected':''}>Follow system</option><option value="reduced" ${s.motion==='reduced'?'selected':''}>Reduced</option></select></label></div></section><section class="box"><div class="sec-head"><h2>Your theme collection</h2><div class="row-btns"><button class="btn small" data-act="theme-import">Import</button><button class="btn small" data-act="theme-export">Export</button></div></div>${store.getThemes().length?`<div class="saved-themes">${store.getThemes().map(t=>`<button class="btn" data-act="theme-load" data-id="${esc(t.id)}">${esc(t.name)}</button>`).join('')}</div>`:'<p class="muted">Save a mix to keep it here. Theme files contain appearance settings only.</p>'}</section>`;
 }
-document.addEventListener('input',e=>{const input=e.target;if(input.dataset.themeColor){const s=store.getSettings(),p=themes.palette(s);store.setSettings({themeCustom:{accent:p.accent,surface:p.surface,raised:p.raised,[input.dataset.themeColor]:input.value}});const readout=$(`[data-color-value="${input.dataset.themeColor}"]`);if(readout)readout.textContent=input.value.toUpperCase();$$('.theme-preset').forEach(b=>{b.classList.remove('selected');b.setAttribute('aria-pressed','false');});}if(['cornerRadius','artRadius','glassIntensity','blurIntensity'].includes(input.dataset.setting))store.setSettings({[input.dataset.setting]:Number(input.value)});});
+document.addEventListener('input',e=>{const input=e.target;if(input.dataset.themeColor){const s=store.getSettings(),p=themes.palette(s);store.setSettings({themeCustom:{accent:p.accent,surface:p.surface,raised:p.raised,[input.dataset.themeColor]:input.value}});const readout=$(`[data-color-value="${input.dataset.themeColor}"]`);if(readout)readout.textContent=input.value.toUpperCase();$$('.theme-preset').forEach(b=>{b.classList.remove('selected');b.setAttribute('aria-pressed','false');});}if(['cornerRadius','artRadius','glassIntensity','blurIntensity'].includes(input.dataset.setting)){const n=Number(input.value);store.setSettings({[input.dataset.setting]:n});const out=$(`[data-range-value="${input.dataset.setting}"]`);if(out)out.textContent=input.dataset.setting==='glassIntensity'?`${n}%`:`${n}px`;}});
 document.addEventListener('submit',e=>{if(e.target.id==='spotifyLinkForm'){e.preventDefault();const parsed=spotify.parseSpotifyLink($('#spotifyLink').value);if(!parsed)return toast('Paste a full open.spotify.com playlist, artist, album or track link.');go(parsed.type==='playlist'?`#/linked/${parsed.id}`:`#/spotify/${parsed.type}/${parsed.id}`);}});
 
 /* ---------------- Automatic Spotify stats ----------------

@@ -19,46 +19,68 @@
    1. SHARED COMPONENTS (Active in both Original Spot+ and Spot+ UI)
    ========================================================================== */
 
-/* --- Interface Style Switcher inside Theme Studio --- */
+/* --- Interface Style Switcher inside Theme Studio (Side-by-Side Comparison) --- */
 .ui-switcher-box {
-  margin: 12px 0 20px;
-  padding: 20px 22px;
-  background: var(--bg2);
-  border: 1px solid var(--line);
-  border-radius: calc(var(--radius) + 8px);
+  margin: 16px 0 22px;
+  padding: 0;
+  background: transparent;
+  border: 0;
 }
 .ui-switcher-head {
   display: flex;
-  align-items: flex-start;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
-.ui-switcher-head h2 { margin: 0 0 4px; font-size: 20px; }
-.ui-switcher-head p { margin: 0; font-size: 13px; color: var(--muted); }
+.ui-switcher-head h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+.ui-switcher-head p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.45;
+}
 .ui-style-cards {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: 12px;
 }
 .ui-style-card {
   position: relative;
   text-align: left;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px;
-  border-radius: 18px;
-  border: 1.5px solid var(--line);
-  background: var(--bg3);
+  gap: 12px;
+  padding: 12px;
+  border-radius: 20px;
+  border: 1.5px solid color-mix(in srgb, var(--text) 12%, var(--line));
+  background: color-mix(in srgb, var(--text) 4%, var(--bg2));
   color: var(--text);
   cursor: pointer;
-  transition: transform 180ms var(--sp-ease), border-color 180ms ease, box-shadow 180ms ease;
+  min-width: 0;
+  transition: transform 180ms var(--sp-ease), border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
 }
-.ui-style-card:hover { transform: translateY(-2px); border-color: var(--accent-text); }
+.ui-style-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--text) 28%, var(--line));
+}
+.ui-style-card:active {
+  transform: scale(0.98);
+}
 .ui-style-card.selected {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent), 0 12px 28px rgba(0, 0, 0, 0.35);
+  border-color: var(--accent-text);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg2));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-text) 65%, transparent), 0 14px 32px rgba(0, 0, 0, 0.32);
+}
+.ui-style-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 2px 2px;
 }
 .ui-style-card-top {
   display: flex;
@@ -66,94 +88,338 @@
   justify-content: space-between;
   gap: 8px;
 }
-.ui-style-card strong { font-size: 15px; font-weight: 700; }
-.ui-style-card small { font-size: 12px; color: var(--muted); line-height: 1.45; }
-.ui-style-badge {
-  font-size: 10px;
+.ui-style-card strong {
+  font-size: 15px;
   font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
-  color: var(--accent-text);
+  letter-spacing: -0.015em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.ui-style-card.selected .ui-style-badge {
-  background: var(--accent);
-  color: var(--accent-ink);
+.ui-style-card small {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
 }
-/* Live miniature preview inside Interface Style cards */
+.ui-style-check {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid color-mix(in srgb, var(--text) 24%, transparent);
+  background: transparent;
+  color: transparent;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+.ui-style-check svg {
+  width: 13px;
+  height: 13px;
+  fill: currentColor;
+}
+.ui-style-card.selected .ui-style-check {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--canvas);
+}
+
+/* Miniature Device Previews inside Interface Style Cards */
 .ui-mini-preview {
-  height: 104px;
-  border-radius: 12px;
+  height: 128px;
+  border-radius: 13px;
   overflow: hidden;
   position: relative;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: linear-gradient(155deg, color-mix(in srgb, var(--accent) 28%, #0a0a0d), #070709);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #0a0b0e;
   padding: 10px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
 }
-.ui-mini-orig-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.ui-mini-orig-tiles span { height: 22px; border-radius: 4px; background: rgba(255, 255, 255, 0.11); }
+.ui-mini-original {
+  background: linear-gradient(180deg, #12151a 0%, #090a0d 100%);
+}
+.ui-mini-orig-chips {
+  display: flex;
+  gap: 4px;
+}
+.ui-mini-orig-chips span {
+  height: 8px;
+  width: 22px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+}
+.ui-mini-orig-chips span.on {
+  width: 26px;
+  background: color-mix(in srgb, var(--accent) 85%, #ffffff);
+}
+.ui-mini-orig-tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  margin-top: 6px;
+}
+.ui-mini-orig-tiles span {
+  height: 18px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.ui-mini-orig-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: auto;
+}
 .ui-mini-orig-bar {
   height: 18px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.16);
-  margin-top: auto;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.14);
+  padding: 3px 5px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.ui-mini-orig-bar i {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.45);
+}
+.ui-mini-orig-bar b {
+  flex: 1;
+  height: 4px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.3);
 }
 .ui-mini-orig-nav {
   height: 14px;
-  background: rgba(0, 0, 0, 0.65);
-  border-radius: 3px;
+  margin: 0 -10px -10px;
+  padding: 0 12px;
+  background: rgba(0, 0, 0, 0.72);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   justify-content: space-around;
   align-items: center;
 }
-.ui-mini-orig-nav i { width: 14px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.55); }
+.ui-mini-orig-nav i {
+  width: 12px;
+  height: 3.5px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.35);
+}
+.ui-mini-orig-nav i.on {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.ui-mini-spotplus {
+  background: radial-gradient(circle at 50% 24%, color-mix(in srgb, var(--accent) 44%, #1e2230), #090a0e 72%);
+}
+.ui-mini-sp-glow {
+  position: absolute;
+  inset: -20% 10% 35%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.16), transparent 68%);
+  pointer-events: none;
+}
+.ui-mini-sp-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
 .ui-mini-sp-hero {
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  margin: 0 auto;
-  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 45%, #fff));
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.35), color-mix(in srgb, var(--accent) 55%, #181a24));
+  border: 1px solid rgba(255, 255, 255, 0.24);
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.45);
+}
+.ui-mini-sp-lines {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.ui-mini-sp-lines span {
+  width: 44px;
+  height: 4px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.78);
+}
+.ui-mini-sp-lines i {
+  width: 28px;
+  height: 3px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.36);
+}
+.ui-mini-sp-bottom {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: auto;
 }
 .ui-mini-sp-pill {
   height: 16px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.16);
-  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 7px;
+  padding: 2px 5px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.24);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ui-mini-sp-pill i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.6);
+}
+.ui-mini-sp-pill span {
+  flex: 1;
+  height: 3.5px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.45);
+}
+.ui-mini-sp-pill b {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
 }
 .ui-mini-sp-dock {
-  width: 66%;
-  height: 16px;
-  margin: 0 auto;
+  height: 17px;
   border-radius: 999px;
-  background: rgba(20, 20, 24, 0.72);
+  background: rgba(20, 22, 28, 0.78);
   border: 1px solid rgba(255, 255, 255, 0.22);
-  display: flex;
-  justify-content: space-around;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   align-items: center;
-  padding: 0 8px;
+  padding: 2px 3px;
+  gap: 2px;
 }
-.ui-mini-sp-dock i { width: 8px; height: 8px; border-radius: 50%; background: rgba(255, 255, 255, 0.75); }
-.ui-mini-sp-dock i:first-child { background: var(--accent); }
+.ui-mini-sp-dock i {
+  height: 11px;
+  border-radius: 999px;
+  display: block;
+  position: relative;
+}
+.ui-mini-sp-dock i::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.65);
+}
+.ui-mini-sp-dock i.on {
+  background: rgba(255, 255, 255, 0.22);
+}
+.ui-mini-sp-dock i.on::after {
+  background: #ffffff;
+}
 
-/* Spot+ UI & Player Customization Panel */
+/* Grouped Player, Glass & Lyrics Customization Panel */
+.sp-custom-box {
+  padding: 22px 24px;
+}
+.sp-custom-head {
+  margin-bottom: 18px;
+}
+.sp-custom-head h2 {
+  margin: 0 0 4px;
+}
+.sp-custom-head p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.sp-custom-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.sp-custom-group + .sp-custom-group {
+  padding-top: 18px;
+  border-top: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+}
+.sp-custom-group h3 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent-text);
+  letter-spacing: -0.01em;
+}
 .sp-custom-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px 22px;
+  gap: 12px 28px;
 }
-.sp-custom-grid .field { margin-bottom: 0; }
-.sp-custom-grid input[type="range"] { width: 120px; }
+.sp-custom-grid .field {
+  margin: 0;
+  min-height: 46px;
+  gap: 14px;
+}
+.sp-custom-grid .field small b {
+  color: var(--text);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.sp-custom-grid input[type="range"] {
+  width: 124px;
+  flex: none;
+}
 
 @media (max-width: 767px) {
-  .ui-style-cards { grid-template-columns: 1fr; }
-  .sp-custom-grid { grid-template-columns: 1fr; gap: 12px; }
+  .ui-style-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .ui-style-card {
+    padding: 10px;
+    border-radius: 18px;
+    gap: 10px;
+  }
+  .ui-mini-preview {
+    height: 112px;
+    padding: 8px;
+  }
+  .ui-style-card strong {
+    font-size: 14px;
+  }
+  .ui-style-card small {
+    font-size: 11.5px;
+    line-height: 1.35;
+  }
+  .sp-custom-box {
+    padding: 18px 16px;
+  }
+  .sp-custom-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .sp-custom-grid .field > span {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .sp-custom-grid .field select {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 148px;
+    max-width: 58%;
+    font-size: 13px;
+    padding: 8px 12px;
+  }
+  .sp-custom-grid input[type="range"] {
+    width: 112px;
+  }
 }
 
 /* --- Visualizer Canvas & Artwork Glow --- */
@@ -498,7 +764,7 @@ body[data-ui="spotplus"][data-mode="light"] {
   }
 }
 
-/* --- Typography & Home Polish --- */
+/* --- Typography, Surfaces & Home Polish --- */
 body[data-ui="spotplus"] h1 {
   font-weight: 800;
   letter-spacing: -0.03em;
@@ -507,25 +773,69 @@ body[data-ui="spotplus"] h2 {
   font-weight: 800;
   letter-spacing: -0.02em;
 }
-body[data-ui="spotplus"] .mobile-top {
-  background: transparent;
-  padding-top: calc(var(--st) + 8px);
+body[data-ui="spotplus"] .avatar {
+  background: color-mix(in srgb, var(--accent) 72%, var(--bg3));
+  border: 1px solid color-mix(in srgb, var(--text) 20%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 14%, transparent);
 }
-body[data-ui="spotplus"] .mobile-top > span {
-  font-size: 28px;
-  font-weight: 800;
-  letter-spacing: -0.03em;
+body[data-ui="spotplus"] .btn {
+  border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
+  background: color-mix(in srgb, var(--text) 8%, var(--bg2));
+  color: var(--text);
+  justify-content: center;
+}
+body[data-ui="spotplus"] .btn.primary {
+  background: var(--text);
+  color: var(--canvas);
+  border-color: transparent;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.26);
+}
+body[data-ui="spotplus"] .view-toolbar .chip {
+  background: color-mix(in srgb, var(--text) 9%, var(--bg2));
+  border: 1px solid color-mix(in srgb, var(--text) 12%, transparent);
+  color: color-mix(in srgb, var(--text) 88%, transparent);
+  font-weight: 600;
+  transition: background 150ms ease, color 150ms ease, transform 140ms var(--sp-ease);
+}
+body[data-ui="spotplus"] .view-toolbar .chip.on {
+  background: var(--text);
+  color: var(--canvas);
+  border-color: transparent;
+  font-weight: 700;
+}
+body[data-ui="spotplus"] .mode-switch {
+  background: color-mix(in srgb, var(--text) 7%, var(--canvas));
+  border: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+  border-radius: 12px;
+  padding: 4px;
+}
+body[data-ui="spotplus"] .mode-switch button[aria-pressed="true"] {
+  background: var(--text);
+  color: var(--canvas);
+  border-radius: 9px;
+  font-weight: 700;
+}
+body[data-ui="spotplus"] .home-dj form {
+  background: color-mix(in srgb, var(--text) 8%, var(--bg2));
+  border: 1px solid color-mix(in srgb, var(--text) 14%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 10%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 body[data-ui="spotplus"] .quick-grid {
   gap: 10px;
 }
 body[data-ui="spotplus"] .quick-item {
   border-radius: 12px;
-  background: color-mix(in srgb, var(--bg3) 82%, transparent);
-  border: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text) 7%, var(--bg2));
+  border: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text) 6%, transparent);
   transition: transform 160ms var(--sp-ease), background 160ms ease;
+}
+body[data-ui="spotplus"] .quick-item img,
+body[data-ui="spotplus"] .quick-item .ph-cover {
+  border-radius: 0;
 }
 body[data-ui="spotplus"] .quick-item:active { transform: scale(0.97); }
 body[data-ui="spotplus"] .card {
@@ -534,9 +844,16 @@ body[data-ui="spotplus"] .card {
   transition: transform 180ms var(--sp-ease), background 180ms ease;
 }
 body[data-ui="spotplus"] .card img,
-body[data-ui="spotplus"] .card .ph-cover {
+body[data-ui="spotplus"] .card .ph-cover,
+body[data-ui="spotplus"] .mix-cover {
   border-radius: var(--sp-art-radius, 14px);
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.34);
+}
+body[data-ui="spotplus"] .mix-cover span {
+  left: 12px;
+  right: 12px;
+  bottom: 10px;
+  line-height: 1.22;
 }
 body[data-ui="spotplus"] .card:active { transform: scale(0.97); }
 
@@ -588,25 +905,33 @@ body[data-ui="spotplus"] .actions .btn.primary {
 }
 body[data-ui="spotplus"] .actions .btn.white,
 body[data-ui="spotplus"] .actions .btn.primary {
-  background: color-mix(in srgb, var(--accent) 26%, var(--sp-glass-bg));
-  color: var(--accent-text);
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--sp-glass-border));
+  background: var(--text);
+  color: var(--canvas);
+  border-color: transparent;
 }
 body[data-ui="spotplus"] .actions .btn:active { transform: scale(0.95); }
 
-/* Clean hairline dividers between tracks */
+/* Clean hairline dividers between tracks & glass container cards */
 body[data-ui="spotplus"] .trow {
   border-radius: 12px;
   min-height: 58px;
-  border-bottom: 1px solid color-mix(in srgb, var(--line) 42%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 7%, transparent);
 }
 body[data-ui="spotplus"] .trow .tcover { border-radius: 8px; }
 body[data-ui="spotplus"] .box {
   border-radius: 20px;
-  background: color-mix(in srgb, var(--bg2) 86%, transparent);
-  border: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+  padding: 20px 22px;
+  margin: 16px 0;
+  background: color-mix(in srgb, var(--text) 4%, var(--bg2));
+  border: 1px solid color-mix(in srgb, var(--text) 10%, var(--line));
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
+}
+body[data-ui="spotplus"] .box > h2:first-child {
+  margin-top: 0;
+}
+body[data-ui="spotplus"] .box > .sec-head:first-child {
+  margin-top: 0;
 }
 body[data-ui="spotplus"] .searchbox {
   border-radius: 999px;
@@ -619,104 +944,226 @@ body[data-ui="spotplus"] .searchbox {
 }
 body[data-ui="spotplus"] .searchbox input { color: var(--text); }
 
-/* --- Mobile Floating Liquid Glass Bottom Tab Bar & Floating Pill Mini-Player --- */
+/* --- Mobile Floating Liquid Glass Bottom Tab Bar & Floating Mini-Player --- */
 @media (max-width: 899px) {
+  /* Sticky frosted mobile header so scrolling never clips harshly under status bar */
+  body[data-ui="spotplus"] .mobile-top {
+    position: sticky;
+    top: 0;
+    z-index: 15;
+    margin: 0 -16px 6px;
+    padding: 6px 16px;
+    height: 52px;
+    min-height: 52px;
+    background: color-mix(in srgb, var(--canvas) 76%, transparent);
+    backdrop-filter: blur(22px) saturate(180%);
+    -webkit-backdrop-filter: blur(22px) saturate(180%);
+    border-bottom: 1px solid color-mix(in srgb, var(--text) 7%, transparent);
+  }
+  body[data-ui="spotplus"] .mobile-top > span {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+  }
+  body[data-ui="spotplus"] .view-toolbar {
+    background: color-mix(in srgb, var(--canvas) 82%, transparent) !important;
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+  }
+  body[data-ui="spotplus"] .box {
+    padding: 18px 16px;
+    border-radius: 18px;
+  }
+
+  /* Soft bottom gradient fade so scrolling content glides cleanly behind the floating glass stack */
+  body[data-ui="spotplus"]:not([data-chrome="clear"]) .app::after {
+    content: "";
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: calc(var(--sb, 0px) + 112px);
+    background: linear-gradient(
+      to top,
+      var(--canvas) 0%,
+      color-mix(in srgb, var(--canvas) 82%, transparent) 46%,
+      transparent 100%
+    );
+    pointer-events: none;
+    z-index: 22;
+  }
+  body[data-ui="spotplus"].has-bar:not([data-chrome="clear"]) .app::after {
+    height: calc(var(--sb, 0px) + 164px);
+  }
+
+  /* Unified concentric Liquid Glass navigation dock */
   body[data-ui="spotplus"] .nav {
     position: fixed;
-    left: 50%;
-    right: auto;
-    transform: translateX(-50%);
+    left: max(14px, env(safe-area-inset-left, 0px));
+    right: max(14px, env(safe-area-inset-right, 0px));
+    margin: 0 auto;
+    transform: none;
     bottom: calc(var(--sb, 0px) + 10px);
-    width: min(306px, calc(100vw - 44px));
-    height: 58px;
-    padding: 5px 6px;
+    width: auto;
+    max-width: 396px;
+    height: 60px;
+    padding: 5px;
     border-radius: 999px;
     background: var(--sp-glass-bg);
     border: 1px solid var(--sp-glass-border);
     box-shadow: var(--sp-glass-shadow);
     backdrop-filter: blur(var(--sp-glass-blur)) saturate(195%);
     -webkit-backdrop-filter: blur(var(--sp-glass-blur)) saturate(195%);
-    gap: 2px;
-    z-index: 25;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: center;
+    gap: 4px;
+    z-index: 30;
   }
-  body[data-ui="spotplus"] .nav a,
-  body[data-ui="spotplus"] .nav button {
+  body[data-ui="spotplus"] .nav > a,
+  body[data-ui="spotplus"] .nav > button {
     height: 100%;
-    min-width: 48px;
+    min-height: 0;
+    min-width: 0;
+    width: 100%;
+    padding: 0;
     border-radius: 999px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     gap: 2px;
-    color: color-mix(in srgb, var(--text) 78%, transparent);
+    color: color-mix(in srgb, var(--text) 72%, transparent);
     transition: background 180ms ease, color 180ms ease, transform 150ms var(--sp-spring);
   }
-  body[data-ui="spotplus"] .nav a.on {
+  body[data-ui="spotplus"] .nav > a.on {
     background: var(--sp-glass-pill);
-    color: var(--accent-text);
-    box-shadow: inset 0 1px 0 var(--sp-glass-spec);
+    color: var(--text);
+    box-shadow: inset 0 1px 0 var(--sp-glass-spec), 0 2px 10px rgba(0, 0, 0, 0.22);
   }
-  body[data-ui="spotplus"] .nav a:active,
-  body[data-ui="spotplus"] .nav button:active {
+  body[data-ui="spotplus"] .nav > a:active,
+  body[data-ui="spotplus"] .nav > button:active {
     transform: scale(0.92);
+  }
+  body[data-ui="spotplus"] .nav svg {
+    width: 22px;
+    height: 22px;
+  }
+  body[data-ui="spotplus"] .nav span {
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -0.01em;
   }
   body[data-ui="spotplus"][data-tab-labels="off"] .nav span {
     display: none;
   }
   body[data-ui="spotplus"][data-tab-labels="off"] .nav svg {
-    width: 24px;
-    height: 24px;
+    width: 23px;
+    height: 23px;
   }
 
-  /* Detached floating Liquid Glass mini-player pill hovering above the floating tab bar */
+  /* Cohesively proportioned Liquid Glass floating mini-player hovering cleanly above the dock */
   body[data-ui="spotplus"] .bar {
     position: fixed;
-    left: 12px;
-    right: 12px;
+    left: max(14px, env(safe-area-inset-left, 0px));
+    right: max(14px, env(safe-area-inset-right, 0px));
+    margin: 0 auto;
+    width: auto;
+    max-width: 396px;
     bottom: calc(var(--sb, 0px) + 78px);
-    height: 58px;
-    border-radius: 999px;
-    padding: 6px 12px 6px 8px;
-    background: color-mix(in srgb, var(--song-surface, var(--bg2)) 48%, var(--sp-glass-bg));
+    height: 60px;
+    border-radius: 22px;
+    padding: 6px 10px 8px 8px;
+    gap: 6px;
+    align-items: center;
+    background: color-mix(in srgb, var(--song-surface, var(--bg2)) 44%, var(--sp-glass-bg));
     border: 1px solid var(--sp-glass-border);
-    box-shadow: var(--sp-glass-shadow);
-    backdrop-filter: blur(var(--sp-glass-blur)) saturate(190%);
-    -webkit-backdrop-filter: blur(var(--sp-glass-blur)) saturate(190%);
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.48), inset 0 1px 0 var(--sp-glass-spec);
+    backdrop-filter: blur(var(--sp-glass-blur)) saturate(195%);
+    -webkit-backdrop-filter: blur(var(--sp-glass-blur)) saturate(195%);
     overflow: hidden;
-    z-index: 24;
+    z-index: 29;
+  }
+  body[data-ui="spotplus"] .bar-track {
+    gap: 10px;
+    align-items: center;
   }
   body[data-ui="spotplus"] #barArt {
     width: 42px;
     height: 42px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.36);
+  }
+  body[data-ui="spotplus"] .bar-title {
+    font-size: 13.5px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.25;
+  }
+  body[data-ui="spotplus"] .bar-artist {
+    font-size: 11.5px;
+    color: color-mix(in srgb, var(--text) 68%, transparent);
+    line-height: 1.25;
+  }
+  body[data-ui="spotplus"] .bar .icon {
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  }
+  body[data-ui="spotplus"] .bar [data-role="like"] svg {
+    width: 20px;
+    height: 20px;
+  }
+  body[data-ui="spotplus"] .bar .play {
+    width: 38px;
+    height: 38px;
+  }
+  body[data-ui="spotplus"] .bar .play svg {
+    width: 24px;
+    height: 24px;
+  }
+  body[data-ui="spotplus"] .bar-center {
+    flex: 0 0 38px;
+    width: 38px;
+    max-width: 38px;
+    justify-content: center;
   }
   body[data-ui="spotplus"] .bar-prog {
     position: absolute;
-    left: 22px;
-    right: 22px;
-    bottom: 2px;
+    left: 16px;
+    right: 16px;
+    bottom: 3px;
     top: auto;
     height: 2.5px;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.16);
+    background: color-mix(in srgb, var(--text) 16%, transparent);
     overflow: hidden;
   }
   body[data-ui="spotplus"] #barProg {
     height: 100%;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.92);
+    background: color-mix(in srgb, var(--text) 90%, transparent);
+  }
+  body[data-ui="spotplus"][data-mode="light"] .bar {
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.92);
   }
   body[data-ui="spotplus"] main {
-    padding-bottom: calc(var(--sb, 0px) + 96px);
+    padding-bottom: calc(var(--sb, 0px) + 104px);
   }
   body[data-ui="spotplus"].has-bar main {
-    padding-bottom: calc(var(--sb, 0px) + 156px);
+    padding-bottom: calc(var(--sb, 0px) + 172px);
   }
   body[data-ui="spotplus"] #toasts {
-    bottom: calc(var(--sb, 0px) + 148px);
+    bottom: calc(var(--sb, 0px) + 152px);
   }
 }
 
 /* --- Desktop Liquid Glass Chrome --- */
 @media (min-width: 900px) {
+  body[data-ui="spotplus"] {
+    --bar: 96px;
+  }
   body[data-ui="spotplus"] .topbar {
     background: color-mix(in srgb, var(--canvas) 75%, transparent);
     backdrop-filter: blur(var(--sp-glass-blur)) saturate(180%);
@@ -730,9 +1177,17 @@ body[data-ui="spotplus"] .searchbox input { color: var(--text); }
     backdrop-filter: blur(var(--sp-glass-blur)) saturate(180%);
     -webkit-backdrop-filter: blur(var(--sp-glass-blur)) saturate(180%);
   }
+  body[data-ui="spotplus"] .side-filters {
+    -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 88%, transparent 100%);
+    mask-image: linear-gradient(90deg, #000 0%, #000 88%, transparent 100%);
+    padding-right: 16px;
+  }
   body[data-ui="spotplus"] .bar {
-    margin: 0 12px 10px;
-    border-radius: 24px;
+    height: 78px;
+    align-self: center;
+    margin: 0 16px 8px;
+    padding: 0 18px;
+    border-radius: 22px;
     border: 1px solid var(--sp-glass-border);
     background: color-mix(in srgb, var(--song-deep, var(--bg2)) 45%, var(--sp-glass-bg));
     box-shadow: var(--sp-glass-shadow);
