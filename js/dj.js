@@ -71,7 +71,12 @@ export async function start(prompt='',{change=false}={}){
   if(!tracks.length)throw new Error('No match yet. Try an artist, song, or a broader mood.');
   if(change&&tracks.length>1){const offset=(Math.max(0,tracks.findIndex(t=>t.id===player.current()?.id))+1)%tracks.length;tracks=[...tracks.slice(offset),...tracks.slice(0,offset)];}
   state.active=true;state.tracks=tracks;state.message=reason;state.busy=false;announced=tracks[0].id;trackCount=0;
-  player.playList(tracks,0,{shuffle:false});emit();
+  if (player.playList(tracks,0,{shuffle:false}) === false) {
+    state.message = 'Daily limit reached. Star Spot+ on GitHub and verify it to unlock full access.';
+    emit();
+    return;
+  }
+  emit();
   if(radioSeed)api.artistRadio(radioSeed.artistId).then(more=>{
    if(my!==requestToken||!state.active)return;
    const added=visibleTracks(uniqueTracks(more),store.getSettings()).filter(t=>!state.tracks.some(x=>x.id===t.id)).slice(0,25);

@@ -18,6 +18,8 @@ const files = [
   ...(await jsFiles('workers/media-gateway/src')),
   'sw.js',
   'canvas-bridge/worker.js',
+  'canvas-bridge/access.js',
+  'canvas-bridge/referral.js',
   'canvas-bridge/spotify-stats.js',
 ];
 
