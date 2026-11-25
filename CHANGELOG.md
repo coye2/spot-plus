@@ -2,6 +2,13 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 2.2.6 — Vehicle integration architecture: Spot+ Drive bridge, OpenSubsonic gateway PoC & Native Microbridge
+_2026-11-25_
+
+- Path 1 — Browser-Native Vehicle Media Bridge (Spot+ Drive): added capability-adaptive DriveMediaBridge (feature-flagged off by default via vehicleDriveBridge) with WebKit/CarPlay Now Playing and Chromium/Bluetooth AVRCP capability detection, head-unit metadata sanitization, steering-wheel duplicate-pulse debouncing, explicit ±10s suppression so CarPlay keeps Previous/Next buttons, and safe wireless-disconnect interruption classification with zero polling or audio element teardown.
+- Path 2 — Universal Media Gateway PoC (OpenSubsonic): built an isolated 12-endpoint OpenSubsonic 1.16.1 Cloudflare Worker PoC (workers/media-gateway) with truthful identity, account-free AES-GCM encrypted pairing derived from Spot+ sync keys, direct HTTP 302 stream playback (0 KB/s gateway audio egress), authorized synthetic WAV range-request test audio, anti-SSRF host allowlisting, and a 100–10,000 listener capacity & Cloudflare cost benchmark.
+- Path 3 — Spot+ Native Microbridge: designed and prototyped the shared spotplus.microbridge.v1 protocol, single-authoritative-engine lock, PWA client adapter (feature-flagged off by default), and minimal isolated Android (Media3 MediaLibraryService + TWA) and iOS (AVQueuePlayer + CarPlay CPTemplateApplicationSceneDelegate + WKWebView) prototypes with zero duplicated Spot+ UI.
+
 ## 2.2.5 — Operation S+: S-tier playback state machine, recovery checkpoints, adaptive transitions & scalable Worker protection
 _2026-11-24_
 

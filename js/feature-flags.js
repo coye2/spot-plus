@@ -11,6 +11,10 @@ export const DEFAULT_FLAGS = Object.freeze({
   sPlusCrossfadeGuard: true,
   sPlusGracefulDegradation: true,
   sPlusNetworkTimeouts: true,
+  // Vehicle integration pathways (modular & disabled by default until verified on target hardware)
+  vehicleDriveBridge: false,
+  vehicleGatewayPairing: false,
+  vehicleNativeMicrobridge: false,
 });
 
 let overrides = null;
