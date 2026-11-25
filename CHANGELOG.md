@@ -2,6 +2,12 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 2.2.4 — Playlist sharing in the three-dots menu
+_2026-11-24_
+
+- Added a Share playlist option to every playlist’s three-dots (⋯) menu — both in Your Library / sidebar and right inside every Spot+, Spotify, and catalog playlist view.
+- Share playlists as a live Spot+ link, a Spotify link (for Spotify playlists), a copied URL, a story-ready 1080×1920 Spot+ playlist card (with cover art or 2×2 track mosaic), or an Edit Together collaborative QR invite.
+
 ## 2.2.3 — Playback continuity, faster relay starts, unified connectivity & refined Settings
 _2026-11-24_
 

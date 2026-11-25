@@ -1,6 +1,10 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '2.2.4', date: '2026-11-24', title: 'Playlist sharing in the three-dots menu', items: [
+    'Added a Share playlist option to every playlist’s three-dots (⋯) menu — both in Your Library / sidebar and right inside every Spot+, Spotify, and catalog playlist view.',
+    'Share playlists as a live Spot+ link, a Spotify link (for Spotify playlists), a copied URL, a story-ready 1080×1920 Spot+ playlist card (with cover art or 2×2 track mosaic), or an Edit Together collaborative QR invite.',
+  ]},
   {version: '2.2.3', date: '2026-11-24', title: 'Playback continuity, faster relay starts, unified connectivity & refined Settings', items: [
     'Operation Continuity: hardened playback intent and lifecycle recovery across app switches, lock/unlock, back-forward cache (pageshow), page freeze/resume, offline-to-online transitions, iOS interrupted AudioContext states, and Service Worker updates (updates now defer reload while music is playing).',
     'Operation Velocity & Relay Efficiency: added single-flight request coalescing and 10-minute bounded match memoization to prevent duplicate Cloudflare Worker /match calls, eliminated wasted background prewarms aborted on playlist start, bounded next-track preparation to the immediate upcoming track, and added exponential retry backoff with jitter.',
