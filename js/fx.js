@@ -111,7 +111,7 @@ export function syncPlaybackState(playing = null) {
   if (active) {
     clearTimeout(suspendTimer);
     suspendTimer = 0;
-    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    if (ctx.state === 'suspended' || ctx.state === 'interrupted') ctx.resume().catch(() => {});
     try {
       nodes.masterGate.gain.cancelScheduledValues(now);
       nodes.masterGate.gain.setTargetAtTime(1, now, 0.008);

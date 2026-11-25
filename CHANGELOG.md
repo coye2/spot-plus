@@ -2,6 +2,14 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 2.2.3 — Playback continuity, faster relay starts, unified connectivity & refined Settings
+_2026-11-24_
+
+- Operation Continuity: hardened playback intent and lifecycle recovery across app switches, lock/unlock, back-forward cache (pageshow), page freeze/resume, offline-to-online transitions, iOS interrupted AudioContext states, and Service Worker updates (updates now defer reload while music is playing).
+- Operation Velocity & Relay Efficiency: added single-flight request coalescing and 10-minute bounded match memoization to prevent duplicate Cloudflare Worker /match calls, eliminated wasted background prewarms aborted on playlist start, bounded next-track preparation to the immediate upcoming track, and added exponential retry backoff with jitter.
+- Operation Connect & Premium System Media: added a unified capability-aware Connectivity layer (Apple AirPlay target picker & availability tracking, W3C Remote Playback API, desktop audio output selection, and truthful CarPlay / Android Auto capability notes), plus multi-size absolute Media Session artwork and deduped lock-screen updates.
+- Settings refinement & app-wide polish: reorganized Settings into clear, scannable sections with 44px+ mobile touch targets and iOS safe-area clearance, optimized long playlist scrolling via content-visibility, and moved non-critical Now Playing stats/lyrics work off the play critical path.
+
 ## 2.2.2 — Pro Spot+ UI chrome & Theme Changer layout
 _2026-11-23_
 

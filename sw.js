@@ -1,11 +1,11 @@
 // Spot+ service worker: offline app shell, cached cover art, and HTTP Range support for cached audio.
 // v40 includes version 2 account snapshots and incomplete-collection preservation.
-const SHELL_CACHE = 'spotplus-shell-v150';
+const SHELL_CACHE = 'spotplus-shell-v151';
 const IMG_CACHE = 'spotplus-img-v1';
 const AUDIO_CACHE = 'spotplus-audio-v1';
 const KEEP = [SHELL_CACHE, IMG_CACHE, AUDIO_CACHE, 'spotplus-live-voice-v1'];
 const SHELL = [
-  './js/gate.js', './js/maintenance.js', './js/automix.js',
+  './js/gate.js', './js/maintenance.js', './js/automix.js', './js/connectivity.js',
   './js/playback/spotify-capabilities.js', './js/playback/spotify-auth.js', './js/playback/spotify-device.js', './js/playback/spotify-provider.js',
   './js/ui-engine.js', './js/autoeq.js', './js/dsp.js', './js/lyrics-engine.js', './js/visualizer.js', './js/audio-studio-ui.js', './css/spotplus-ui.css',
   './js/playback-telemetry.js', './js/source-router.js', './js/memory-engine.js', './js/buffer-engine.js', './js/predictive-pipeline.js',
@@ -142,6 +142,10 @@ self.addEventListener('fetch', (e) => {
     })());
   }
   // Everything else (Deezer API, audio streams, lyrics) goes straight to the network.
+});
+
+self.addEventListener('message', (e) => {
+  if (e.data?.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 self.addEventListener('notificationclick', (e) => {

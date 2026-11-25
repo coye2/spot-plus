@@ -12,6 +12,7 @@ import { memoryEngine } from './memory-engine.js';
 import { bufferEngine } from './buffer-engine.js';
 import { nameMatch } from './search-rank.js';
 import { parseEnhancedLRC } from './lyrics-engine.js';
+import { telemetry } from './playback-telemetry.js';
 
 const DEEZER = 'https://api.deezer.com';
 const LRCLIB = 'https://lrclib.net/api';
@@ -593,6 +594,7 @@ function probeRegions(trackId, regions, path, signal) {
   let left = regions.length;
   const job = new Promise((resolve) => {
     for (const region of regions) {
+      telemetry.recordRelayRequest('yta-head');
       fetch(region + path, {method: 'HEAD', headers: {Range: 'bytes=0-1'}, credentials: 'omit', signal: ctl.signal})
         .then((r) => {
           noteWorkerLimit(r.status);
@@ -625,7 +627,7 @@ export async function warmRelaySource(track, source, {regions = 1, signal} = {})
   }
   return source;
 }
-export async function relayStream(track, signal, matches) {
+export async function relayStream(track, signal, matches, { prewarm = false } = {}) {
   if (relayOff > Date.now()) throw new Error('Relay is off');
   if (signal?.aborted) throw signal.reason || new Error('Aborted');
   let all = uniq((matches || []).map((m) => m?.id).filter((id) => /^[\w-]{11}$/.test(id || '')));
@@ -647,10 +649,9 @@ export async function relayStream(track, signal, matches) {
   const alt = [...all.filter((v) => v !== id && !avoided(v)), ...all.filter((v) => v !== id && avoided(v))].slice(0, 3);
   const warm = track?.id ? warmRegion(track.id) : '';
   const region = warm || (track?.id && regionsFor(track.id)[0]) || relayRegion();
-  // Cold start: while this region is asked, the other regions are asked too (HEAD, one YouTube lookup each, so
-  // no address is asked more than once for the song). The first region that has it takes over at once (the player
-  // listens through onRelayReady), so a refusal no longer costs two to four seconds per region in turn.
-  if (!warm && track?.id && !relayWarming.has(track.id) && !workerLimited()) {
+  // Cold start: while this region is asked, one secondary region is hedged ONLY for interactive playback
+  // (never during background prewarm, where warmRelaySource already probes 1 region cleanly).
+  if (!prewarm && !warm && track?.id && !relayWarming.has(track.id) && !workerLimited()) {
     // One other region only: asking all of them for every song used up the free plan's daily requests.
     const hedge = regionsFor(track.id).filter((b) => b !== region).slice(0, 1);
     if (hedge.length) probeRegions(track.id, hedge, relayUrl('', id, alt, fmt)).catch(() => {});
@@ -671,6 +672,7 @@ let scCheck = null;
 function checkSoundcloud() {
   if (scCheck) return scCheck;
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 5000);
+  telemetry.recordRelayRequest('health');
   scCheck = fetch(SC_ENDPOINT.replace(/\/sc$/, '/health'), {credentials: 'omit', signal: ctl.signal}).then((r) => r.json()).finally(() => clearTimeout(timer))
     .then((h) => {
       scKnown = h?.sc ? 'on' : 'off'; if (!h?.sc) scOff = Date.now() + 30 * 60e3;
@@ -706,17 +708,53 @@ export function embedWait(t, now = Date.now()) {
   if (appleMobile() && !embedUnlocked) return 2600;
   return 0;
 }
+const matchMemo = new Map(); // normalized query -> { items, expires }
+const matchInFlight = new Map(); // normalized query -> Promise<items>
+const MATCH_MEMO_TTL = 10 * 60e3;
 async function bridgeMatches(t, signal) {
   if (matchDown > Date.now()) throw new Error('Match lookup paused');
-  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 3500);
-  try {
-    const r = await fetch(MATCH_ENDPOINT + '?q=' + encodeURIComponent(query(t)), {signal: signal ? AbortSignal.any([signal, ctl.signal]) : ctl.signal, credentials: 'omit'});
-    if (r.status === 404) matchDown = Date.now() + 3600e3;
-    if (!r.ok) throw new Error('Match lookup unavailable');
-    const matches = best(((await r.json()).items || []).slice(0, 8), t);
-    if (!matches.length) throw new Error('No match');
-    return matches;
-  } finally { clearTimeout(timer); }
+  signal?.throwIfAborted?.();
+  const q = query(t);
+  const key = q.toLowerCase();
+  const cached = matchMemo.get(key);
+  if (cached && cached.expires > Date.now()) {
+    const matches = best(cached.items, t);
+    if (matches.length) {
+      telemetry.recordCoalescedRequest();
+      return matches;
+    }
+  }
+  // Single-flight request coalescing: concurrent lookups for the same song share one /match request.
+  let sharedJob = matchInFlight.get(key);
+  if (sharedJob) {
+    telemetry.recordCoalescedRequest();
+  } else {
+    sharedJob = (async () => {
+      const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 3500);
+      try {
+        telemetry.recordRelayRequest('match');
+        const r = await fetch(MATCH_ENDPOINT + '?q=' + encodeURIComponent(q), {signal: ctl.signal, credentials: 'omit'});
+        noteWorkerLimit(r.status);
+        if (r.status === 404) matchDown = Date.now() + 3600e3;
+        if (!r.ok) throw new Error('Match lookup unavailable');
+        const items = ((await r.json()).items || []).slice(0, 8);
+        if (items.length) {
+          matchMemo.set(key, { items, expires: Date.now() + MATCH_MEMO_TTL });
+          if (matchMemo.size > 200) matchMemo.delete(matchMemo.keys().next().value);
+        }
+        return items;
+      } finally {
+        clearTimeout(timer);
+        if (matchInFlight.get(key) === sharedJob) matchInFlight.delete(key);
+      }
+    })();
+    matchInFlight.set(key, sharedJob);
+    sharedJob.catch(() => {});
+  }
+  const items = await abortable(sharedJob, signal);
+  const matches = best(items, t);
+  if (!matches.length) throw new Error('No match');
+  return matches;
 }
 // The worker's /stream hands out YouTube links tied to Cloudflare's address, which phones cannot play. Off.
 const BRIDGE_STREAM_ON = false;
@@ -1220,7 +1258,7 @@ function youtubeEmbedStream(matches, t) {
 }
 
 /** Find a playable audio URL for a track. Returns { url, mime, bitrate, videoId, instance, kind }. */
-async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed = false, fullOnly = false } = {}, _retry = false) {
+async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed = false, fullOnly = false, prewarm = false } = {}, _retry = false) {
   const set = getSettings();
   if (t.local) throw new Error('This local file is no longer stored on this device. Import it again.');
   if (set.source === 'preview' || set.source === 'deezer') {
@@ -1307,7 +1345,7 @@ async function resolveUncached(t, { skip = [], signal, cors = false, allowEmbed 
       try {
         let value;
         if (kind === 'soundcloud') value = await soundcloudStream(t, raceSignal);
-        else if (kind === 'ytrelay') { try { value = await relayStream(t, raceSignal, sharedMatches?.length ? sharedMatches : await (shared || Promise.resolve([]))); } finally { relayAsked(); } }
+        else if (kind === 'ytrelay') { try { value = await relayStream(t, raceSignal, sharedMatches?.length ? sharedMatches : await (shared || Promise.resolve([])), { prewarm }); } finally { relayAsked(); } }
         else if (kind === 'monochrome') {
           // Automatic plays YouTube Relay first: the backup only joins once the relay couldn't offer the song.
           if (relayInRace) await Promise.race([relayTried, new Promise((ok) => setTimeout(ok, 5000))]);
@@ -1530,7 +1568,7 @@ async function fastStream(t,{cached,shared,set,cors,skip,signal}){
 }
 
 // Keep short-lived results in L1 memory + L2 IndexedDB without synchronous localStorage blocking.
-const warmups=new Map(),warmControllers=new Map();
+const warmups=new Map(),warmControllers=new Map(),inFlightResolves=new Map();
 export const streamKey=(t,s=getSettings(),videoId=getVideoCache(t.id)?.id||'')=>[t.id,s.source,s.quality,s.customPiped,s.customInvidious,s.customHifi,videoId,prefersAac()?'aac':'any'].join('|');
 export function streamExpiry(url,now=Date.now()){
   return memoryEngine.computeExpiry(url,now);
@@ -1547,7 +1585,7 @@ function cachedStream(key){
   return stream;
 }
 function forget(key){memoryEngine.forgetStream(key);}
-export function clearStreamCache(){streamDown=0;matchDown=0;failedInstances.clear();choppy.clear();router.reset();memoryEngine.clearStreams();for(const c of warmControllers.values())c.abort();warmups.clear();warmControllers.clear();}
+export function clearStreamCache(){streamDown=0;matchDown=0;failedInstances.clear();choppy.clear();matchMemo.clear();matchInFlight.clear();inFlightResolves.clear();router.reset();memoryEngine.clearStreams();for(const c of warmControllers.values())c.abort();warmups.clear();warmControllers.clear();}
 export function cancelPrewarm(except) {
   const keep = except && streamKey(except);
   for (const [key,controller] of warmControllers) if (key !== keep) { controller.abort(); warmControllers.delete(key); warmups.delete(key); }
@@ -1589,17 +1627,33 @@ export async function resolve(t,options={}) {
   if(hit&&(!options.fullOnly||(!hit.preview&&hit.kind!=='youtube-embed'))&&(allowEmbed||hit.kind!=='youtube-embed')&&(!options.cors||(hit.kind!=='youtube-embed'&&await corsOK(hit.url)))){options.signal?.throwIfAborted();return {...hit,cacheLayer:'memory'};}
   if(options.skip?.length)forget(key);
   const warm=warmups.get(key);
-  if(warm&&!options.skip?.length){try {const stream=await abortable(warm,options.signal);options.signal?.throwIfAborted();if(!(stream.preview&&settings.source==='auto')&&(!options.fullOnly||(!stream.preview&&stream.kind!=='youtube-embed'))&&(allowEmbed||stream.kind!=='youtube-embed')&&(!options.cors||(stream.kind!=='youtube-embed'&&await corsOK(stream.url)))){const check=validateSourceCandidate(stream,{canPlay:mime=>!!probe?.canPlayType(mime),requireCors:options.cors,corsKnown:knownCors});if(check.ok)return {...stream,cacheLayer:'prewarm'};}}catch {options.signal?.throwIfAborted();}}
+  if(warm&&!options.skip?.length){try {const stream=await abortable(warm,options.signal);options.signal?.throwIfAborted();if(!(stream.preview&&settings.source==='auto')&&(!options.fullOnly||(!stream.preview&&stream.kind!=='youtube-embed'))&&(allowEmbed||stream.kind!=='youtube-embed')&&(!options.cors||(stream.kind!=='youtube-embed'&&await corsOK(stream.url)))){const check=validateSourceCandidate(stream,{canPlay:mime=>!!probe?.canPlayType(mime),requireCors:options.cors,corsKnown:knownCors});if(check.ok){telemetry.recordCoalescedRequest();return {...stream,cacheLayer:'prewarm'};}}}catch {options.signal?.throwIfAborted();}}
+  // Single-flight foreground coalescing: identical concurrent resolves share one upstream call.
+  const flightKey=!options.skip?.length?`${key}|${!!options.cors}|${!!options.fullOnly}|${allowEmbed}`:'';
+  if(flightKey&&inFlightResolves.has(flightKey)){
+    telemetry.recordCoalescedRequest();
+    const sharedStream=await abortable(inFlightResolves.get(flightKey),options.signal);
+    options.signal?.throwIfAborted();
+    return {...sharedStream,cacheLayer:'coalesced'};
+  }
   // With effects on, prefer servers that allow them; if none do, play the song normally.
-  let stream;
   const opts={...options,allowEmbed};
-  if(opts.cors){try{stream=await resolveUncached(t,opts);}catch(e){if(opts.signal?.aborted)throw e;stream=await resolveUncached(t,{...opts,cors:false});}
-    // No effects-friendly full song: play the whole song without effects rather than a 30-second clip.
-    if(stream?.preview&&allowEmbed){try{const full=await resolveUncached(t,{...opts,cors:false});if(!full.preview)stream=full;}catch(e){if(opts.signal?.aborted)throw e;}}}
-  else stream=await resolveUncached(t,opts);
+  const runResolve=(async()=>{
+    let s;
+    if(opts.cors){try{s=await resolveUncached(t,opts);}catch(e){if(opts.signal?.aborted)throw e;s=await resolveUncached(t,{...opts,cors:false});}
+      // No effects-friendly full song: play the whole song without effects rather than a 30-second clip.
+      if(s?.preview&&allowEmbed){try{const full=await resolveUncached(t,{...opts,cors:false});if(!full.preview)s=full;}catch(e){if(opts.signal?.aborted)throw e;}}}
+    else s=await resolveUncached(t,opts);
+    remember(streamKey(t,settings,s.videoId||getVideoCache(t.id)?.id||''),s);
+    if(s.kind!=='youtube-embed')preconnect(s.url);
+    return s;
+  })();
+  if(flightKey){
+    inFlightResolves.set(flightKey,runResolve);
+    runResolve.finally(()=>{if(inFlightResolves.get(flightKey)===runResolve)inFlightResolves.delete(flightKey);}).catch(()=>{});
+  }
+  const stream=await abortable(runResolve,opts.signal);
   opts.signal?.throwIfAborted();
-  remember(streamKey(t,settings,stream.videoId||getVideoCache(t.id)?.id||''),stream);
-  if(stream.kind!=='youtube-embed')preconnect(stream.url);
   return {...stream,cacheLayer:'network'};
 }
 /** Never substitute a 30-second catalog clip when probing for full-length audio. */
@@ -1624,10 +1678,10 @@ export function prewarm(t){
   const settings=getSettings(),allowEmbed=settings.source==='youtube',key=streamKey(t,settings);if(warmups.has(key))return warmups.get(key);
   const hit=cachedStream(key);if(hit&&!(hit.preview&&settings.source==='auto')&&(allowEmbed||hit.kind!=='youtube-embed')){if(hit.kind==='youtube-embed')try{embedHook?.(hit.videoId);}catch{}return Promise.resolve({...hit,cacheLayer:'memory'});}
   warmConnections();
-  // Keep up to three predictive resolves (restore + next + next+1).
-  if(warmControllers.size>=3){const oldest=warmControllers.keys().next().value;warmControllers.get(oldest).abort();warmControllers.delete(oldest);warmups.delete(oldest);}
+  // Keep up to two bounded predictive resolves (current/next).
+  if(warmControllers.size>=2){const oldest=warmControllers.keys().next().value;warmControllers.get(oldest).abort();warmControllers.delete(oldest);warmups.delete(oldest);}
   const controller=new AbortController();warmControllers.set(key,controller);
-  const promise=resolveUncached(t,{signal:controller.signal,allowEmbed}).then(stream=>{controller.signal.throwIfAborted();if(stream.kind==='youtube-embed')try{embedHook?.(stream.videoId);}catch{}remember(streamKey(t,settings,stream.videoId||getVideoCache(t.id)?.id||''),stream);if(stream.kind!=='youtube-embed')preconnect(stream.url);return stream;}).finally(()=>{if(warmControllers.get(key)===controller){warmups.delete(key);warmControllers.delete(key);}});
+  const promise=resolveUncached(t,{signal:controller.signal,allowEmbed,prewarm:true}).then(stream=>{controller.signal.throwIfAborted();if(stream.kind==='youtube-embed')try{embedHook?.(stream.videoId);}catch{}remember(streamKey(t,settings,stream.videoId||getVideoCache(t.id)?.id||''),stream);if(stream.kind!=='youtube-embed')preconnect(stream.url);return stream;}).finally(()=>{if(warmControllers.get(key)===controller){warmups.delete(key);warmControllers.delete(key);}});
   warmups.set(key,promise);promise.catch(()=>{});
   return promise;
 }

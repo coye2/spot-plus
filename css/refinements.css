@@ -25,3 +25,41 @@
 .yt-embed-box{position:relative;width:100%;aspect-ratio:16/9;background:#000;overflow:hidden}
 .yt-embed-frame.yt-spare{position:absolute;inset:0;opacity:0;pointer-events:none;z-index:-1}
 .yt-embed-frame{width:100%;height:100%;border:0;display:block}
+
+/* Settings ergonomics, alignment, and mobile touch targets */
+.settings-page{max-width:780px;display:flex;flex-direction:column;gap:14px;padding-bottom:calc(32px + var(--sb,0px))}
+.settings-page .settings-top{margin:4px 0 6px}
+.settings-page .box{margin:0}
+.settings-page .box > h2:first-child{margin:0 0 12px;font-size:15px;letter-spacing:-.01em}
+.settings-page .field{min-height:44px;margin-bottom:10px;padding:4px 0}
+.settings-page .field:last-child{margin-bottom:0}
+.settings-page .field > span{flex:1;min-width:0;line-height:1.35}
+.settings-page .field > span small{display:block;margin-top:2px;line-height:1.4}
+.settings-page .field input[type="checkbox"][role="switch"]{flex:none}
+.settings-page .field select,.settings-page .field input:not([type="checkbox"]){min-height:40px}
+.settings-page .row-btns{margin-top:8px}
+.settings-page .row-btns .btn{min-height:40px}
+.settings-subhead{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:16px 0 8px}
+.settings-divider{height:1px;background:var(--line,rgba(255,255,255,.08));margin:14px 0}
+.connect-list{display:flex;flex-direction:column;gap:8px;margin:8px 0 12px}
+.connect-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:10px 12px;border-radius:10px;background:var(--bg3,rgba(255,255,255,.04));border:1px solid var(--line,rgba(255,255,255,.06))}
+.connect-row > div{min-width:0;flex:1}
+.connect-row b{display:block;font-size:14px;line-height:1.3}
+.connect-row small{display:block;color:var(--muted);font-size:12px;line-height:1.4;margin-top:2px}
+.connect-state{flex:none;font-size:12px;font-weight:600;color:var(--muted);text-align:right;white-space:nowrap;padding-top:2px}
+.connect-state.active{color:var(--accent,#1ed760)}
+.np-wireless.on{color:var(--accent,#1ed760)}
+.spotify-official-box{margin:10px 0 14px;padding:14px;border-radius:12px;border:1px solid var(--line,rgba(255,255,255,.1));background:var(--bg3,rgba(255,255,255,.03))}
+.spotify-official-head{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.spotify-redirect-note{margin:6px 0;word-break:break-all}
+@media(max-width:767px){
+  .settings-page{gap:12px;padding-bottom:calc(var(--bar-h,64px) + var(--nav-h,56px) + var(--sb,0px) + 32px)}
+  .settings-page .field{min-height:48px;gap:12px}
+  .settings-page .field select,.settings-page .field input:not([type="checkbox"]),.settings-page .btn{min-height:44px}
+  .connect-row{flex-direction:column;gap:6px}
+  .connect-state{text-align:left;padding-top:0}
+}
+
+/* Large playlist rendering performance: skip off-screen row layout & paint */
+.trow{content-visibility:auto;contain-intrinsic-size:auto 56px}
+

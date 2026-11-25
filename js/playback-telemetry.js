@@ -58,7 +58,38 @@ export class PlaybackTelemetry {
       recoveriesAttempted: 0,
       recoveriesSucceeded: 0,
       listeningMs: 0,
+      relayMatchRequests: 0,
+      relayHeadRequests: 0,
+      relayStreamRequests: 0,
+      relayHealthRequests: 0,
+      coalescedRequests: 0,
+      continuityRecoveries: 0,
     };
+    this.lastAudit = null;
+    this._listeningSince = 0;
+  }
+
+  recordRelayRequest(kind = 'match') {
+    if (kind === 'match') this.counters.relayMatchRequests++;
+    else if (kind === 'yta-head') this.counters.relayHeadRequests++;
+    else if (kind === 'yta-get') this.counters.relayStreamRequests++;
+    else if (kind === 'health') this.counters.relayHealthRequests++;
+  }
+
+  recordCoalescedRequest() {
+    this.counters.coalescedRequests++;
+  }
+
+  recordContinuityRecovery() {
+    this.counters.continuityRecoveries++;
+  }
+
+  reset() {
+    this.generations.clear();
+    this.activeSeek = null;
+    this.activeStall = null;
+    for (const key of Object.keys(this.samples)) this.samples[key] = [];
+    for (const key of Object.keys(this.counters)) this.counters[key] = 0;
     this.lastAudit = null;
     this._listeningSince = 0;
   }

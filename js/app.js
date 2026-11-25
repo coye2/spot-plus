@@ -818,88 +818,176 @@ function viewDownloads() {
 let installEvt = null;
 async function viewSettings() {
   const s = store.getSettings();
-  const spotifyAccount=store.getSpotifyAccount();
+  const spotifyAccount = store.getSpotifyAccount();
+  const conn = player.connectivity.getSnapshot();
+  const sp = player.spotifyPlayback.getStatusSnapshot();
   let storage = '';
   try { const e = await navigator.storage?.estimate?.(); if (e) storage = ` · ${(e.usage / 1048576).toFixed(0)} MB used`; } catch {}
   const sel = (k, opts) => `<select data-setting="${k}">${opts.map(([v, l]) => `<option value="${v}"${s[k] === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`;
-  const toggle=(key,label,detail='')=>`<label class="field"><span>${label}<small>${detail}</small></span><input type="checkbox" role="switch" data-setting="${key}" ${s[key]?'checked':''}></label>`;
-  return `<h1 class="settings-top">Settings</h1>
-  <section class="box"><h2>Your profile</h2><div class="profile-edit"><button type="button" class="avatar" data-act="profile-photo-change" aria-label="Change profile photo">${esc((profileName()[0]||'S').toUpperCase())}</button><div><b>${esc(profileName())}</b>${profilePhotoControls()}</div></div><label class="field"><span>Display name<small>Shown on your profile and in Jams.</small></span><input maxlength="60" data-setting="displayName" value="${esc(s.displayName)}"></label><a class="btn small" href="#/profile">View profile</a></section>
-  <section class="box"><h2>Spotify</h2><p class="settings-note">${spotifyAccount||cachedLinks()?'Connected. Rewind and your profile update by themselves.':'Connect once to get Rewind, your profile picture and Made For You.'}</p><a class="btn primary" href="#/spotify-account">${spotifyAccount||cachedLinks()?'Manage Spotify':'Connect Spotify'}</a></section>
-  <section class="box credits" id="devCredits"><h2>Made by</h2><div class="credit-card"><img class="credit-pfp" src="${esc(devCache?.avatar||'icons/icon-192.png')}" alt="" width="64" height="64"><div><b class="credit-name">${esc(devCache?.name||'Coye | NXInfinity DEV')}</b><small class="credit-user">${devCache?.username?'@'+esc(devCache.username):'Spot+ developer'}</small></div></div>
-    <p class="settings-note">Spot+ is a solo project, built with Claude and Takumi. Bugs, ideas or just want to talk music? Come hang out.</p>
-    <div class="credit-links"><a class="btn primary small" href="${esc(devCache?.invite||'https://discord.gg/DbhTQD7jW')}" target="_blank" rel="noopener">Join the Discord<span class="credit-count">${devCache?.members?` · ${live.formatCount(devCache.members)} members`:''}</span></a><a class="btn small" href="https://github.com/coye2/spot-plus" target="_blank" rel="noopener">GitHub</a></div></section>
-  <section class="box"><h2>What’s new</h2><p class="settings-note">You’re on Spot+ ${esc(APP_VERSION)}. See what changed in every update.</p><div class="credit-links"><button class="btn small primary" data-act="check-update">Check for updates</button><button class="btn small" data-act="changelog">Changelog</button></div></section>
-  <section class="box"><h2>Your devices</h2><p class="settings-note">${libsync.syncState()?'Your library syncs with your other devices.':'Keep your likes and playlists the same on your phone and computer. No account.'}</p><button class="btn primary small" data-act="link-devices">${libsync.syncState()?'Link another device':'Link a device'}</button></section>
-  <section class="box"><h2>Notifications</h2>${notify.permission()==='unsupported'?'<p class="settings-note">This browser can’t show notifications. On iPhone, add Spot+ to your Home Screen first.</p>':notify.permission()==='granted'?'':`<p class="settings-note">${notify.permission()==='denied'?'Notifications are blocked for Spot+. Allow them in your browser or phone settings.':'Get a heads-up about new music and updates. Never more than two a day, and nothing at night.'}</p>${notify.permission()==='default'?'<button class="btn primary small" data-act="notify-enable">Turn on notifications</button>':''}`}
-  ${toggle('notifyReleases','New releases','When an artist you follow drops a song or album.')}${toggle('notifyStats','Weekly recap','Sunday evening: your minutes and most-played artist.')}${toggle('notifyUpdates','App updates','When a new version of Spot+ is ready.')}</section>
-  <section class="box"><h2>Appearance</h2>${themeModeSwitch(s)}<p class="settings-note">Light, dark, automatic, or clear. Switch between Original Spot+ and Spot+ UI anytime with zero music interruption.</p><label class="field"><span>Interface style<small>Spot+ UI brings Liquid Glass navigation and an Apple Music-inspired player.</small></span>${sel('uiStyle',[['original','Original Spot+'],['spotplus','Spot+ UI']])}</label><div class="row-btns"><a class="btn" href="#/themes">Themes &amp; UI</a><a class="btn" href="#/backgrounds">Background</a></div><label class="field"><span>Library and track spacing</span>${sel('density',[['comfortable','Comfortable'],['compact','Compact']])}</label><label class="field"><span>Text size</span>${sel('textSize',[['normal','Default'],['large','Larger']])}</label><label class="field"><span>Motion</span>${sel('motion',[['system','Follow system'],['reduced','Reduced']])}</label></section>
+  const toggle = (key, label, detail = '') => `<label class="field"><span>${label}<small>${detail}</small></span><input type="checkbox" role="switch" data-setting="${key}" ${s[key] ? 'checked' : ''}></label>`;
+  const capLine = sp.capabilities
+    ? (sp.capabilities.sdkSupported
+        ? `Browser SDK: Supported (${sp.capabilities.supportedKeySystems.join(', ') || 'EME'})`
+        : `Browser SDK: Unsupported (${sp.capabilities.sdkCaveat || 'No EME'})`)
+    : 'Checking browser EME & Web Playback SDK capabilities…';
+  const wirelessActionLabel = conn.airPlay.supported
+    ? (conn.airPlay.active ? 'AirPlay connected · Change speaker' : 'Choose AirPlay speaker')
+    : conn.remotePlayback.supported
+      ? (conn.remotePlayback.state === 'connected' ? 'Wireless speaker connected · Change' : 'Choose wireless speaker')
+      : '';
+
+  return `<div class="settings-page">
+  <h1 class="settings-top">Settings</h1>
+
   <section class="box"><h2>Playback</h2>
-    <label class="field"><span>Audio source<small>Spot+ YouTube Relay plays full songs from YouTube in Spot+’s own player, with no ads. Automatic tries it first and switches to another full-song source when a song isn’t available there. Spotify — Official Playback uses authorized PKCE + Web Playback SDK / Connect (Spotify Premium required; falls back to YouTube Relay if unavailable).</small></span>${((cur) => `<select data-setting="source">${[['ytrelay', 'Spot+ YouTube Relay'], ['auto', 'Automatic'], ['spotify', 'Spotify — Official Playback'], ...(api.soundcloudAvailable() || cur === 'soundcloud' ? [['soundcloud', 'SoundCloud']] : []), ['hifi', 'HiFi / Monochrome'], ['jiosaavn', 'JioSaavn'], ['audius', 'Audius']].map(([v, l]) => `<option value="${v}"${cur === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`)(s.source)}</label>
-    ${(() => {
-      const sp = player.spotifyPlayback.getStatusSnapshot();
-      const caps = sp.capabilities;
-      const capLine = caps
-        ? (caps.sdkSupported
-            ? `Browser SDK: Supported (${caps.supportedKeySystems.join(', ') || 'EME'})`
-            : `Browser SDK: Unsupported (${caps.sdkCaveat || 'No EME'})`)
-        : 'Checking browser EME & Web Playback SDK capabilities…';
-      return `<div class="settings-card" id="spotifyOfficialBox" style="margin:10px 0 14px;padding:14px;border-radius:14px;border:1px solid var(--line);background:var(--bg2)">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-          <b>Spotify — Official Playback</b>
-          <span class="badge" data-spotify-status="${esc(sp.status)}">${esc(sp.label)}</span>
-        </div>
-        <p class="settings-note" style="margin:6px 0">${esc(sp.detail || capLine)}</p>
-        ${sp.profile ? `<p class="settings-note" style="margin:4px 0">Account: <b>${esc(sp.profile.displayName)}</b> · Plan: <b>${esc(sp.profile.isPremium ? 'Premium' : sp.profile.product || 'Free')}</b>${sp.deviceName ? ` · Device: <b>${esc(sp.deviceName)}</b>` : ''}</p>` : ''}
-        <p class="settings-note" style="margin:4px 0;opacity:.85">Direct server-side Spotify audio proxying is not supported (Spotify streams are DRM-protected). Official playback runs client-side via Web Playback SDK or Spotify Connect; failures fall back to Spot+ YouTube Relay.</p>
-        <label class="field"><span>Spotify App Client ID<small>Public PKCE Client ID from developer.spotify.com (no client secret needed).</small></span><input maxlength="64" data-setting="spotifyClientId" value="${esc(s.spotifyClientId || '')}" placeholder="32-char Spotify Client ID"></label>
-        <div class="settings-note" style="margin:6px 0;word-break:break-all">Redirect URI: <code>${esc(sp.redirectUri)}</code></div>
-        <div class="row-btns" style="margin-top:8px">
-          <button type="button" class="btn small primary" data-act="spotify-pkce-connect">${sp.profile ? 'Reconnect Spotify' : 'Connect Spotify (PKCE)'}</button>
-          ${sp.profile || sp.status === 'auth-expired' ? '<button type="button" class="btn small" data-act="spotify-pkce-disconnect">Disconnect</button>' : ''}
-          <button type="button" class="btn small" data-act="spotify-copy-redirect">Copy Redirect URI</button>
-        </div>
-      </div>`;
-    })()}
-    <label class="field"><span>Streaming quality</span>${sel('quality', [['high', 'High'], ['low', 'Data saver']])}</label>
-    ${toggle('smartRadio','Smart Radio','When your queue ends, keep playing similar songs. It learns from what you skip.')}
-    <label class="field"><span>Song Mix &amp; Crossfade<small>${player.crossfadeSupported?'Blend songs together smoothly like a DJ — including on iPhone &amp; iPad via equal-power Web Audio transitions.':'Your browser does not support audio crossfading.'}</small></span>${sel('automix',[['0','Off'],['3','3 seconds'],['6','6 seconds'],['9','9 seconds'],['12','12 seconds']])}</label>
-    <label class="field"><span>Mix style<small>Smart Mix adapts to song lengths; DJ Blend adds a bass-swap EQ crossover so beats never clash.</small></span>${sel('mixStyle',[['smart','Smart Mix'],['blend','DJ Blend'],['fade','Smooth Fade']])}</label>
-    <label class="field"><span>Transition curve<small>Shape of the volume crossfade between outgoing and incoming songs.</small></span>${sel('mixCurve',[['equal-power','Equal Power'],['smooth-s','Smooth S-Curve'],['linear','Linear']])}</label>
-    ${toggle('preloadNext','Prepare the next song','Buffers the beginning of the next song after your current music has enough buffered audio. Skipped on data-saving connections.')}
-    ${toggle('showExplicit','Allow explicit content','When off, explicit tracks are excluded from discovery and new playback queues.')}
-    <div class="row-btns"><button class="btn small primary" data-act="np-fx">Equalizer, AutoEq &amp; DSP</button><button class="btn small" data-act="sleep-timer">Sleep timer</button></div>
-    <details class="connection-help"><summary>Advanced audio options</summary>
-    <label class="field col"><span>Spotify Control-Plane Relay URL <small>(optional Cloudflare Worker URL for PKCE/URI assist)</small></span><input data-setting="spotifyRelayUrl" value="${esc(s.spotifyRelayUrl || '')}" placeholder="https://spot-plus-spotify-relay.workers.dev"></label>
-    <label class="field col"><span>Your own HiFi / Lossless servers <small>(hifi-api URLs, one per line)</small></span><textarea data-setting="customHifi" rows="2" placeholder="https://hifi-api.example.com">${esc(s.customHifi)}</textarea></label>
-    <label class="field col"><span>Your own Piped API servers <small>(one per line, tried first)</small></span><textarea data-setting="customPiped" rows="2" placeholder="https://pipedapi.example.com">${esc(s.customPiped)}</textarea></label>
-    <label class="field col"><span>Your own Invidious servers</span><textarea data-setting="customInvidious" rows="2" placeholder="https://invidious.example.com">${esc(s.customInvidious)}</textarea></label>
-    <div class="row-btns"><button class="btn small" data-act="test-sources">Test audio servers</button><button class="btn small" data-act="clear-matches">Reset song matches</button></div>
-    <div id="testOut"></div></details>
+    ${toggle('smartRadio', 'Smart Radio', 'When your queue ends, keep playing similar songs based on what you skip.')}
+    ${toggle('preloadNext', 'Prepare the next song', 'Buffers the start of the next song once the current track has headroom. Skipped on data-saving connections.')}
+    <label class="field"><span>Song Mix &amp; Crossfade<small>${player.crossfadeSupported ? 'Blend songs together smoothly like a DJ, including equal-power Web Audio transitions on iPhone &amp; iPad.' : 'Your browser does not support audio crossfading.'}</small></span>${sel('automix', [['0', 'Off'], ['3', '3 seconds'], ['6', '6 seconds'], ['9', '9 seconds'], ['12', '12 seconds']])}</label>
+    <label class="field"><span>Mix style<small>Smart Mix adapts to track length; DJ Blend uses a bass-swap EQ crossover.</small></span>${sel('mixStyle', [['smart', 'Smart Mix'], ['blend', 'DJ Blend'], ['fade', 'Smooth Fade']])}</label>
+    <label class="field"><span>Transition curve<small>Volume curve between outgoing and incoming songs.</small></span>${sel('mixCurve', [['equal-power', 'Equal Power'], ['smooth-s', 'Smooth S-Curve'], ['linear', 'Linear']])}</label>
+    ${toggle('showExplicit', 'Allow explicit content', 'When off, explicit tracks are excluded from discovery and new queues.')}
+    <div class="settings-divider"></div>
+    ${toggle('djVoice', 'DJ voice', 'Choose your host and voice preferences in Spot+ DJ.')}
+    <div class="row-btns"><button class="btn small" data-act="sleep-timer">Sleep timer</button><a class="btn small" href="#/dj">Open DJ</a></div>
   </section>
 
-  <section class="box"><h2>Your data</h2>
-    <p class="muted">Your local music library, preferences, saved themes and Spotify library copy are saved in this browser. Export a backup to move them to another device. Audio files and the downloaded AI model are stored separately.</p>
-    <div class="row-btns"><button class="btn small" data-act="export">Export backup</button>
-    <label class="btn small">Import backup<input type="file" id="importFile" accept="application/json,.json" hidden></label></div>
+  <section class="box"><h2>Audio &amp; quality</h2>
+    <label class="field"><span>Audio source<small>Spot+ YouTube Relay plays full songs in Spot+’s own player with no ads. Automatic tries it first and falls back to another full-song source if needed.</small></span>${((cur) => `<select data-setting="source">${[['ytrelay', 'Spot+ YouTube Relay'], ['auto', 'Automatic'], ['spotify', 'Spotify — Official Playback'], ...(api.soundcloudAvailable() || cur === 'soundcloud' ? [['soundcloud', 'SoundCloud']] : []), ['hifi', 'HiFi / Monochrome'], ['jiosaavn', 'JioSaavn'], ['audius', 'Audius']].map(([v, l]) => `<option value="${v}"${cur === v ? ' selected' : ''}>${l}</option>`).join('')}</select>`)(s.source)}</label>
+    <label class="field"><span>Streaming quality<small>High uses full bitrate audio; Data saver reduces mobile bandwidth.</small></span>${sel('quality', [['high', 'High'], ['low', 'Data saver']])}</label>
+    <div class="row-btns"><button class="btn small primary" data-act="np-fx">Equalizer, AutoEq &amp; DSP</button></div>
+    <div class="spotify-official-box" id="spotifyOfficialBox">
+      <div class="spotify-official-head">
+        <b>Spotify — Official Playback</b>
+        <span class="connect-state${sp.status === 'ready' || sp.status === 'playing' ? ' active' : ''}" data-spotify-status="${esc(sp.status)}">${esc(sp.label)}</span>
+      </div>
+      <p class="settings-note">${esc(sp.detail || capLine)}</p>
+      ${sp.profile ? `<p class="settings-note">Account: <b>${esc(sp.profile.displayName)}</b> · Plan: <b>${esc(sp.profile.isPremium ? 'Premium' : sp.profile.product || 'Free')}</b>${sp.deviceName ? ` · Device: <b>${esc(sp.deviceName)}</b>` : ''}</p>` : ''}
+      <p class="settings-note">Official Spotify playback runs client-side via Web Playback SDK or Spotify Connect (Spotify Premium required) and falls back to Spot+ YouTube Relay if unavailable.</p>
+      <label class="field"><span>Spotify App Client ID<small>Public PKCE Client ID from developer.spotify.com (no client secret needed).</small></span><input maxlength="64" data-setting="spotifyClientId" value="${esc(s.spotifyClientId || '')}" placeholder="32-char Spotify Client ID"></label>
+      <div class="settings-note spotify-redirect-note">Redirect URI: <code>${esc(sp.redirectUri)}</code></div>
+      <div class="row-btns">
+        <button type="button" class="btn small primary" data-act="spotify-pkce-connect">${sp.profile ? 'Reconnect Spotify' : 'Connect Spotify (PKCE)'}</button>
+        ${sp.profile || sp.status === 'auth-expired' ? '<button type="button" class="btn small" data-act="spotify-pkce-disconnect">Disconnect</button>' : ''}
+        <button type="button" class="btn small" data-act="spotify-copy-redirect">Copy Redirect URI</button>
+      </div>
+    </div>
+    <details class="connection-help"><summary>Advanced audio servers</summary>
+      <label class="field col"><span>Spotify Control-Plane Relay URL <small>(optional Cloudflare Worker URL for PKCE/URI assist)</small></span><input data-setting="spotifyRelayUrl" value="${esc(s.spotifyRelayUrl || '')}" placeholder="https://spot-plus-spotify-relay.workers.dev"></label>
+      <label class="field col"><span>Your own HiFi / Lossless servers <small>(hifi-api URLs, one per line)</small></span><textarea data-setting="customHifi" rows="2" placeholder="https://hifi-api.example.com">${esc(s.customHifi)}</textarea></label>
+      <label class="field col"><span>Your own Piped API servers <small>(one per line, tried first)</small></span><textarea data-setting="customPiped" rows="2" placeholder="https://pipedapi.example.com">${esc(s.customPiped)}</textarea></label>
+      <label class="field col"><span>Your own Invidious servers</span><textarea data-setting="customInvidious" rows="2" placeholder="https://invidious.example.com">${esc(s.customInvidious)}</textarea></label>
+      <div class="row-btns"><button class="btn small" data-act="test-sources">Test audio servers</button><button class="btn small" data-act="clear-matches">Reset song matches</button></div>
+      <div id="testOut"></div>
+    </details>
   </section>
-  <section class="box"><h2>Offline</h2>
+
+  <section class="box" id="connectivitySettings"><h2>Devices &amp; connectivity</h2>
+    <div class="connect-list">
+      <div class="connect-row">
+        <div>
+          <b>${conn.airPlay.supported ? 'Apple AirPlay' : 'Wireless audio output'}</b>
+          <small>${esc(conn.airPlay.supported ? conn.airPlay.label : conn.remotePlayback.supported ? conn.remotePlayback.label : 'Use your phone or computer’s system audio controls for AirPlay, Cast, or Bluetooth.')}</small>
+        </div>
+        <span class="connect-state${conn.wirelessActive ? ' active' : ''}">${conn.airPlay.active ? 'AirPlay active' : conn.remotePlayback.state === 'connected' ? 'Connected' : conn.canPickWireless ? 'Available' : 'System audio'}</span>
+      </div>
+      <div class="connect-row">
+        <div>
+          <b>Lock Screen &amp; Bluetooth controls</b>
+          <small>${esc(conn.mediaSession.label)}</small>
+        </div>
+        <span class="connect-state${conn.mediaSession.supported ? ' active' : ''}">${conn.mediaSession.supported ? 'Active' : 'Unavailable'}</span>
+      </div>
+      <div class="connect-row">
+        <div>
+          <b>CarPlay &amp; Android Auto</b>
+          <small>${esc(conn.platform.isIOS ? conn.carPlay.detail : conn.platform.isAndroid ? conn.androidAuto.detail : 'In-car dashboard apps require a native iOS (CarPlay entitlement) or Android (Media3) companion app. Car Bluetooth (AVRCP) and iOS Now Playing work automatically.')}</small>
+        </div>
+        <span class="connect-state">${conn.carPlay.nowPlayingBridgeSupported ? 'Now Playing' : conn.androidAuto.bluetoothMediaSupported ? 'Bluetooth AVRCP' : 'Bluetooth / Native'}</span>
+      </div>
+    </div>
+    <div class="row-btns">
+      ${wirelessActionLabel ? `<button class="btn small primary" data-act="wireless-output">${esc(wirelessActionLabel)}</button>` : ''}
+      <button class="btn small${wirelessActionLabel ? '' : ' primary'}" data-act="link-devices">${libsync.syncState() ? 'Manage synced devices' : 'Sync another device'}</button>
+      <a class="btn small" href="#/jam">${jam.active ? 'Open active Jam' : 'Spot+ Jam'}</a>
+    </div>
+  </section>
+
+  <section class="box"><h2>Appearance</h2>
+    ${themeModeSwitch(s)}
+    <p class="settings-note">Switch themes, backgrounds, or interface style anytime without interrupting playback.</p>
+    <label class="field"><span>Interface style<small>Spot+ UI brings Liquid Glass navigation and an Apple Music-inspired player.</small></span>${sel('uiStyle', [['original', 'Original Spot+'], ['spotplus', 'Spot+ UI']])}</label>
+    <div class="row-btns"><a class="btn small" href="#/themes">Themes &amp; UI</a><a class="btn small" href="#/backgrounds">Background</a></div>
+    <label class="field"><span>Library and track spacing</span>${sel('density', [['comfortable', 'Comfortable'], ['compact', 'Compact']])}</label>
+    <label class="field"><span>Text size</span>${sel('textSize', [['normal', 'Default'], ['large', 'Larger']])}</label>
+    <label class="field"><span>Motion</span>${sel('motion', [['system', 'Follow system'], ['reduced', 'Reduced']])}</label>
+  </section>
+
+  <section class="box"><h2>Downloads &amp; storage</h2>
     <p class="muted">${plural(store.getDownloads().length, 'song')} downloaded${storage}</p>
-    <button class="btn small" data-act="clear-downloads">Delete all downloads</button>
-    <p class="settings-note">Local audio files are stored separately and are kept when downloads are cleared.</p><button class="btn small" data-act="import-local">Add local audio files</button>
+    <div class="row-btns">
+      <button class="btn small" data-act="import-local">Add local audio files</button>
+      <button class="btn small" data-act="clear-downloads">Delete downloads</button>
+    </div>
+    <p class="settings-note">Local audio files stay on your device even when offline downloads are cleared.</p>
+    <div class="settings-divider"></div>
+    <p class="settings-note">Export or restore your library, playlists, saved themes, and preferences.</p>
+    <div class="row-btns">
+      <button class="btn small" data-act="export">Export backup</button>
+      <label class="btn small">Import backup<input type="file" id="importFile" accept="application/json,.json" hidden></label>
+      <button class="btn small" data-act="dj-live-remove">Remove DJ downloads</button>
+    </div>
   </section>
-  <section class="box"><h2>Install</h2>
-    ${isStandalone()?'<p class="muted">Spot+ is installed on this device.</p>':'<button class="btn small primary" data-act="open-landing">Install Spot+</button><p class="muted">One button for iPhone, Android and computers.</p>'}
+
+  <section class="box"><h2>Account &amp; notifications</h2>
+    <div class="profile-edit"><button type="button" class="avatar" data-act="profile-photo-change" aria-label="Change profile photo">${esc((profileName()[0] || 'S').toUpperCase())}</button><div><b>${esc(profileName())}</b>${profilePhotoControls()}</div></div>
+    <label class="field"><span>Display name<small>Shown on your profile and in Jams.</small></span><input maxlength="60" data-setting="displayName" value="${esc(s.displayName)}"></label>
+    <div class="row-btns">
+      <a class="btn small" href="#/profile">View profile</a>
+      <a class="btn small primary" href="#/spotify-account">${spotifyAccount || cachedLinks() ? 'Manage Spotify' : 'Connect Spotify'}</a>
+    </div>
+    <div class="settings-divider"></div>
+    <div class="settings-subhead">Notifications</div>
+    ${notify.permission() === 'unsupported' ? '<p class="settings-note">This browser can’t show notifications. On iPhone, add Spot+ to your Home Screen first.</p>' : notify.permission() === 'granted' ? '' : `<p class="settings-note">${notify.permission() === 'denied' ? 'Notifications are blocked for Spot+. Allow them in your browser or phone settings.' : 'Get a heads-up about new music and updates. Never more than two a day, and nothing at night.'}</p>${notify.permission() === 'default' ? '<button class="btn primary small" data-act="notify-enable">Turn on notifications</button>' : ''}`}
+    ${toggle('notifyReleases', 'New releases', 'When an artist you follow drops a song or album.')}
+    ${toggle('notifyStats', 'Weekly recap', 'Sunday evening: your minutes and most-played artist.')}
+    ${toggle('notifyUpdates', 'App updates', 'When a new version of Spot+ is ready.')}
   </section>
-  <section class="box"><h2>DJ</h2>${toggle('djVoice','DJ voice','Choose your host in DJ preferences.')}<a class="btn small" href="#/dj">Open DJ</a><p class="settings-note">Turn on live conversation from the DJ screen (one-time 600 MB download).</p><button class="btn small" data-act="dj-live-remove">Remove DJ downloads</button></section>
-  <details class="box settings-more"><summary>About, shortcuts and what’s supported</summary>
-  <section class="box"><h2>What’s supported</h2><div class="capability"><span>Music discovery<small>Deezer public catalog</small></span><span>Available</span></div><div class="capability"><span>Audio playback<small>Full songs through Spot+ YouTube Relay, Monochrome backup, or your own files</small></span><span>Available</span></div><div class="capability"><span>Spotify — Official Playback<small>Authorized OAuth PKCE + Web Playback SDK (EME desktop browsers) or Spotify Connect Remote (Spotify Premium required; direct audio proxying unsupported)</small></span><span>${esc(player.spotifyPlayback.getStatusSnapshot().label)}</span></div><div class="capability"><span>Parametric EQ, AutoEq &amp; DSP<small>Real-time Web Audio filter bank, compressor, stereo width &amp; crossfeed</small></span><span>Available</span></div><div class="capability"><span>Audio-reactive visualizers<small>Real Web Audio FFT spectrum, Fluid Hills, waveform &amp; glow</small></span><span>Available</span></div><div class="capability"><span>Spotify stats & profile<small>Updates by itself once connected</small></span><span>${spotifyAccount||cachedLinks()?'Connected':'Not connected'}</span></div><div class="capability"><span>Jam<small>Listen together in real time</small></span><span>Spot+ Jam</span></div><div class="capability"><span>Live Activities, CarPlay &amp; Watch<small>Requires a native iOS/watchOS companion app (not available to web PWAs)</small></span><span class="unavailable">Native-only</span></div><div class="capability"><span>DJ</span><span>Spot+ DJ</span></div><div class="capability"><span>Podcasts & audiobooks</span><span>Available</span></div><p class="settings-note">Spot+ is independent of Spotify. Official Spotify playback requires your own Spotify Premium account and authorized PKCE sign-in.</p></section>
-  <section class="box"><h2>Keyboard shortcuts</h2><p class="settings-note">Space: play/pause · Alt + Right/Left: next/previous · Ctrl/⌘ + K: search · Escape: close overlay. Use Tab and arrow keys for controls.</p></section>
+
   <section class="box"><h2>About Spot+</h2>
-    <div class="community" data-live-box hidden><div><b data-live="listening">0</b><span>listening now</span></div><div><b data-live="installs">0</b><span>installs</span></div><div><span data-live="rating-stars">${rating.starsHtml(0)}</span><b data-live="rating">–</b><span data-live="rating-count">rating</span></div></div>
-    <button class="btn small" data-act="rate">${rating.myRating()?`You rated ${'★'.repeat(rating.myRating())} · Change`:'★ Rate Spot+'}</button>
-    <p class="muted">Full songs play through Spot+ YouTube Relay, with Monochrome as the backup. The catalog comes from Deezer, artist stats from Spotify’s public pages, and lyrics from LRCLIB. Your library stays on your device.</p>
-  </section></details>`;
+    <p class="settings-note">Spot+ ${esc(APP_VERSION)}${isStandalone() ? ' · Installed PWA' : ''}</p>
+    <div class="credit-links">
+      ${isStandalone() ? '' : '<button class="btn small primary" data-act="open-landing">Install Spot+</button>'}
+      <button class="btn small${isStandalone() ? ' primary' : ''}" data-act="check-update">Check for updates</button>
+      <button class="btn small" data-act="changelog">Changelog</button>
+    </div>
+    <div class="settings-divider"></div>
+    <div class="credits" id="devCredits">
+      <div class="credit-card"><img class="credit-pfp" src="${esc(devCache?.avatar || 'icons/icon-192.png')}" alt="" width="64" height="64"><div><b class="credit-name">${esc(devCache?.name || 'Coye | NXInfinity DEV')}</b><small class="credit-user">${devCache?.username ? '@' + esc(devCache.username) : 'Spot+ developer'}</small></div></div>
+      <p class="settings-note">Spot+ is a solo project, built with Claude and Takumi. Bugs, ideas or just want to talk music? Come hang out.</p>
+      <div class="credit-links"><a class="btn primary small" href="${esc(devCache?.invite || 'https://discord.gg/DbhTQD7jW')}" target="_blank" rel="noopener">Join the Discord<span class="credit-count">${devCache?.members ? ` · ${live.formatCount(devCache.members)} members` : ''}</span></a><a class="btn small" href="https://github.com/coye2/spot-plus" target="_blank" rel="noopener">GitHub</a></div>
+    </div>
+  </section>
+
+  <details class="box settings-more"><summary>Capabilities, shortcuts &amp; community</summary>
+    <section class="box"><h2>What’s supported</h2>
+      <div class="capability"><span>Music discovery<small>Deezer public catalog</small></span><span>Available</span></div>
+      <div class="capability"><span>Audio playback<small>Full songs through Spot+ YouTube Relay, Monochrome backup, or your own files</small></span><span>Available</span></div>
+      <div class="capability"><span>Apple AirPlay &amp; Wireless Output<small>Native AirPlay picker on Safari; Remote Playback / system output elsewhere</small></span><span>${conn.airPlay.supported ? 'AirPlay' : conn.remotePlayback.supported ? 'Remote Playback' : 'System audio'}</span></div>
+      <div class="capability"><span>Spotify — Official Playback<small>Authorized OAuth PKCE + Web Playback SDK or Spotify Connect (Premium required)</small></span><span>${esc(sp.label)}</span></div>
+      <div class="capability"><span>Parametric EQ, AutoEq &amp; DSP<small>Real-time Web Audio filter bank, compressor, stereo width &amp; crossfeed</small></span><span>Available</span></div>
+      <div class="capability"><span>Audio-reactive visualizers<small>Real Web Audio FFT spectrum, Fluid Hills, waveform &amp; glow</small></span><span>Available</span></div>
+      <div class="capability"><span>Spotify stats &amp; profile<small>Updates automatically once connected</small></span><span>${spotifyAccount || cachedLinks() ? 'Connected' : 'Not connected'}</span></div>
+      <div class="capability"><span>CarPlay &amp; Android Auto dashboard UI<small>Requires native iOS (CarPlay entitlement) or Android (Media3) companion app; car Bluetooth &amp; Now Playing work directly</small></span><span class="unavailable">Native-only</span></div>
+      <div class="capability"><span>Jam, DJ &amp; Podcasts</span><span>Available</span></div>
+    </section>
+    <section class="box"><h2>Keyboard shortcuts</h2><p class="settings-note">Space: play/pause · Alt + Right/Left: next/previous · Ctrl/⌘ + K: search · Escape: close overlay.</p></section>
+    <section class="box"><h2>Community</h2>
+      <div class="community" data-live-box hidden><div><b data-live="listening">0</b><span>listening now</span></div><div><b data-live="installs">0</b><span>installs</span></div><div><span data-live="rating-stars">${rating.starsHtml(0)}</span><b data-live="rating">–</b><span data-live="rating-count">rating</span></div></div>
+      <button class="btn small" data-act="rate">${rating.myRating() ? `You rated ${'★'.repeat(rating.myRating())} · Change` : '★ Rate Spot+'}</button>
+      <p class="muted">Full songs play through Spot+ YouTube Relay, with Monochrome as the backup. The catalog comes from Deezer, artist stats from Spotify’s public pages, and lyrics from LRCLIB. Your library stays on your device.</p>
+    </section>
+  </details>
+  </div>`;
 }
 
 /* ---------------- Router ---------------- */
@@ -1192,6 +1280,13 @@ async function handleAct(act, el) {
     case 'create-menu': createMenu(); break;
     case 'history': go('#/recent');break;
     case 'devices': deviceMenu();break;
+    case 'wireless-output': {
+      const res = await player.showWirelessOutputPicker();
+      if (!res?.ok && res?.reason !== 'cancelled') {
+        toast(player.canAirPlay() ? 'Open Control Center to choose an AirPlay speaker.' : 'Use your device’s system audio controls to choose a wireless speaker.');
+      }
+      break;
+    }
     case 'sleep-timer': sleepMenu();break;
     case 'import-local': $('#localFilesInput').click();break;
     case 'collapse-library': store.setSettings({libraryCollapsed:!store.getSettings().libraryCollapsed});applyPreferences();break;
@@ -1697,6 +1792,14 @@ function syncPlayer() {
   document.body.classList.toggle('is-loading', s.loading);
   $$('.trow[data-id], .card[data-id]').forEach((r) => r.classList.toggle('playing', r.dataset.id === t.id));
   document.title = playing ? `${t.title} · ${t.artist}` : 'Spot+';
+  const wirelessBtn = $('#npWireless');
+  if (wirelessBtn) {
+    const conn = player.connectivity.getSnapshot();
+    wirelessBtn.hidden = !conn.canPickWireless;
+    wirelessBtn.classList.toggle('on', !!conn.wirelessActive);
+    wirelessBtn.setAttribute('aria-pressed', String(!!conn.wirelessActive));
+    wirelessBtn.setAttribute('aria-label', conn.airPlay.active ? 'AirPlay active · Change speaker' : conn.airPlay.supported ? 'AirPlay speakers' : 'Wireless audio output');
+  }
   if (npOpen) syncNP();
   syncVisualizer();
 }
@@ -1808,16 +1911,31 @@ function syncNP() {
     }
     $('#npPlays').textContent='';
   }
+  const wirelessBtn = $('#npWireless');
+  if (wirelessBtn) {
+    const conn = player.connectivity.getSnapshot();
+    wirelessBtn.hidden = !conn.canPickWireless;
+    wirelessBtn.classList.toggle('on', !!conn.wirelessActive);
+    wirelessBtn.setAttribute('aria-pressed', String(!!conn.wirelessActive));
+  }
   if (!s.loading && np.dataset.statsId !== t.id) {
     np.dataset.statsId = t.id;
-    getTrackStats(t).then(data=>{if(player.current()?.id!==t.id)return;const count=matchPlayCount(t,data);$('#npPlays').textContent=count?count.plays.toLocaleString()+' plays on Spotify':'';});
+    const deferStats = () => {
+      if (player.current()?.id !== t.id) return;
+      getTrackStats(t).then(data => { if (player.current()?.id !== t.id) return; const count = matchPlayCount(t, data); $('#npPlays').textContent = count ? count.plays.toLocaleString() + ' plays on Spotify' : ''; });
+    };
+    if (globalThis.requestIdleCallback) globalThis.requestIdleCallback(deferStats, { timeout: 900 });
+    else setTimeout(deferStats, 120);
   }
   $('#npSrc').title = s.source ? 'Playback details' : '';
   $('#npSrc').textContent = s.offline ? (t.local?'Local audio · On this device':'Downloaded audio · On this device') : s.source?.preview ? `30-second preview · ${s.source.engineLabel || 'Deezer'}` : s.source?.kind === 'youtube-embed' ? (s.needsTap ? 'Tap ▶ in the YouTube box below once to unlock full songs' : 'Full track · YouTube player') : s.source?.kind === 'ytrelay' ? 'Spot+ YouTube Relay' : s.source?.engineLabel ? s.source.engineLabel : s.source ? `Audio · ${api.host(s.source.instance)}` : s.loading ? 'Finding audio… Tap play to cancel.' : s.error?'Audio unavailable. Retry or change audio source.':'Ready to play';
   syncCanvas();
   syncVisualizer();
   if (npMode === 'queue') renderQueue();
-  if (!s.loading) loadLyrics();
+  if (!s.loading) {
+    if (globalThis.requestIdleCallback) globalThis.requestIdleCallback(() => { if (npOpen && player.current()?.id === t.id) loadLyrics(); }, { timeout: 600 });
+    else loadLyrics();
+  }
 }
 const visualizer = new MusicVisualizer({
   canvas: $('#npViz'),
@@ -2233,7 +2351,58 @@ function syncVoices(){syncDJVoice();}
 
 function createMenu(){openSheet({head:'<div class="sheet-title">Create</div>',items:[{icon:I.shuffle,label:'Generate a playlist',sub:'Pick artists, genres and a vibe. Spot+ builds it.',fn:()=>go('#/generate')},{icon:I.plus,label:'Create a playlist',sub:'Collect your favorite tracks',fn:()=>handleAct('new-playlist',{})},{icon:I.folder,label:'Create a folder',sub:'Organize playlists in your library',fn:()=>handleAct('new-folder',{})},{icon:I.library,label:'Spotify account & collections',sub:'Connect your account or explore playlists',fn:()=>go('#/spotify')},{icon:I.import,label:'Import a Deezer playlist',fn:()=>handleAct('import-playlist',{})},{icon:I.note,label:'Add local audio files',sub:'From this phone or computer',fn:()=>$('#localFilesInput').click()},{icon:I.dj,label:'Start a DJ session',fn:()=>go('#/dj')},{icon:I.jam,label:'Start a Jam',sub:'Listen together in real time',fn:()=>go('#/jam')}]});}
 function profileMenu(){openSheet({head:`<div class="sheet-title">${esc(store.getSettings().displayName)}</div>`,items:[{icon:I.person,label:'Profile',sub:'Your library on this device',fn:()=>go('#/profile')},{icon:I.history,label:'Your Rewind',sub:'Your listening, all year round',fn:()=>go('#/rewind')},{icon:I.history,label:'Listening history',fn:()=>go('#/recent')},{icon:I.settings,label:'Theme Studio',sub:'Make Spot+ yours',fn:()=>go('#/themes')},{icon:I.library,label:'Spotify account',fn:()=>go('#/spotify-account')},{icon:I.settings,label:'Settings',fn:()=>go('#/settings')},{icon:I.dj,label:'Spot+ DJ',fn:()=>go('#/dj')}]});}
-function deviceMenu(){const airPlayOn=player.isAirPlayActive();const items=[];if(player.canAirPlay())items.push({icon:I.device,label:'AirPlay & wireless speakers',sub:airPlayOn?'Connected via AirPlay':'Stream directly to HomePod, Apple TV, or AirPlay speakers',fn:()=>{if(!player.showAirPlayPicker())toast('Open Control Center to choose an AirPlay speaker.');}});if(typeof player.el.setSinkId==='function' && navigator.mediaDevices?.selectAudioOutput)items.push({icon:I.device,label:'Choose audio output',fn:async()=>{try{const d=await navigator.mediaDevices.selectAudioOutput();await player.el.setSinkId(d.deviceId);toast('Audio output changed');}catch(e){toast(e.name==='NotAllowedError'?'Audio output selection was cancelled.':e.message);}}});openSheet({head:'<div class="sheet-title">Connect</div>',body:`<button class="jam-entry" data-act="jam-open">${I.jam}<div><b>${jam.active?'Jam · '+esc(jam.code):'Start a Jam'}</b><small>${jam.active?jam.members.length+' listening':'Listen together with friends, live'}</small></div>${I.arrow}</button><div class="device-card">${I.device}<div><b>${airPlayOn?'AirPlay speaker':'This device'}</b><small>${airPlayOn?'Streaming wirelessly via AirPlay (direct audio)':'Current audio output'}</small></div></div><p class="sheet-note">${player.canAirPlay()?'Tap AirPlay & wireless speakers below, or use Control Center on iPhone and iPad. Audio effects pause automatically during AirPlay so sound streams directly without Screen Mirroring.':'Use your phone or computer’s audio controls for Bluetooth or AirPlay.'}</p>`,items});}
+function deviceMenu(){
+  const conn = player.connectivity.getSnapshot();
+  const airPlayOn = conn.airPlay.active;
+  const remoteOn = conn.remotePlayback.state === 'connected';
+  const items = [];
+  if (conn.airPlay.supported) {
+    items.push({
+      icon: I.device,
+      label: 'AirPlay & wireless speakers',
+      sub: airPlayOn ? 'Connected via AirPlay' : 'Stream directly to HomePod, Apple TV, or AirPlay speakers',
+      fn: () => { if (!player.showAirPlayPicker()) toast('Open Control Center to choose an AirPlay speaker.'); },
+    });
+  } else if (conn.remotePlayback.supported) {
+    items.push({
+      icon: I.device,
+      label: 'Wireless speakers & Cast',
+      sub: remoteOn ? 'Connected to wireless speaker' : conn.remotePlayback.label,
+      fn: async () => {
+        const res = await player.showWirelessOutputPicker();
+        if (!res?.ok && res?.reason !== 'cancelled') toast('No wireless receivers found on this network.');
+      },
+    });
+  }
+  if (conn.audioOutputSelectSupported) {
+    items.push({
+      icon: I.device,
+      label: 'Choose audio output',
+      sub: 'Switch headphones, speakers, or external DAC',
+      fn: async () => {
+        const res = await player.connectivity.selectAudioOutput();
+        if (res.ok) toast('Audio output changed');
+        else toast(res.reason === 'cancelled' ? 'Audio output selection was cancelled.' : res.reason);
+      },
+    });
+  }
+  const activeTitle = airPlayOn ? 'AirPlay speaker' : remoteOn ? 'Wireless speaker' : 'This device';
+  const activeSub = airPlayOn
+    ? 'Streaming wirelessly via AirPlay (direct audio)'
+    : remoteOn
+      ? 'Streaming via Remote Playback'
+      : 'Current audio output · Bluetooth & Lock Screen controls active';
+  const note = conn.airPlay.supported
+    ? 'Tap AirPlay & wireless speakers below, or use Control Center on iPhone and iPad. Audio effects pause automatically during AirPlay so sound streams directly without Screen Mirroring.'
+    : conn.remotePlayback.supported
+      ? 'Choose a nearby wireless receiver below, or use your device’s Bluetooth and system audio controls.'
+      : 'Use your phone or computer’s audio controls for Bluetooth, car audio, or AirPlay.';
+  openSheet({
+    head: '<div class="sheet-title">Connect</div>',
+    body: `<button class="jam-entry" data-act="jam-open">${I.jam}<div><b>${jam.active ? 'Jam · ' + esc(jam.code) : 'Start a Jam'}</b><small>${jam.active ? jam.members.length + ' listening' : 'Listen together with friends, live'}</small></div>${I.arrow}</button><div class="device-card">${I.device}<div><b>${activeTitle}</b><small>${activeSub}</small></div></div><p class="sheet-note">${note}</p>`,
+    items,
+  });
+}
 /* ---------------- Audio, Parametric EQ, AutoEq & DSP Studio ---------------- */
 const fxFmt={vocals:v=>v>0?'−'+Math.round(v*100)+'%':'Off',speed:v=>Number(v).toFixed(2).replace(/0$/,'')+'×',pitch:v=>(v>0?'+':'')+v+' st',reverb:v=>Math.round(v*100)+'%',bass:v=>(v>0?'+':'')+v+' dB'};
 const audioStudioState={tab:'eq',selectedBand:0,autoEqQuery:'',autoEqForm:''};
@@ -2866,14 +3035,16 @@ window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); inst
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)navigator.serviceWorker?.getRegistration().then(r=>r?.update()).catch(()=>{});});
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('./sw.js',{updateViaCache:'none'}).catch((e) => console.warn('SW failed', e));
 /* ---------------- Notifications ---------------- */
-let hadController=!!navigator.serviceWorker?.controller,updateShown=false;
+let hadController=!!navigator.serviceWorker?.controller,updateShown=false,pendingSwReload=false;
 navigator.serviceWorker?.addEventListener('controllerchange',()=>{
   if(!hadController){hadController=true;return;}
   if(updateShown||!store.getSettings().notifyUpdates)return;updateShown=true;
   if(document.hidden){let st=notify.loadState();if(notify.canSend(st,'update')){notify.show({title:'Spot+ was updated',body:'Open Spot+ to get the newest version.'},'update');notify.saveState(notify.markSent(st,'update'));}}
-  else toast('A new version of Spot+ is ready.',{sticky:true,action:{label:'Update',run:()=>location.reload()}});
+  else toast(player.isPlaying()?'Update ready. Tap Update when you’re ready (music won’t be interrupted).':'A new version of Spot+ is ready.',{sticky:true,action:{label:'Update',run:()=>location.reload()}});
 });
-navigator.serviceWorker?.addEventListener('message',e=>{if(e.data?.type==='open'&&e.data.url)go(e.data.url);else if(e.data?.type==='preview-updated')location.reload();});
+// Never interrupt active audio on background preview cache updates; apply once playback is idle.
+navigator.serviceWorker?.addEventListener('message',e=>{if(e.data?.type==='open'&&e.data.url)go(e.data.url);else if(e.data?.type==='preview-updated'){if(player.isPlaying()||player.state.loading)pendingSwReload=true;else location.reload();}});
+player.on('state',()=>{if(pendingSwReload&&!player.isPlaying()&&!player.state.loading){pendingSwReload=false;location.reload();}});
 async function deliver(kind,msg){
   if(!msg)return;
   let st=notify.loadState();const visible=!document.hidden;
@@ -2899,7 +3070,7 @@ async function runNotifyChecks(){
 setTimeout(runNotifyChecks,8000);setInterval(runNotifyChecks,3*3600000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)setTimeout(runNotifyChecks,3000);});
 
-player.restore();
+player.restore({ ifIdle: true });
 applyPreferences();
 vol.value=Math.round(player.el.volume*100);
 vol.style.setProperty('--p',vol.value+'%');

@@ -21,6 +21,9 @@ import { router, isVerifiedEquivalent } from './source-router.js';
 import { memoryEngine } from './memory-engine.js';
 import { effectiveMixSeconds, orderForMix, runCrossfade, MIX_STYLE_IDS, MIX_CURVES } from './automix.js';
 import { SpotifyPlaybackProvider } from './playback/spotify-provider.js';
+import { connectivity } from './connectivity.js';
+
+export { connectivity };
 
 export const AUDIO_CACHE = 'spotplus-audio-v1';
 
@@ -77,20 +80,29 @@ let audio = configureAudioElement(new Audio());
 audio.preload = 'auto';
 ensureAudioAttached(audio);
 export let el = audio;
+connectivity.bindMedia(audio);
 
 let airPlayActive = false;
-export const isAirPlayActive = () => airPlayActive || !!audio?.webkitCurrentPlaybackTargetIsWireless;
+export const isAirPlayActive = () => airPlayActive || !!audio?.webkitCurrentPlaybackTargetIsWireless || connectivity.state.airPlayActive;
+export const isWirelessOutputActive = () => isAirPlayActive() || connectivity.state.wirelessActive;
 export const canAirPlay = () => typeof audio?.webkitShowPlaybackTargetPicker === 'function';
 export function showAirPlayPicker() {
   if (!canAirPlay()) return false;
   configureAudioElement(audio);
   ensureAudioAttached(audio);
+  connectivity.bindMedia(audio);
   try {
     audio.webkitShowPlaybackTargetPicker();
     return true;
   } catch {
     return false;
   }
+}
+export async function showWirelessOutputPicker() {
+  configureAudioElement(audio);
+  ensureAudioAttached(audio);
+  connectivity.bindMedia(audio);
+  return connectivity.openWirelessPicker();
 }
 
 const listeners = { state: new Set(), time: new Set(), error: new Set(), notice: new Set(), 'effects-skipped': new Set() };
@@ -191,6 +203,8 @@ export const canSeek = () => !state.loading && !state.error && (isSpotifyOfficia
 export function pause() {
   userPaused = true;
   pendingPlay = false;
+  continuity.intent = 'paused';
+  continuity.pauseReason = 'user';
   cancelActiveCrossfade();
   if (state.loading) {
     cancelLoad?.abort();
@@ -205,8 +219,17 @@ export function pause() {
   silenceOthers();
 }
 export function hideEmbed(hidden = true) { state.ytHidden = !!hidden; emit('state'); }
+export const getContinuityState = () => ({
+  ...continuity,
+  playing: isPlaying(),
+  phase: state.phase,
+  loading: state.loading,
+  wireless: isWirelessOutputActive(),
+});
 export const getMetrics = () => ({
   phase: state.phase,
+  continuity: getContinuityState(),
+  connectivity: connectivity.getSnapshot(),
   telemetry: telemetry.snapshot(),
   memory: memoryEngine.stats(),
   router: router.report(),
@@ -223,6 +246,11 @@ let restorePos = 0;
 let cancelLoad = null;
 let pendingPlay = true;
 let userPaused = false;
+const continuity = {
+  intent: 'idle', // 'idle' | 'playing' | 'paused'
+  pauseReason: 'none', // 'none' | 'user' | 'visibility' | 'os-interruption' | 'route-change' | 'loading' | 'ended' | 'error' | 'offline'
+  lastLifecycleEvent: '',
+};
 const nextBuffer = new NextAudioBuffer();
 const skipTracker = new SkipTracker();
 const activation = new ActivationTracker();
@@ -235,6 +263,13 @@ let liveAttempt = 0;
 let mediaTicket = 0;
 let suppressError = false;
 let previewUpgradeTimer = null, previewUpgradeControl = null, previewUpgradeTries = 0;
+
+/** Bounded exponential backoff with ±20% jitter for transient playback retries. */
+export function retryBackoffMs(attempt = 1, { baseMs = 650, maxMs = 3500, rng = Math.random } = {}) {
+  const exp = Math.min(maxMs, baseMs * (2 ** Math.max(0, attempt - 1)));
+  const jitter = 0.8 + (Math.max(0, Math.min(1, rng())) * 0.4);
+  return Math.round(Math.min(maxMs, exp * jitter));
+}
 
 function clearStall() {
   clearTimeout(stallTimer);
@@ -253,6 +288,7 @@ function failAttempt(ticket, mediaErr = null) {
 function assignSrc(url) {
   const ticket = ++liveAttempt;
   mediaTicket = ticket;
+  if (typeof url === 'string' && url.includes('/yta?')) telemetry.recordRelayRequest('yta-get');
   // The media element can still fire an asynchronous error queued from its previous src.
   suppressError = true;
   audio.src = url;
@@ -337,6 +373,7 @@ function playAssigned(nextSource) {
         audio = unlockedPrimary;
         el = audio;
         bindAudio(audio);
+        connectivity.bindMedia(audio);
         audio.volume = volumeLevel * (ducks.size ? .18 : 1);
         playAssigned(nextSource);
         return;
@@ -478,6 +515,15 @@ function recoverMedia(mediaErr = null) {
     }
   }
 
+  // When offline on a remote stream, pause retries and wait cleanly for the 'online' recovery event.
+  if (!state.offline && !cur.local && globalThis.navigator?.onLine === false) {
+    continuity.pauseReason = 'offline';
+    telemetry.endRecovery(recStart, false);
+    setPhase(STATES.STALLED);
+    emit('state');
+    return;
+  }
+
   api.reportPlaybackSource(failed, false);
   if (diagnosis.retryMode === 'refresh-url') {
     memoryEngine.forgetStream(api.streamKey(cur));
@@ -497,11 +543,14 @@ function recoverMedia(mediaErr = null) {
     if (retryRelay) { api.refuseRelayRegion?.(cur.id, failed.relayRegion); api.restRelayRegion(failed.relayRegion, 15e3); api.noteRelayRegion(failed.relayRegion, false); if (errRetries >= api.relayRegionsUp().length) api.avoidRelayVideo(failed.videoId); memoryEngine.forgetStream(api.streamKey(cur)); }
     else if (failed.instance) skipList.push(failed.instance);
     telemetry.endRecovery(recStart, true);
-    // Asking YouTube again for an upload it just refused: give the refusal a moment to clear first.
+    // Asking YouTube again for an upload it just refused: use bounded exponential backoff with jitter.
     const again = retryRelay && api.relayAllAvoided((failed.candidates || [failed.videoId]).map((id) => ({id})));
     const at = audio.currentTime || 0, mine = token;
-    if (again) setTimeout(() => { if (mine === token && current() === cur) load({ keepSkip: true, startAt: at }); }, 1500);
-    else load({ keepSkip: true, startAt: at });
+    if (again) {
+      const waitMs = retryBackoffMs(errRetries, { baseMs: 900, maxMs: 3500 });
+      const retryTimer = setTimeout(() => { if (mine === token && current() === cur && !userPaused) load({ keepSkip: true, startAt: at }); }, waitMs);
+      retryTimer.unref?.();
+    } else load({ keepSkip: true, startAt: at });
     return;
   }
 
@@ -789,8 +838,12 @@ export function unlockElement(element) {
     if (element.src === SILENT) element.pause();
   }).catch(() => {});
 }
+let connectionsWarmed = false;
 function unlock() {
-  api.warmConnections();
+  if (!connectionsWarmed) {
+    connectionsWarmed = true;
+    api.warmConnections();
+  }
   ensureAudioAttached(audio);
   unlockElement(nextBuffer.spare);
   if (!plainSpare) {
@@ -801,19 +854,29 @@ function unlock() {
   } else {
     unlockElement(plainSpare);
   }
-  if (audio.src) return;
+  const sparesReady = activation.isUnlocked(nextBuffer.spare) && activation.isUnlocked(plainSpare);
+  if (audio.src) {
+    if (sparesReady) window.removeEventListener?.('pointerdown', unlock, { capture: true });
+    return;
+  }
   audio.src = SILENT;
   audio.play().then(() => {
     activation.markUnlocked(audio);
     unlockedPrimary = audio;
     if (audio.src === SILENT) audio.pause();
+    if (activation.isUnlocked(nextBuffer.spare) && activation.isUnlocked(plainSpare)) {
+      window.removeEventListener?.('pointerdown', unlock, { capture: true });
+    }
   }).catch(() => {});
 }
 window.addEventListener('pointerdown', unlock, { capture: true, passive: true });
 const isRealSrc = () => audio.src && !audio.src.startsWith('data:');
 // Leaving the app must never stop the music. (iPhone fires 'pagehide' when a home-screen app is only
 // switched away from, so pausing there cut songs off. A truly closed app is ended by iOS itself.)
-window.addEventListener('pagehide', () => { telemetry.noteListeningStop(); });
+window.addEventListener('pagehide', () => {
+  continuity.lastLifecycleEvent = 'pagehide';
+  telemetry.noteListeningStop();
+});
 
 let lastVisibilityChangeAt = 0;
 let visibilityResumeAttempted = false;
@@ -836,6 +899,7 @@ function handOffToPlainElement(old, plain) {
   audio = plain;
   el = audio;
   bindAudio(audio);
+  connectivity.bindMedia(audio);
   let retired = false;
   const retireOld = () => {
     if (retired) return;
@@ -884,6 +948,7 @@ export function handOffForAirPlay() {
   if (!isCaptured(audio) && !audio.crossOrigin) {
     configureAudioElement(audio);
     ensureAudioAttached(audio);
+    connectivity.bindMedia(audio);
     return false;
   }
   const old = audio;
@@ -891,17 +956,87 @@ export function handOffForAirPlay() {
   plainSpare = null;
   return handOffToPlainElement(old, plain);
 }
+connectivity.setOnWirelessActive(() => handOffForAirPlay());
+connectivity.onChange(() => emit('state'));
+
+function recoverAfterNetworkOrResume(trigger) {
+  if (continuity.intent !== 'playing' || userPaused || !current() || isEmbed() || isSpotifyOfficial()) return;
+  if (state.offline || current()?.local) {
+    if (audio.paused && !audio.ended && isRealSrc()) {
+      telemetry.recordContinuityRecovery();
+      audio.play().catch(() => {});
+    }
+    return;
+  }
+  const needsReload = state.phase === STATES.FAILED || state.phase === STATES.STALLED || continuity.pauseReason === 'offline' || (isRealSrc() && linkExpired());
+  if (needsReload && !state.loading) {
+    telemetry.recordContinuityRecovery();
+    const at = position() || restorePos || 0;
+    memoryEngine.forgetStream(api.streamKey(current()));
+    errRetries = 0;
+    load({ keepSkip: true, startAt: at, trigger });
+  } else if (audio.paused && !audio.ended && isRealSrc() && !state.loading && (continuity.pauseReason === 'visibility' || continuity.pauseReason === 'os-interruption')) {
+    telemetry.recordContinuityRecovery();
+    audio.play().catch(() => {});
+  }
+}
 
 globalThis.document?.addEventListener?.('visibilitychange', () => {
   lastVisibilityChangeAt = performance.now();
   visibilityResumeAttempted = false;
+  continuity.lastLifecycleEvent = globalThis.document.hidden ? 'hidden' : 'visible';
   if (globalThis.document.hidden) {
     // Only iOS suspends Web Audio in the background; avoid unnecessary app-switch hiccups on Android/Desktop.
     if (prefersAac()) handOffForBackground();
     // Make sure the next song is prewarmed before the current song ends while screen is locked.
     if (isPlaying() && !state.loading && !nextBuffer.entry) prefetch();
+  } else {
+    // Reconcile Media Session, connectivity, and UI with true audio state without restarting playback.
+    sessionHandlers();
+    positionState();
+    if (continuity.intent === 'playing' && !userPaused && continuity.pauseReason === 'visibility' && audio.paused && !audio.ended && isRealSrc() && !state.loading) {
+      telemetry.recordContinuityRecovery();
+      audio.play().catch(() => {});
+    }
+    emit('state');
   }
 });
+
+globalThis.window?.addEventListener?.('pageshow', (e) => {
+  continuity.lastLifecycleEvent = e?.persisted ? 'pageshow-bfcache' : 'pageshow';
+  connectivity.bindMedia(audio);
+  sessionHandlers();
+  positionState();
+  emit('state');
+});
+
+globalThis.document?.addEventListener?.('freeze', () => {
+  continuity.lastLifecycleEvent = 'freeze';
+  if (continuity.intent === 'playing' && !userPaused) continuity.pauseReason = 'os-interruption';
+});
+
+globalThis.document?.addEventListener?.('resume', () => {
+  continuity.lastLifecycleEvent = 'resume';
+  recoverAfterNetworkOrResume('lifecycle-resume');
+});
+
+globalThis.window?.addEventListener?.('offline', () => {
+  continuity.lastLifecycleEvent = 'offline';
+  if (continuity.intent === 'playing' && !state.offline && !current()?.local) {
+    continuity.pauseReason = 'offline';
+  }
+});
+
+globalThis.window?.addEventListener?.('online', () => {
+  continuity.lastLifecycleEvent = 'online';
+  recoverAfterNetworkOrResume('network-online');
+});
+
+try {
+  globalThis.navigator?.connection?.addEventListener?.('change', () => {
+    if (globalThis.navigator?.onLine !== false) recoverAfterNetworkOrResume('network-change');
+  });
+} catch { /* unsupported */ }
 
 /* ---------- Loading a track ---------- */
 async function load(opts = {}) {
@@ -933,6 +1068,8 @@ async function load(opts = {}) {
   const controller = cancelLoad;
   pendingPlay = opts.autoplay !== false;
   userPaused = false;
+  continuity.intent = pendingPlay ? 'playing' : 'paused';
+  continuity.pauseReason = 'none';
   ++warmGeneration;
   clearTimeout(prefetchTimer);
   api.cancelPrewarm(t);
@@ -971,6 +1108,7 @@ async function load(opts = {}) {
       el = audio;
       ensureAudioAttached(audio);
       bindAudio(audio);
+      connectivity.bindMedia(audio);
       if (opts.mixSeconds) {
         // Spotify-style equal-power crossfade: uses hardware-timed Web Audio GainNodes (+ DJ bass-swap EQ)
         // on iPhone/iPad & CORS streams, or smooth 60fps requestAnimationFrame volume ramps otherwise.
@@ -1036,6 +1174,7 @@ async function load(opts = {}) {
         audio.volume = volumeLevel * (ducks.size ? .18 : 1);
         ensureAudioAttached(audio);
         bindAudio(audio);
+        connectivity.bindMedia(audio);
       }
       // Do NOT run removeAttribute('src') + audio.load() between normal track skips:
       // blanking src tears down iOS AVAudioSession and causes Lock Screen/Control Center flicker & skip lag.
@@ -1167,6 +1306,7 @@ async function load(opts = {}) {
         el = audio;
         ensureAudioAttached(audio);
         bindAudio(audio);
+        connectivity.bindMedia(audio);
         audio.preload = 'auto';
         audio.volume = volumeLevel * (ducks.size ? .18 : 1);
         if (!airPlay) emit('effects-skipped');
@@ -1218,6 +1358,7 @@ async function load(opts = {}) {
             audio = unlockedPrimary;
             el = audio;
             bindAudio(audio);
+            connectivity.bindMedia(audio);
             audio.volume = volumeLevel * (ducks.size ? .18 : 1);
             playAssigned(state.source);
             return;
@@ -1332,10 +1473,7 @@ function prefetch() {
   }
   // Use Math.max (never Math.min!) so unstable/normal connections build real buffered headroom before opening Player B.
   const needHeadroom = Math.max(netProfile.headroomSec, mediaWarmHeadroom(navigator.connection));
-  if (!skipTracker.isRapidSkipping() && netProfile.maxPreloadAhead >= 2) {
-    api.prewarmAhead(upcoming.slice(0, 2).map((u) => u.track));
-  }
-  const stageADelay = Math.min(skipTracker.stageBDelayMs(), 220);
+  const stageADelay = skipTracker.isRapidSkipping() ? 900 : Math.min(skipTracker.stageBDelayMs(), 260);
 
   const scheduleStageB = (source) => {
     const attemptStageB = () => {
@@ -1358,7 +1496,7 @@ function prefetch() {
     try {
       if (generation !== warmGeneration || !isPlaying() || state.loading) return;
       // Fast Stage A (especially critical on iPhone where navigator.connection is absent):
-      // Pre-resolve and warm the relay region as soon as the current song has >= 2s buffer or >= 0.4s playback.
+      // Pre-resolve and warm ONLY the immediate next track once the current song has >= 2s buffer or >= 0.4s playback.
       const stageAReady = isEmbed() || audioHasHeadroom(audio, 2) || (audio.currentTime || 0) >= 0.4;
       if (!stageAReady) {
         prefetchTimer = setTimeout(() => { if (generation === warmGeneration && isPlaying() && !state.loading) prefetch(); }, 650);
@@ -1368,12 +1506,9 @@ function prefetch() {
 
       if (next && !next.local && store.getSettings().source === 'auto') api.prefetchBackup(next);
 
-      // Stage A: resolve candidate sources for next track and warm the relay edge early.
+      // Stage A: resolve candidate sources for next track and warm 1 relay edge early (bounded to 1 track).
       let source = await (api.prewarm(next) || api.resolve(next));
-      if (source?.kind === 'ytrelay') source = await api.warmRelaySource(next, source);
-      if (netProfile.maxPreloadAhead >= 2 && upcoming[1]?.track && !skipTracker.isRapidSkipping()) {
-        api.prewarm(upcoming[1].track);
-      }
+      if (source?.kind === 'ytrelay') source = await api.warmRelaySource(next, source, { regions: 1 });
 
       if (generation !== warmGeneration || !isPlaying() || state.loading) return;
       // Stage B: prepare Player B once full buffer headroom is met.
@@ -1510,6 +1645,8 @@ function bindAudio(media) {
     sessionHandlers();
     syncPlaybackState(true);
     visibilityResumeAttempted = false;
+    continuity.intent = 'playing';
+    continuity.pauseReason = 'none';
     if (state.source?.kind === 'ytrelay') { api.noteRelaySong(true); api.noteRelayRegion(state.source.relayRegion, true); }
     if (!mixing) silenceOthers(); // one song at a time (AutoMix overlaps on purpose)
     unavailableRun = 0;
@@ -1528,6 +1665,8 @@ function bindAudio(media) {
   });
   listen('play', () => {
     clearTimeout(pauseClearTimer);
+    continuity.intent = 'playing';
+    continuity.pauseReason = 'none';
     if (isRealSrc()) syncPlaybackState(true);
     sessionHandlers();
     if ('mediaSession' in navigator) { navigator.mediaSession.playbackState = 'playing'; updateSession(current()); }
@@ -1538,13 +1677,21 @@ function bindAudio(media) {
     clearStall();
     syncPlaybackState(false);
     telemetry.noteListeningStop();
-    // Guard against brief OS-induced pauses right as the user exits or returns to the PWA.
+    // Classify pause cause cleanly: user action vs visibility glitch vs OS interruption vs loading/ended.
     const nearVisibilitySwitch = lastVisibilityChangeAt > 0 && (performance.now() - lastVisibilityChangeAt) < 1800;
+    if (userPaused) continuity.pauseReason = 'user';
+    else if (state.loading) continuity.pauseReason = 'loading';
+    else if (audio.ended) continuity.pauseReason = 'ended';
+    else if (globalThis.navigator?.onLine === false && !state.offline) continuity.pauseReason = 'offline';
+    else if (nearVisibilitySwitch) continuity.pauseReason = 'visibility';
+    else continuity.pauseReason = 'os-interruption';
+
     if (nearVisibilitySwitch && !userPaused && pendingPlay && !audio.ended && isRealSrc() && !state.loading && !visibilityResumeAttempted) {
       visibilityResumeAttempted = true;
       const myGen = token;
       const t = setTimeout(() => {
         if (myGen !== token || userPaused || !pendingPlay || !audio.paused || audio.ended || !isRealSrc()) return;
+        telemetry.recordContinuityRecovery();
         audio.play().catch(() => {});
       }, 120);
       t.unref?.();
@@ -1642,7 +1789,8 @@ export function playList(tracks, i = 0, { shuffle = null, mix = false } = {}) {
     state.index = i;
   }
   errRetries = 0; failStreak = 0; restorePos = 0;
-  api.prewarmAhead([state.queue[state.index], state.queue[state.index + 1]].filter((t) => t && !t.local));
+  // Do NOT prewarm queue[index + 1] before load() — load() immediately cancels non-current prewarms!
+  // Let prefetch() prepare the immediate next track cleanly once the current song is playing with headroom.
   load({ trigger: mix ? 'mix-list' : 'play-list' });
 }
 /** Smoothly reorder upcoming queue items for a Mix session (no back-to-back same artist). */
@@ -1702,6 +1850,8 @@ export function toggle() {
     else {
       userPaused = false;
       pendingPlay = true;
+      continuity.intent = 'playing';
+      continuity.pauseReason = 'none';
       syncPlaybackState(true);
       audio.play().then(() => {
         activation.markUnlocked(audio);
@@ -1711,6 +1861,8 @@ export function toggle() {
   } else {
     userPaused = true;
     pendingPlay = false;
+    continuity.intent = 'paused';
+    continuity.pauseReason = 'user';
     audio.pause();
     syncPlaybackState(false);
     silenceOthers();
@@ -1861,7 +2013,9 @@ function save() {
     shuffle: state.shuffle, repeat: state.repeat, original: state.original, pos: position() || restorePos || 0, vol: volumeLevel,
   });
 }
-export function restore() {
+export function restore({ ifIdle = false } = {}) {
+  // Idempotent guard: never overwrite an active playing or loading session when re-entering the app.
+  if (ifIdle && (isPlaying() || state.loading)) return;
   const s = store.loadPlayer();
   if (!s) return;
   if (typeof s.vol === 'number') { volumeLevel = Math.max(0, Math.min(1, s.vol)); audio.volume = volumeLevel; yt.setVolume(volumeLevel); }
@@ -1889,23 +2043,69 @@ export function restore() {
 }
 export const restoredPosition = () => restorePos;
 
-/* ---------- Lock screen / media keys ---------- */
+/* ---------- Lock screen / media keys / CarPlay Now Playing / Bluetooth AVRCP ---------- */
+function resolveArtworkUrl(src) {
+  if (!src || typeof src !== 'string') return '';
+  try {
+    const base = globalThis.location?.href || 'https://coye2.github.io/spot-plus/';
+    return new URL(src, base).href;
+  } catch {
+    return /^https?:\/\//i.test(src) ? src : '';
+  }
+}
+function inferArtworkType(url) {
+  if (/\.png(\?|$)/i.test(url)) return 'image/png';
+  if (/\.webp(\?|$)/i.test(url)) return 'image/webp';
+  return 'image/jpeg';
+}
+export function buildSessionArtwork(t) {
+  const entries = [];
+  const seen = new Set();
+  const push = (raw, sizes) => {
+    const src = resolveArtworkUrl(raw);
+    if (!src || seen.has(`${src}|${sizes}`)) return;
+    seen.add(`${src}|${sizes}`);
+    entries.push({ src, sizes, type: inferArtworkType(src) });
+  };
+  if (t?.cover) {
+    push(t.cover, '96x96');
+    push(t.cover, '192x192');
+    push(t.cover, '250x250');
+  }
+  if (t?.coverXl) {
+    push(t.coverXl, '512x512');
+    push(t.coverXl, '1000x1000');
+  }
+  if (!entries.length) {
+    push('icons/icon-192.png', '192x192');
+    push('icons/icon-512.png', '512x512');
+  }
+  return entries;
+}
+let lastSessionMetaKey = '';
 function updateSession(t) {
   if (!('mediaSession' in navigator) || !t) return;
+  const metaKey = `${t.id || ''}|${t.title || ''}|${t.artist || ''}|${t.album || ''}|${t.cover || ''}|${t.coverXl || ''}`;
+  if (metaKey === lastSessionMetaKey && navigator.mediaSession.metadata) return;
+  lastSessionMetaKey = metaKey;
   try {
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: t.title, artist: t.artist, album: t.album,
-      artwork: [t.cover && { src: t.cover, sizes: '250x250', type: 'image/jpeg' }, t.coverXl && { src: t.coverXl, sizes: '1000x1000', type: 'image/jpeg' }].filter(Boolean),
+      title: t.title || 'Spot+',
+      artist: t.artist || '',
+      album: t.album || '',
+      artwork: buildSessionArtwork(t),
     });
   } catch {}
 }
 function positionState(overridePos = null) {
   if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
   const d = duration();
-  if (!d) return;
+  if (!Number.isFinite(d) || d <= 0) return;
   const rawPos = typeof overridePos === 'number' && Number.isFinite(overridePos) ? overridePos : position();
-  const pos = Math.max(0, Math.min(rawPos, d));
-  try { navigator.mediaSession.setPositionState({ duration: d, playbackRate: isEmbed() ? 1 : (audio.playbackRate || 1), position: pos }); } catch {}
+  const pos = Math.max(0, Math.min(Number.isFinite(rawPos) ? rawPos : 0, d));
+  const rawRate = isEmbed() ? 1 : Number(audio.playbackRate);
+  const playbackRate = Number.isFinite(rawRate) && rawRate > 0 ? rawRate : 1;
+  try { navigator.mediaSession.setPositionState({ duration: d, playbackRate, position: pos }); } catch {}
 }
 // Lock screen and Control Center: previous/next song, like Spotify. iOS shows ±10-second buttons instead when
 // it has seek handlers, or when it lost ours after the app switched audio elements (preloading, background
@@ -1917,7 +2117,8 @@ function sessionHandlers() {
   h('pause', () => { pause(); updateSession(current()); positionState(); });
   h('previoustrack', () => { prev(); updateSession(current()); });
   h('nexttrack', () => { next(true); updateSession(current()); });
-  h('seekto', (d) => { if (d && typeof d.seekTime === 'number') { seek(d.seekTime); } });
+  h('seekto', (d) => { if (d && typeof d.seekTime === 'number' && Number.isFinite(d.seekTime)) { seek(d.seekTime); } });
+  h('stop', () => { pause(); });
   h('seekbackward', null);
   h('seekforward', null);
 }

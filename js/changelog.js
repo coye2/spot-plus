@@ -1,6 +1,12 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '2.2.3', date: '2026-11-24', title: 'Playback continuity, faster relay starts, unified connectivity & refined Settings', items: [
+    'Operation Continuity: hardened playback intent and lifecycle recovery across app switches, lock/unlock, back-forward cache (pageshow), page freeze/resume, offline-to-online transitions, iOS interrupted AudioContext states, and Service Worker updates (updates now defer reload while music is playing).',
+    'Operation Velocity & Relay Efficiency: added single-flight request coalescing and 10-minute bounded match memoization to prevent duplicate Cloudflare Worker /match calls, eliminated wasted background prewarms aborted on playlist start, bounded next-track preparation to the immediate upcoming track, and added exponential retry backoff with jitter.',
+    'Operation Connect & Premium System Media: added a unified capability-aware Connectivity layer (Apple AirPlay target picker & availability tracking, W3C Remote Playback API, desktop audio output selection, and truthful CarPlay / Android Auto capability notes), plus multi-size absolute Media Session artwork and deduped lock-screen updates.',
+    'Settings refinement & app-wide polish: reorganized Settings into clear, scannable sections with 44px+ mobile touch targets and iOS safe-area clearance, optimized long playlist scrolling via content-visibility, and moved non-critical Now Playing stats/lyrics work off the play critical path.',
+  ]},
   {version: '2.2.2', date: '2026-11-23', title: 'Pro Spot+ UI chrome & Theme Changer layout', items: [
     'Fixed the Spot+ UI floating Liquid Glass navigation dock on mobile so the active tab pill sits cleanly inside the capsule with zero bottom overflow, matched mini-player and dock widths, switched mini-player cover art to concentric rounded corners, and added a soft bottom fade scrim.',
     'Redesigned the Themes & Interface Style changer: centered Undo/Save action buttons with reliable contrast on pure-black OLED accents, side-by-side Original Spot+ vs Spot+ UI comparison cards with live miniature previews and circular checkmarks, and cleanly grouped Player, Glass & Lyrics controls with live px/% readouts.',
