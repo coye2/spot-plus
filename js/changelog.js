@@ -1,10 +1,16 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
-  {version: '2.2.6', date: '2026-11-25', title: 'Base tier daily limit, unlocked by support', items: [
-    'Spot+ stays free, powered by love and support. On the base tier, skips, Insta Play, and Insta Choose share 300 a day, counted on this device and on this network address.',
-    'After today’s allowance is used, the song already playing can finish and the queue can still advance. Skips, picking a song, seeking, new downloads, repeat, Canvas, and early loading of the next song wait until tomorrow.',
-    'Full access comes from support Spot+ can check: star coye2/spot-plus on GitHub, join the Discord and verify membership, or refer a friend who installs Spot+ and enters your code. Another browser, phone, or VPN on the same device does not count as that friend. Your own devices are excluded from the allowance.',
+  {version: '2.2.7', date: '2026-11-25', title: 'Base tier daily limit, unlocked by support', items: [
+    'Daily limit: on the base tier, Skip, Insta Play, and Insta Choose share 300 uses a day. The count is kept per device and per network address, and either one running out is enough.',
+    'After the limit is reached, the song already playing can finish and the queue can still advance. Skip, Insta Play, Insta Choose, seeking, new downloads, repeat, Canvas, and early loading of the next song stay off until the next day.',
+    'Unlock: star coye2/spot-plus on GitHub and verify the star, join the Discord and verify membership, or refer a friend who installs Spot+ and enters your code. Another browser, phone, or VPN on the same device does not count as that friend.',
+    'Your own devices are excluded from the limit, including devices linked with the same library sync key. They do not spend the allowance.',
+  ]},
+  {version: '2.2.6', date: '2026-11-25', title: 'Vehicle integration architecture: Spot+ Drive bridge, OpenSubsonic gateway PoC & Native Microbridge', items: [
+    'Path 1 — Browser-Native Vehicle Media Bridge (Spot+ Drive): added capability-adaptive DriveMediaBridge (feature-flagged off by default via vehicleDriveBridge) with WebKit/CarPlay Now Playing and Chromium/Bluetooth AVRCP capability detection, head-unit metadata sanitization, steering-wheel duplicate-pulse debouncing, explicit ±10s suppression so CarPlay keeps Previous/Next buttons, and safe wireless-disconnect interruption classification with zero polling or audio element teardown.',
+    'Path 2 — Universal Media Gateway PoC (OpenSubsonic): built an isolated 12-endpoint OpenSubsonic 1.16.1 Cloudflare Worker PoC (workers/media-gateway) with truthful identity, account-free AES-GCM encrypted pairing derived from Spot+ sync keys, direct HTTP 302 stream playback (0 KB/s gateway audio egress), authorized synthetic WAV range-request test audio, anti-SSRF host allowlisting, and a 100–10,000 listener capacity & Cloudflare cost benchmark.',
+    'Path 3 — Spot+ Native Microbridge: designed and prototyped the shared spotplus.microbridge.v1 protocol, single-authoritative-engine lock, PWA client adapter (feature-flagged off by default), and minimal isolated Android (Media3 MediaLibraryService + TWA) and iOS (AVQueuePlayer + CarPlay CPTemplateApplicationSceneDelegate + WKWebView) prototypes with zero duplicated Spot+ UI.',
   ]},
   {version: '2.2.5', date: '2026-11-24', title: 'Operation S+: S-tier playback state machine, recovery checkpoints, adaptive transitions & scalable Worker protection', items: [
     'Playback Reliability & State Machine: added explicit PAUSED and SEEKING lifecycle phases with transition tracking, network-aware timeouts, negative match caching, and root-cause telemetry separating upstream, network, codec, and client errors.',

@@ -1,13 +1,13 @@
 {
   "name": "spot-plus",
-  "version": "2.2.6",
+  "version": "2.2.7",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "node scripts/serve.mjs",
     "start": "node scripts/serve.mjs",
     "test": "node --experimental-vm-modules --test tests/*.test.mjs",
-    "lint": "eslint js js/playback scripts tests sw.js canvas-bridge/*.js workers/spotify-relay/src/*.js",
+    "lint": "eslint js js/playback js/vehicle scripts tests sw.js canvas-bridge/*.js workers/spotify-relay/src/*.js workers/media-gateway/src/*.js",
     "check": "node scripts/check.mjs",
     "build": "node scripts/build-changelog.mjs && node scripts/build.mjs",
     "changelog": "node scripts/build-changelog.mjs"

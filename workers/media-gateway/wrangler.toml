@@ -1,0 +1,10 @@
+name = "spot-plus-media-gateway"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+
+[vars]
+GATEWAY_ENV = "poc"
+GATEWAY_ALLOW_TEST_AUDIO = "true"
+# Configure real deployment credentials via `wrangler secret put`:
+#   SPOTPLUS_GATEWAY_USER
+#   SPOTPLUS_GATEWAY_API_KEY

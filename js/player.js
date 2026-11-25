@@ -27,8 +27,9 @@ import { connectivity } from './connectivity.js';
 import { featureFlags, isFeatureEnabled } from './feature-flags.js';
 import { scheduler } from './request-scheduler.js';
 import { allowPlaybackAction, allowRestricted, isFeatureRestricted } from './access.js';
+import { driveBridge } from './vehicle/drive-bridge.js';
 
-export { connectivity, featureFlags, scheduler };
+export { connectivity, featureFlags, scheduler, driveBridge };
 
 export const AUDIO_CACHE = 'spotplus-audio-v1';
 export const RECOVERY_CHECKPOINT_KEY = 'spotplus.recoveryCheckpoint.v1';
@@ -275,6 +276,7 @@ export const getMetrics = () => ({
   scheduler: scheduler.snapshot(),
   flags: featureFlags.get(),
   hasCheckpoint: !!readRecoveryCheckpoint(),
+  vehicle: driveBridge.getSnapshot(),
 });
 
 let token = 0;
@@ -1799,6 +1801,15 @@ function bindAudio(media) {
     else if (nearVisibilitySwitch) continuity.pauseReason = 'visibility';
     else continuity.pauseReason = 'os-interruption';
 
+    if (isFeatureEnabled('vehicleDriveBridge') && driveBridge.isEnabled()) {
+      driveBridge.noteInterruption({
+        reason: continuity.pauseReason,
+        isWireless: isWirelessOutputActive(),
+        documentHidden: !!globalThis.document?.hidden,
+        online: globalThis.navigator?.onLine !== false,
+      });
+    }
+
     if (nearVisibilitySwitch && !userPaused && pendingPlay && !audio.ended && isRealSrc() && !state.loading && !visibilityResumeAttempted) {
       visibilityResumeAttempted = true;
       const myGen = token;
@@ -2306,8 +2317,34 @@ export function buildSessionArtwork(t) {
   return entries;
 }
 let lastSessionMetaKey = '';
+function syncDriveBridgeActivation() {
+  if (!isFeatureEnabled('vehicleDriveBridge')) {
+    if (driveBridge.isEnabled()) driveBridge.disable();
+    return false;
+  }
+  if (!driveBridge.isEnabled()) {
+    driveBridge.enable({
+      media: audio,
+      commands: {
+        play: () => { updateSession(current()); if (isPaused()) toggle(); },
+        pause: () => { pause(); updateSession(current()); positionState(); },
+        previous: () => { prev(); updateSession(current()); },
+        next: () => { next(true); updateSession(current()); },
+        seekTo: (seekTime) => { seek(seekTime); },
+        stop: () => { pause(); },
+      },
+    });
+  } else {
+    driveBridge.setMedia(audio);
+  }
+  return true;
+}
 function updateSession(t) {
   if (!('mediaSession' in navigator) || !t) return;
+  if (syncDriveBridgeActivation()) {
+    driveBridge.syncMetadata(t);
+    return;
+  }
   const metaKey = `${t.id || ''}|${t.title || ''}|${t.artist || ''}|${t.album || ''}|${t.cover || ''}|${t.coverXl || ''}`;
   if (metaKey === lastSessionMetaKey && navigator.mediaSession.metadata) return;
   lastSessionMetaKey = metaKey;
@@ -2328,6 +2365,10 @@ function positionState(overridePos = null) {
   const pos = Math.max(0, Math.min(Number.isFinite(rawPos) ? rawPos : 0, d));
   const rawRate = isEmbed() ? 1 : Number(audio.playbackRate);
   const playbackRate = Number.isFinite(rawRate) && rawRate > 0 ? rawRate : 1;
+  if (syncDriveBridgeActivation()) {
+    driveBridge.syncPosition({ duration: d, playbackRate, position: pos, force: overridePos !== null });
+    return;
+  }
   try { navigator.mediaSession.setPositionState({ duration: d, playbackRate, position: pos }); } catch {}
 }
 // Lock screen and Control Center: previous/next song, like Spotify. iOS shows ±10-second buttons instead when
@@ -2335,6 +2376,10 @@ function positionState(overridePos = null) {
 // play), so they are registered again every time a song loads or starts playing.
 function sessionHandlers() {
   if (!('mediaSession' in navigator)) return;
+  if (syncDriveBridgeActivation()) {
+    driveBridge.rebindActionHandlers();
+    return;
+  }
   const h = (a, fn) => { try { navigator.mediaSession.setActionHandler(a, fn); } catch {} };
   h('play', () => { updateSession(current()); if (isPaused()) toggle(); });
   h('pause', () => { pause(); updateSession(current()); positionState(); });

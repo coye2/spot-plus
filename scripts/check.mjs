@@ -15,6 +15,7 @@ async function jsFiles(dir) {
 const files = [
   ...(await jsFiles('js')),
   ...(await jsFiles('workers/spotify-relay/src')),
+  ...(await jsFiles('workers/media-gateway/src')),
   'sw.js',
   'canvas-bridge/worker.js',
   'canvas-bridge/access.js',

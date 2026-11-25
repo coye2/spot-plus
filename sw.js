@@ -1,11 +1,12 @@
 // Spot+ service worker: offline app shell, cached cover art, and HTTP Range support for cached audio.
 // v40 includes version 2 account snapshots and incomplete-collection preservation.
-const SHELL_CACHE = 'spotplus-shell-v154';
+const SHELL_CACHE = 'spotplus-shell-v155';
 const IMG_CACHE = 'spotplus-img-v1';
 const AUDIO_CACHE = 'spotplus-audio-v1';
 const KEEP = [SHELL_CACHE, IMG_CACHE, AUDIO_CACHE, 'spotplus-live-voice-v1'];
 const SHELL = [
   './js/gate.js', './js/maintenance.js', './js/automix.js', './js/connectivity.js', './js/feature-flags.js', './js/request-scheduler.js',
+  './js/vehicle/drive-bridge.js', './js/vehicle/gateway-pairing.js', './js/vehicle/microbridge-protocol.js', './js/vehicle/microbridge-client.js',
   './js/playback/spotify-capabilities.js', './js/playback/spotify-auth.js', './js/playback/spotify-device.js', './js/playback/spotify-provider.js',
   './js/ui-engine.js', './js/autoeq.js', './js/dsp.js', './js/lyrics-engine.js', './js/visualizer.js', './js/audio-studio-ui.js', './css/spotplus-ui.css',
   './js/playback-telemetry.js', './js/source-router.js', './js/memory-engine.js', './js/buffer-engine.js', './js/predictive-pipeline.js',

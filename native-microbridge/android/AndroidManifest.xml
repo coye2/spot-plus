@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Minimal Android Native Microbridge Manifest (TWA + Media3 MediaLibraryService + Android Auto) -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.coye2.spotplus.microbridge">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <application
+        android:allowBackup="false"
+        android:label="Spot+"
+        android:supportsRtl="true">
+
+        <!-- Required Android Auto media capability declaration -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+
+        <!-- Thin Trusted Web Activity host: renders the real Spot+ PWA without duplicating UI -->
+        <activity
+            android:name=".SpotPlusTwaActivity"
+            android:exported="true"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Verified via https://coye2.github.io/.well-known/assetlinks.json -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="coye2.github.io"
+                    android:pathPrefix="/spot-plus" />
+            </intent-filter>
+        </activity>
+
+        <!-- Single authoritative background playback service & Android Auto browse tree -->
+        <service
+            android:name=".SpotPlusMediaService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaLibraryService" />
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>
