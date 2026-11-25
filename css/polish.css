@@ -474,3 +474,24 @@ html[data-maintenance="1"] .maint-screen{display:flex!important}
 .maint-error{margin:8px 0 0;font-size:12px;color:#ff8a8a}
 @media (prefers-reduced-motion:reduce){.maint-eq i{animation:none}}
 
+.access-banner{position:fixed;z-index:35;left:12px;right:12px;bottom:calc(var(--nav-h, 64px) + var(--bar-h, 64px) + var(--sb, 0px) + 10px);display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-radius:14px;background:var(--bg2);color:var(--text);border:1px solid var(--line);box-shadow:0 10px 30px rgba(0,0,0,.35)}
+.access-banner[hidden]{display:none}
+.access-banner p{margin:0;font-size:13px;font-weight:650}
+.access-dlg{width:min(440px,calc(100vw - 28px));max-height:min(92dvh,760px);overflow:auto}
+.access-way{margin:0 0 14px;padding-top:4px}
+.access-way h4{margin:0 0 8px;font-size:15px}
+.access-way .btn{margin:0 8px 8px 0}
+.access-code{margin:0 0 10px;font-size:28px;font-weight:800;letter-spacing:.18em}
+.access-hold{margin:0 0 8px;font-size:13px;line-height:1.4}
+.access-kicker{margin:0 0 6px;font-size:11px;font-weight:750;letter-spacing:.12em;text-transform:uppercase;color:var(--accent,#1ed760)}
+.access-dlg h3{margin:0 0 8px;font-size:22px;letter-spacing:-.03em}
+.access-copy,.access-help,.access-fine{margin:0 0 12px;font-size:14px;line-height:1.45;color:var(--muted)}
+.access-fine{font-size:12px;margin:12px 0 0}
+.access-star{display:flex;justify-content:center;margin:4px 0 12px}
+.access-login{display:block;font-size:13px;font-weight:650;margin:0 0 8px}
+.access-login input{display:block;width:100%;margin-top:6px;font-weight:500}
+.access-error{margin:0 0 8px;font-size:13px;line-height:1.4;color:#ff8a8a}
+.access-oauth{width:100%;margin-top:8px}
+html[data-access="limited"] [data-act="next"],html[data-access="limited"] [data-act="prev"]{opacity:.45}
+@media (min-width:900px){.access-banner{left:50%;right:auto;transform:translateX(-50%);width:min(560px,calc(100vw - 48px));bottom:calc(var(--bar-h, 84px) + 16px)}}
+

@@ -1,11 +1,15 @@
 // Live counters for Spot+: total installs (one per device, stored for good) and people listening
 // right now (players check in while music plays; kept in memory, counted over the last ~3 minutes).
+import { handleAccess } from './access.js';
 const LIVE_WINDOW = 540_000; // listeners check in every 4 minutes
 export class InstallCounter {
   constructor(state) { this.state = state; this.live = new Map(); this.ipDay = new Map(); }
   liveCount(now = Date.now()) { for (const [id, at] of this.live) if (now - at > LIVE_WINDOW) this.live.delete(id); return this.live.size; }
   async fetch(request) {
     const url = new URL(request.url), now = Date.now();
+    if (url.pathname === '/access' || url.pathname.startsWith('/access/')) {
+      return handleAccess(request, { storage: this.state.storage, fetcher: this.fetcher || fetch, now: this.now || now });
+    }
     const installs = async () => (await this.state.storage.get('installs')) || 0;
     if (request.method === 'POST') {
       const body = await request.json().catch(() => ({}));

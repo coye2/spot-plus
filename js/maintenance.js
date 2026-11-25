@@ -104,6 +104,14 @@ export function isAllowedSpotifyId(id) {
   return !!digest && ALLOWED_ID_HASHES.some((allowed) => safeEqual(digest, allowed));
 }
 
+/** Owner devices are excluded from the base-tier allowance. A session token or the owner Spotify id both count. */
+export function isOwnerProof(value, { origin, now = Date.now() } = {}) {
+  const text = String(value || '').trim();
+  if (!text || text.length > 600) return false;
+  if (text.startsWith('{')) return verifySessionToken(text, { origin, now });
+  return isAllowedSpotifyId(text);
+}
+
 function randomNonce() {
   try {
     if (globalThis.crypto?.getRandomValues) {

@@ -2,6 +2,14 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 2.2.7 — Base tier daily limit, unlocked by support
+_2026-11-25_
+
+- Daily limit: on the base tier, Skip, Insta Play, and Insta Choose share 300 uses a day. The count is kept per device and per network address, and either one running out is enough.
+- After the limit is reached, the song already playing can finish and the queue can still advance. Skip, Insta Play, Insta Choose, seeking, new downloads, repeat, Canvas, and early loading of the next song stay off until the next day.
+- Unlock: star coye2/spot-plus on GitHub and verify the star, join the Discord and verify membership, or refer a friend who installs Spot+ and enters your code. Another browser, phone, or VPN on the same device does not count as that friend.
+- Your own devices are excluded from the limit, including devices linked with the same library sync key. They do not spend the allowance.
+
 ## 2.2.6 — Vehicle integration architecture: Spot+ Drive bridge, OpenSubsonic gateway PoC & Native Microbridge
 _2026-11-25_
 

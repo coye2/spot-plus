@@ -48,6 +48,7 @@ import {shouldOnboard,showOnboarding} from './onboarding.js';
 import {shouldShowLanding,showLanding} from './landing.js';
 import {addLinks,syncLinks,loadLinks,cachedLinks,clearLinks,madeForYou,fetchPublic,rememberProfileAvatar} from './spotify-links.js';
 import {bindPlayerDismiss} from './player-gestures.js';
+import {accessSettingsHtml, isFeatureRestricted, openAccessPrompt, startAccess} from './access-ui.js';
 import {COMPANION_INSTALL_URL,connectionDevice,setupHtml,spotifyConnectionURLs,helperInstallHtml,copyHelperInstallLink,spotifyProfileHtml,markStep} from './account-setup.js';
 let accountDevice=connectionDevice(navigator.userAgent,navigator.platform,navigator.maxTouchPoints);
 import {validateAccountSnapshot,isAccountMessage,ACCOUNT_FILE_LIMIT,accountReadNotice} from './spotify-account.js';
@@ -844,6 +845,7 @@ async function viewSettings() {
 
   return `<div class="settings-page">
   <h1 class="settings-top">Settings</h1>
+  ${accessSettingsHtml()}
 
   <section class="box"><h2>Playback</h2>
     ${toggle('smartRadio', 'Smart Radio', 'When your queue ends, keep playing similar songs based on what you skip.')}
@@ -1096,7 +1098,7 @@ async function startRadio(t) {
     if (!artistId) return tt.set('No song mix found for this track');
     const r = await api.artistRadio(artistId);
     const list = [t, ...r.filter((x) => String(x.id) !== String(t.id))];
-    player.playList(list, 0, { shuffle: false, mix: true });
+    if (player.playList(list, 0, { shuffle: false, mix: true }) === false) { tt.close?.(); return; }
     tt.set(`Song Mix based on ${t.title}`);
   } catch (e) { tt.set(`Couldn't start song mix: ${e.message}`); }
 }
@@ -1128,6 +1130,7 @@ function refreshDl(){
   }
 }
 async function downloadTracks(tracks,{keep='',quiet=false}={}) {
+  if (isFeatureRestricted('download')) { if (!quiet) openAccessPrompt({ feature: 'download' }); return; }
   const todo = tracks.filter((t) => !t.local && !store.isDownloaded(t.id));
   if(['preview', 'deezer'].includes(store.getSettings().source)){if(!quiet)toast('Preview mode cannot download full songs. Choose a full audio source in Settings.');return;}
   if (!todo.length) { if(!quiet)toast('Already downloaded'); refreshDl(); return; }
@@ -1401,7 +1404,7 @@ async function handleAct(act, el) {
     case 'theme-export': downloadJson({app:'spotplus-theme',version:1,settings:themeSettings(store.getSettings())},'spotplus-theme.json');break;
     case 'theme-import': $('#themeImport').click();break;
     case 'focus-main': $('#main').focus();break;
-    case 'track-play': {if(jam.active&&!jam.host){const t=listOf(key).tracks[+el.dataset.i];if(t){jam.add(t);toast(`Added “${t.title}” to the Jam`);}break;}dj.stop();const tracks=visibleTracks(listOf(key).tracks,store.getSettings());const track=listOf(key).tracks[+el.dataset.i];const index=tracks.findIndex(t=>t.id===track?.id);if(index<0)return toast('Explicit content is turned off in Settings.');if(player.current()?.id===track.id)player.toggle();else player.playList(tracks,index,{shuffle:false});break;}
+    case 'track-play': {if(jam.active&&!jam.host){const t=listOf(key).tracks[+el.dataset.i];if(t){jam.add(t);toast(`Added “${t.title}” to the Jam`);}break;}dj.stop();const tracks=visibleTracks(listOf(key).tracks,store.getSettings());const track=listOf(key).tracks[+el.dataset.i];const index=tracks.findIndex(t=>t.id===track?.id);if(index<0)return toast('Explicit content is turned off in Settings.');if(player.current()?.id===track.id)player.toggle();else player.playList(tracks,index,{shuffle:false,intent:'insta-choose'});break;}
     case 'profile': profileMenu(); break;
     case 'rewind-import': $('#rewindImport').click();break;
     case 'rewind-range': rewindFilters.range=el.dataset.value;route({keepScroll:true});break;
@@ -1462,11 +1465,11 @@ async function handleAct(act, el) {
       if (tracks[i]) trackSheet(tracks[i], { ...meta, index: i });
       break;
     }
-    case 'play-all': dj.stop();player.playList(visibleTracks(listOf(key).tracks,store.getSettings()), 0, { shuffle: false }); break;
-    case 'shuffle-all': dj.stop();player.playList(visibleTracks(listOf(key).tracks,store.getSettings()), 0, { shuffle: true }); break;
+    case 'play-all': dj.stop();player.playList(visibleTracks(listOf(key).tracks,store.getSettings()), 0, { shuffle: false, intent: 'insta-play' }); break;
+    case 'shuffle-all': dj.stop();player.playList(visibleTracks(listOf(key).tracks,store.getSettings()), 0, { shuffle: true, intent: 'insta-play' }); break;
     case 'artist-radio': {
       const tt = toast('Starting radio…');
-      try { player.playList(await api.artistRadio(el.dataset.id), 0, { shuffle: false }); tt.close(); } catch (e) { tt.set(e.message); }
+      try { player.playList(await api.artistRadio(el.dataset.id), 0, { shuffle: false, intent: 'insta-play' }); tt.close(); } catch (e) { tt.set(e.message); }
       break;
     }
     case 'save-list': {
@@ -1544,6 +1547,7 @@ async function handleAct(act, el) {
     case 'jam-react': jam.react(el.dataset.emoji);break;
     case 'shuffle': player.toggleShuffle(); break;
     case 'repeat': player.cycleRepeat(); break;
+    case 'access-unlock': openAccessPrompt(); break;
     case 'like-current': { const t = player.current(); if (t) toast(store.toggleLike(t) ? 'Added to Liked Songs' : 'Removed from Liked Songs'); break; }
     case 'np-open': openNP(); break;
     case 'np-close': closeNP(); break;
@@ -1659,7 +1663,7 @@ async function handleAct(act, el) {
       if (!cur.enabled) applyMixSettings(lastMixSec || 6, cur.preferredStyle);
       dj.stop();
       closeSheet();
-      player.playList(tracks, 0, { shuffle: false, mix: true });
+      if (player.playList(tracks, 0, { shuffle: false, mix: true, intent: 'insta-play' }) === false) break;
       toast(`Mixing ${tracks.length} songs · ${automix.MIX_MODES[cur.preferredStyle]?.label || 'Smart Mix'}`);
       break;
     }
@@ -2168,13 +2172,13 @@ function syncCanvas(retry=false){
   $('#npCoverButton').setAttribute('aria-pressed',String(inCover&&!canvasPreference));
   $('#npCanvasButton').classList.toggle('on',inCover&&canvasPreference);
   $('#npCanvasButton').setAttribute('aria-pressed',String(inCover&&canvasPreference));
-  canvasPlayer.sync(player.current(),{visible:npOpen&&inCover&&!document.hidden,enabled:canvasPreference&&!spoken.isSpoken(player.current()),playing:player.isPlaying()&&!player.state.loading,networkReady:hasLocalClip(player.current())||(!player.state.loading&&audioHasHeadroom(player.el)),retry});
+  canvasPlayer.sync(player.current(),{visible:npOpen&&inCover&&!document.hidden,enabled:canvasPreference&&!isFeatureRestricted('canvas')&&!spoken.isSpoken(player.current()),playing:player.isPlaying()&&!player.state.loading,networkReady:hasLocalClip(player.current())||(!player.state.loading&&audioHasHeadroom(player.el)),retry});
 }
 player.on('state',()=>syncCanvas());
 // Look up the next song's loop while this one plays, so it starts instantly.
 let loopPrefetched='';
 player.on('state',()=>{
-  if(!canvasPreference||!player.isPlaying()||!player.scheduler.canRun(7))return;
+  if(!canvasPreference||isFeatureRestricted('canvas')||!player.isPlaying()||!player.scheduler.canRun(7))return;
   const next=player.state.queue[player.state.index+1];
   if(!next||spoken.isSpoken(next)||next.id===loopPrefetched)return;
   loopPrefetched=next.id;
@@ -2880,7 +2884,7 @@ async function viewSpTrack(id){
   const t=spTrack(d);spArtists.learnFromTracks([t]);
   const k=reg([t],{name:t.title});
   const by=t.artistIds?.[0]?`<a href="#/sartist/${t.artistIds[0]}"><b>${esc(t.artist)}</b></a>`:`<b>${esc(t.artist)}</b>`;
-  setTimeout(()=>{if(location.hash==='#/sptrack/'+id&&!player.isPlaying())player.playList([t],0);},50);
+  setTimeout(()=>{if(location.hash==='#/sptrack/'+id&&!player.isPlaying())player.playList([t],0,{intent:'insta-choose'});},50);
   return header({cover:t.coverXl,kicker:'Song · from a Spotify link',title:t.title,sub:`${by}${d.year?' · '+d.year:''}`})+actions(k,`<button class="btn" data-act="share-song" data-key="${k}">${I.share}Share</button>`)+trackRows([t],k);
 }
 async function viewSpAlbum(id){
@@ -3228,6 +3232,7 @@ function dismissWelcome(){try{localStorage.setItem('spotplus.welcome','1');}catc
 }
 window.dispatchEvent(new Event('spotplus-ready'));
 /* ---------------- Live counters ---------------- */
+startAccess({toast:(msg)=>toast(msg),onChange:()=>{if(location.hash.startsWith('#/settings'))route({keepScroll:true});}});
 live.countInstall({standalone:isStandalone()});
 window.addEventListener('appinstalled',()=>live.countInstall({standalone:true}));
 const beat=()=>live.heartbeat(player.isPlaying());
@@ -3241,7 +3246,7 @@ function openSnake(){
   queue.slice(Math.max(0,index),index+250).forEach(add);
   if(songs.length<40)[...store.getLikes(),...store.getRecent().filter(x=>x?.type!=="album"&&x?.title)].slice(0,200).forEach(add);
   if(songs.length<3){toast('Play a playlist first: Snake is made of its songs');return;}
-  snake.open({songs,accent:getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#1ed760',onPlay:list=>{player.playList(list,0);toast(`Playing the ${list.length} songs you ate`);}});
+  snake.open({songs,accent:getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#1ed760',onPlay:list=>{if(player.playList(list,0,{intent:'insta-play'})===false)return;toast(`Playing the ${list.length} songs you ate`);}});
 }
 async function askRating(current=rating.myRating()){
   const answer=await rating.openDialog({current});

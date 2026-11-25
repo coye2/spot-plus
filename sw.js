@@ -1,6 +1,6 @@
 // Spot+ service worker: offline app shell, cached cover art, and HTTP Range support for cached audio.
 // v40 includes version 2 account snapshots and incomplete-collection preservation.
-const SHELL_CACHE = 'spotplus-shell-v154';
+const SHELL_CACHE = 'spotplus-shell-v155';
 const IMG_CACHE = 'spotplus-img-v1';
 const AUDIO_CACHE = 'spotplus-audio-v1';
 const KEEP = [SHELL_CACHE, IMG_CACHE, AUDIO_CACHE, 'spotplus-live-voice-v1'];
@@ -11,7 +11,7 @@ const SHELL = [
   './js/ui-engine.js', './js/autoeq.js', './js/dsp.js', './js/lyrics-engine.js', './js/visualizer.js', './js/audio-studio-ui.js', './css/spotplus-ui.css',
   './js/playback-telemetry.js', './js/source-router.js', './js/memory-engine.js', './js/buffer-engine.js', './js/predictive-pipeline.js',
   './js/profile-photo.js', './js/backgrounds.js', './js/background-catalog.js', './css/backgrounds.css',
-  './js/audio-selection.js','./js/player-colors.js','./js/spotify-stats.js','./js/listening-history.js','./js/history-import-worker.js','./js/rewind.js','./js/stats-api.js','./js/canvas-cache.js','./js/jam.js','./js/jam-mesh.js','./js/relay-sync.js','./js/spotify-links.js','./js/vendor/nostr-sign.js','./js/onboarding.js','./js/notify.js','./js/landing.js','./js/fx.js','./js/spoken.js','./js/generator.js','./js/mixes.js','./js/library-sync.js','./js/live-stats.js','./js/changelog.js','./js/cors-probe.js','./js/pitch-worklet.js','./js/boot.js','./css/landing.css','./icons/shot-home.webp','./icons/shot-coll.webp','./icons/shot-jam.webp','./js/vendor/qrcode.js','./css/rewind.css','./css/polish.css',
+  './js/audio-selection.js','./js/player-colors.js','./js/spotify-stats.js','./js/listening-history.js','./js/history-import-worker.js','./js/rewind.js','./js/stats-api.js','./js/canvas-cache.js','./js/jam.js','./js/jam-mesh.js','./js/relay-sync.js','./js/spotify-links.js','./js/vendor/nostr-sign.js','./js/onboarding.js','./js/notify.js','./js/landing.js','./js/fx.js','./js/spoken.js','./js/generator.js','./js/mixes.js','./js/library-sync.js','./js/live-stats.js','./js/access-policy.js','./js/access.js','./js/access-ui.js','./js/referral.js','./js/changelog.js','./js/cors-probe.js','./js/pitch-worklet.js','./js/boot.js','./css/landing.css','./icons/shot-home.webp','./icons/shot-coll.webp','./icons/shot-jam.webp','./js/vendor/qrcode.js','./css/rewind.css','./css/polish.css',
   './js/playback-policy.js',
   './js/canvas.js','./js/video-loops.js','./js/player-gestures.js','./js/account-setup.js','./js/dj-recognition.js','./js/live-voice.js','./js/live-voice-worker.js','./js/dj-dialogue.js','./js/vendor/supertonic-text.js',
   ...['afterhours','daylight','classic'].map(host=>'./audio/dj/'+host+'/preview.mp3'),
