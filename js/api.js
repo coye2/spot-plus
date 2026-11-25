@@ -4,7 +4,7 @@
 //   Lyrics   : LRCLib (time-synced)
 // Requests go from the listener's browser to public providers; availability and CORS vary.
 import { getSettings, getVideoCache, setVideoCache } from './store.js';
-import {loopQuality, prefersAac} from './playback-policy.js';
+import {loopQuality, networkTimeoutMs, prefersAac} from './playback-policy.js';
 import {rankAudioMatches,chooseAudioFormat,raceAudioSources} from './audio-selection.js';
 import {corsOK, knownCors} from './cors-probe.js';
 import { router, validateSourceCandidate, isVerifiedEquivalent } from './source-router.js';
@@ -13,6 +13,10 @@ import { bufferEngine } from './buffer-engine.js';
 import { nameMatch } from './search-rank.js';
 import { parseEnhancedLRC } from './lyrics-engine.js';
 import { telemetry } from './playback-telemetry.js';
+import { isFeatureEnabled } from './feature-flags.js';
+import { scheduler } from './request-scheduler.js';
+
+scheduler.onShed = () => telemetry.recordShedRequest();
 
 const DEEZER = 'https://api.deezer.com';
 const LRCLIB = 'https://lrclib.net/api';
@@ -560,7 +564,8 @@ const relayReadyListeners = new Set();
 // Cloudflare's free plan allows 100,000 requests a day across all Spot+ servers. When it answers 429 (limit
 // reached), extra requests (hedges, warm-ups, region checks) stop until the next day's reset.
 let limitedUntil = 0;
-export function noteWorkerLimit(status) {
+export function noteWorkerLimit(status, latencyMs = 0) {
+  scheduler.noteStatus(status, latencyMs);
   if (status !== 429) return;
   const reset = new Date(); reset.setUTCHours(24, 0, 30, 0);
   const first = limitedUntil <= Date.now();
@@ -588,16 +593,20 @@ function warmRegion(trackId) {
  */
 function probeRegions(trackId, regions, path, signal) {
   if (!regions.length || typeof fetch !== 'function') return Promise.resolve('');
-  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 12000);
+  const headTimeout = isFeatureEnabled('sPlusNetworkTimeouts')
+    ? networkTimeoutMs('head', globalThis.navigator?.connection)
+    : 12000;
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), headTimeout);
   const stop = () => ctl.abort();
   signal?.addEventListener?.('abort', stop, {once: true});
   let left = regions.length;
   const job = new Promise((resolve) => {
     for (const region of regions) {
+      const started = performance.now();
       telemetry.recordRelayRequest('yta-head');
       fetch(region + path, {method: 'HEAD', headers: {Range: 'bytes=0-1'}, credentials: 'omit', signal: ctl.signal})
         .then((r) => {
-          noteWorkerLimit(r.status);
+          noteWorkerLimit(r.status, performance.now() - started);
           if (r.status !== 206 && r.status !== 200) throw new Error('refused');
           relayWarm.set(trackId, {region, until: Date.now() + WARM_MS});
           noteRelayRegion(region, true);
@@ -716,6 +725,11 @@ async function bridgeMatches(t, signal) {
   signal?.throwIfAborted?.();
   const q = query(t);
   const key = q.toLowerCase();
+  const negKey = 'match:' + key;
+  if (isFeatureEnabled('sPlusNetworkTimeouts') && scheduler.negativeCache.has(negKey)) {
+    telemetry.recordNegativeCacheHit();
+    throw new Error('No match');
+  }
   const cached = matchMemo.get(key);
   if (cached && cached.expires > Date.now()) {
     const matches = best(cached.items, t);
@@ -730,17 +744,23 @@ async function bridgeMatches(t, signal) {
     telemetry.recordCoalescedRequest();
   } else {
     sharedJob = (async () => {
-      const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 3500);
+      const matchTimeout = isFeatureEnabled('sPlusNetworkTimeouts')
+        ? networkTimeoutMs('match', globalThis.navigator?.connection)
+        : 3500;
+      const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), matchTimeout);
+      const started = performance.now();
       try {
         telemetry.recordRelayRequest('match');
         const r = await fetch(MATCH_ENDPOINT + '?q=' + encodeURIComponent(q), {signal: ctl.signal, credentials: 'omit'});
-        noteWorkerLimit(r.status);
+        noteWorkerLimit(r.status, performance.now() - started);
         if (r.status === 404) matchDown = Date.now() + 3600e3;
         if (!r.ok) throw new Error('Match lookup unavailable');
         const items = ((await r.json()).items || []).slice(0, 8);
         if (items.length) {
           matchMemo.set(key, { items, expires: Date.now() + MATCH_MEMO_TTL });
           if (matchMemo.size > 200) matchMemo.delete(matchMemo.keys().next().value);
+        } else if (isFeatureEnabled('sPlusNetworkTimeouts')) {
+          scheduler.negativeCache.set(negKey, 60_000);
         }
         return items;
       } finally {
@@ -1585,7 +1605,7 @@ function cachedStream(key){
   return stream;
 }
 function forget(key){memoryEngine.forgetStream(key);}
-export function clearStreamCache(){streamDown=0;matchDown=0;failedInstances.clear();choppy.clear();matchMemo.clear();matchInFlight.clear();inFlightResolves.clear();router.reset();memoryEngine.clearStreams();for(const c of warmControllers.values())c.abort();warmups.clear();warmControllers.clear();}
+export function clearStreamCache(){streamDown=0;matchDown=0;failedInstances.clear();choppy.clear();matchMemo.clear();matchInFlight.clear();inFlightResolves.clear();scheduler.negativeCache.clear();router.reset();memoryEngine.clearStreams();for(const c of warmControllers.values())c.abort();warmups.clear();warmControllers.clear();}
 export function cancelPrewarm(except) {
   const keep = except && streamKey(except);
   for (const [key,controller] of warmControllers) if (key !== keep) { controller.abort(); warmControllers.delete(key); warmups.delete(key); }

@@ -6,10 +6,12 @@ import { NextAudioBuffer } from './audio-buffer.js';
 import {
   audioHasHeadroom,
   bufferedAhead,
+  canSafelyCrossfade,
   mediaWarmHeadroom,
   KEEP_WARM_AFTER_PAUSE_MS,
   prefersAac,
   seamlessHandoffWindow,
+  shouldPreloadNext,
   stallBudget,
 } from './playback-policy.js';
 import { YouTubeEmbedPlayer } from './yt-embed.js';
@@ -22,10 +24,13 @@ import { memoryEngine } from './memory-engine.js';
 import { effectiveMixSeconds, orderForMix, runCrossfade, MIX_STYLE_IDS, MIX_CURVES } from './automix.js';
 import { SpotifyPlaybackProvider } from './playback/spotify-provider.js';
 import { connectivity } from './connectivity.js';
+import { featureFlags, isFeatureEnabled } from './feature-flags.js';
+import { scheduler } from './request-scheduler.js';
 
-export { connectivity };
+export { connectivity, featureFlags, scheduler };
 
 export const AUDIO_CACHE = 'spotplus-audio-v1';
+export const RECOVERY_CHECKPOINT_KEY = 'spotplus.recoveryCheckpoint.v1';
 
 export const STATES = Object.freeze({
   IDLE: 'IDLE',
@@ -33,11 +38,31 @@ export const STATES = Object.freeze({
   PREPARING: 'PREPARING',
   BUFFERING: 'BUFFERING',
   PLAYING: 'PLAYING',
+  PAUSED: 'PAUSED',
+  SEEKING: 'SEEKING',
   STALLED: 'STALLED',
   RECOVERING: 'RECOVERING',
   ENDED: 'ENDED',
   FAILED: 'FAILED',
 });
+
+export const VALID_TRANSITIONS = Object.freeze({
+  IDLE: new Set(['IDLE', 'RESOLVING', 'PREPARING', 'BUFFERING', 'PLAYING', 'PAUSED', 'FAILED']),
+  RESOLVING: new Set(['IDLE', 'RESOLVING', 'PREPARING', 'BUFFERING', 'PLAYING', 'PAUSED', 'RECOVERING', 'FAILED']),
+  PREPARING: new Set(['IDLE', 'RESOLVING', 'PREPARING', 'BUFFERING', 'PLAYING', 'PAUSED', 'RECOVERING', 'FAILED']),
+  BUFFERING: new Set(['IDLE', 'RESOLVING', 'PREPARING', 'BUFFERING', 'PLAYING', 'PAUSED', 'SEEKING', 'STALLED', 'RECOVERING', 'ENDED', 'FAILED']),
+  PLAYING: new Set(['IDLE', 'RESOLVING', 'PREPARING', 'BUFFERING', 'PLAYING', 'PAUSED', 'SEEKING', 'STALLED', 'RECOVERING', 'ENDED', 'FAILED']),
+  PAUSED: new Set(['IDLE', 'RESOLVING', 'PREPARING', 'BUFFERING', 'PLAYING', 'PAUSED', 'SEEKING', 'RECOVERING', 'ENDED', 'FAILED']),
+  SEEKING: new Set(['IDLE', 'RESOLVING', 'PREPARING', 'BUFFERING', 'PLAYING', 'PAUSED', 'SEEKING', 'STALLED', 'RECOVERING', 'ENDED', 'FAILED']),
+  STALLED: new Set(['IDLE', 'RESOLVING', 'PREPARING', 'BUFFERING', 'PLAYING', 'PAUSED', 'SEEKING', 'STALLED', 'RECOVERING', 'ENDED', 'FAILED']),
+  RECOVERING: new Set(['IDLE', 'RESOLVING', 'PREPARING', 'BUFFERING', 'PLAYING', 'PAUSED', 'STALLED', 'RECOVERING', 'ENDED', 'FAILED']),
+  ENDED: new Set(['IDLE', 'RESOLVING', 'PREPARING', 'BUFFERING', 'PLAYING', 'PAUSED', 'ENDED', 'FAILED']),
+  FAILED: new Set(['IDLE', 'RESOLVING', 'PREPARING', 'BUFFERING', 'PLAYING', 'PAUSED', 'RECOVERING', 'FAILED']),
+});
+
+export function canTransition(from, to) {
+  return !!VALID_TRANSITIONS[from]?.has(to);
+}
 
 function configureAudioElement(media) {
   if (!media) return media;
@@ -176,6 +201,8 @@ export const state = {
   repeat: 'off',
   loading: false,
   phase: STATES.IDLE,
+  lastPhase: STATES.IDLE,
+  phaseHistory: [],
   source: null,
   offline: false,
   needsTap: false,
@@ -183,6 +210,13 @@ export const state = {
 };
 
 function setPhase(phase) {
+  if (!phase) return;
+  const prev = state.phase;
+  if (isFeatureEnabled('sPlusStateMachine') && prev !== phase) {
+    state.lastPhase = prev;
+    state.phaseHistory.push({ from: prev, to: phase, valid: canTransition(prev, phase), at: Date.now() });
+    if (state.phaseHistory.length > 16) state.phaseHistory.shift();
+  }
   state.phase = phase;
   state.loading = phase === STATES.RESOLVING || phase === STATES.PREPARING || phase === STATES.BUFFERING || phase === STATES.RECOVERING;
 }
@@ -210,7 +244,9 @@ export function pause() {
     cancelLoad?.abort();
     ++token;
     clearStall();
-    setPhase(STATES.IDLE);
+    setPhase(current() && isFeatureEnabled('sPlusStateMachine') ? STATES.PAUSED : STATES.IDLE);
+  } else if (current() && isFeatureEnabled('sPlusStateMachine')) {
+    setPhase(STATES.PAUSED);
   }
   if (isSpotifyOfficial()) spotifyPlayback.pause();
   else if (yt.active) yt.pause();
@@ -228,12 +264,16 @@ export const getContinuityState = () => ({
 });
 export const getMetrics = () => ({
   phase: state.phase,
+  lastPhase: state.lastPhase,
   continuity: getContinuityState(),
   connectivity: connectivity.getSnapshot(),
   telemetry: telemetry.snapshot(),
   memory: memoryEngine.stats(),
   router: router.report(),
   buffer: bufferEngine.profile(),
+  scheduler: scheduler.snapshot(),
+  flags: featureFlags.get(),
+  hasCheckpoint: !!readRecoveryCheckpoint(),
 });
 
 let token = 0;
@@ -248,9 +288,11 @@ let pendingPlay = true;
 let userPaused = false;
 const continuity = {
   intent: 'idle', // 'idle' | 'playing' | 'paused'
-  pauseReason: 'none', // 'none' | 'user' | 'visibility' | 'os-interruption' | 'route-change' | 'loading' | 'ended' | 'error' | 'offline'
+  pauseReason: 'none', // 'none' | 'user' | 'visibility' | 'os-interruption' | 'route-change' | 'loading' | 'ended' | 'error' | 'offline' | 'os-terminated-checkpoint'
   lastLifecycleEvent: '',
+  restoredFromCheckpoint: false,
 };
+let queueMutatedAt = 0;
 const nextBuffer = new NextAudioBuffer();
 const skipTracker = new SkipTracker();
 const activation = new ActivationTracker();
@@ -478,6 +520,11 @@ function recoverMedia(mediaErr = null) {
     readyState: audio.readyState || 0,
   });
 
+  if (diagnosis.category === 'network_starvation') telemetry.recordFailure('network');
+  else if (diagnosis.category === 'decoder_error' || diagnosis.category === 'unsupported_codec') telemetry.recordFailure('codec');
+  else if (diagnosis.category === 'url_expired' || diagnosis.category === 'source_unreachable') telemetry.recordFailure('upstream');
+  else if (diagnosis.category !== 'user_paused') telemetry.recordFailure('client');
+
   if (diagnosis.retryMode === 'resume' && audio.readyState >= 2 && pendingPlay) {
     setPhase(STATES.BUFFERING);
     audio.play().then(() => telemetry.endRecovery(recStart, true)).catch(() => telemetry.endRecovery(recStart, false));
@@ -585,11 +632,29 @@ function recoverMedia(mediaErr = null) {
 }
 
 function maybeMix() {
-  // Never run dual-element crossfade while backgrounded/locked so iOS keeps the single-element audio session intact.
-  if (!mixSeconds || mixing || globalThis.document?.hidden || state.repeat === 'one' || audio.paused || !mediaLength()) return;
+  // Never run dual-element crossfade while backgrounded/locked or on wireless AirPlay routes
+  // so iOS keeps the single-element native audio session intact.
+  if (!mixSeconds || mixing || state.repeat === 'one' || audio.paused || !mediaLength()) return;
   const curTrack = current();
   const nextTrack = state.queue[state.index + 1];
   if (!curTrack || !nextTrack || state.index >= state.queue.length - 1) return;
+  const entry = nextBuffer.entry;
+  const canWebAudio = !!(entry && canWebAudioCrossfade(audio, entry.media));
+  if (isFeatureEnabled('sPlusCrossfadeGuard')) {
+    const guard = canSafelyCrossfade({
+      isIOS: prefersAac(),
+      documentHidden: !!globalThis.document?.hidden,
+      wirelessActive: isWirelessOutputActive(),
+      effectsActive: effectsOn(),
+      mixSeconds,
+      elementVolumeSupported,
+      canWebAudio,
+    });
+    if (!guard.allowed) return;
+  } else {
+    if (globalThis.document?.hidden || isWirelessOutputActive()) return;
+    if (!canWebAudio && (!elementVolumeSupported || effectsOn())) return;
+  }
   const spokenTrack = !!(curTrack.direct || nextTrack.direct);
   const overlap = effectiveMixSeconds({
     seconds: mixSeconds,
@@ -601,13 +666,10 @@ function maybeMix() {
   if (!overlap) return;
   const left = mediaLength() - audio.currentTime;
   if (left > overlap || left < 0.75) return;
-  const entry = nextBuffer.entry;
   const minReady = left <= 3 ? 2 : 3;
   if (!entry || entry.key !== api.streamKey(nextTrack) || (entry.media.readyState || 0) < minReady) return;
-  // Require either hardware-timed Web Audio crossfade (works on iPhone/iPad!) or writable element volume (with effects off).
-  const canWebAudio = canWebAudioCrossfade(audio, entry.media);
-  if (!canWebAudio && (!elementVolumeSupported || effectsOn())) return;
   mixing = true;
+  telemetry.recordTrackCompleted();
   onFinish(curTrack);
   state.index++;
   errRetries = 0;
@@ -621,6 +683,7 @@ function maybeSeamless() {
   const key = nextTrack && api.streamKey(nextTrack);
   if (!key || !nextBuffer.isReady(key, 2) || !seamlessHandoffWindow(audio, mediaLength())) return;
   mixing = true;
+  telemetry.recordTrackCompleted();
   onFinish(current());
   state.index++;
   errRetries = 0;
@@ -691,6 +754,7 @@ const yt = new YouTubeEmbedPlayer({
       yt.play();
       emit('state');
     } else {
+      telemetry.recordTrackCompleted();
       onFinish(current());
       next(false);
     }
@@ -789,6 +853,7 @@ export const spotifyPlayback = new SpotifyPlaybackProvider({
       spotifyPlayback.play();
       emit('state');
     } else {
+      telemetry.recordTrackCompleted();
       onFinish(current());
       next(false);
     }
@@ -876,6 +941,7 @@ const isRealSrc = () => audio.src && !audio.src.startsWith('data:');
 window.addEventListener('pagehide', () => {
   continuity.lastLifecycleEvent = 'pagehide';
   telemetry.noteListeningStop();
+  saveRecoveryCheckpoint('pagehide');
 });
 
 let lastVisibilityChangeAt = 0;
@@ -986,6 +1052,7 @@ globalThis.document?.addEventListener?.('visibilitychange', () => {
   visibilityResumeAttempted = false;
   continuity.lastLifecycleEvent = globalThis.document.hidden ? 'hidden' : 'visible';
   if (globalThis.document.hidden) {
+    saveRecoveryCheckpoint('hidden');
     // Only iOS suspends Web Audio in the background; avoid unnecessary app-switch hiccups on Android/Desktop.
     if (prefersAac()) handOffForBackground();
     // Make sure the next song is prewarmed before the current song ends while screen is locked.
@@ -1010,9 +1077,22 @@ globalThis.window?.addEventListener?.('pageshow', (e) => {
   emit('state');
 });
 
+globalThis.window?.addEventListener?.('focus', () => {
+  continuity.lastLifecycleEvent = 'focus';
+  // Reconcile metadata/UI state quietly on focus without touching or reloading playing audio.
+  sessionHandlers();
+  positionState();
+});
+
+globalThis.window?.addEventListener?.('blur', () => {
+  continuity.lastLifecycleEvent = 'blur';
+  if (isPlaying()) saveRecoveryCheckpoint('blur');
+});
+
 globalThis.document?.addEventListener?.('freeze', () => {
   continuity.lastLifecycleEvent = 'freeze';
   if (continuity.intent === 'playing' && !userPaused) continuity.pauseReason = 'os-interruption';
+  saveRecoveryCheckpoint('freeze');
 });
 
 globalThis.document?.addEventListener?.('resume', () => {
@@ -1387,6 +1467,7 @@ async function load(opts = {}) {
     prefetch();
   } catch (e) {
     if (my !== token) return;
+    telemetry.recordFailure(globalThis.navigator?.onLine === false ? 'network' : 'upstream');
     // Automatic never settles for a clip: a song with no full version anywhere is skipped, with a note.
     if (!state.offline && !t.local && !t.direct && store.getSettings().source === 'auto' && !opts.sourceOverride) { skipUnavailable(t); save(); return; }
     telemetry.markFailed(my);
@@ -1467,19 +1548,48 @@ function prefetch() {
   const netProfile = bufferEngine.profile(navigator.connection);
   const upcoming = predictUpcoming({ queue: state.queue, index: state.index, repeat: state.repeat });
   const next = upcoming[0]?.track || null;
-  if (store.getSettings().preloadNext === false || !netProfile.preloadStageA || !next || !isPlaying() || state.loading) {
-    nextBuffer.clear();
+  const dur = duration();
+  const pos = position();
+  const remainingSec = dur > 0 ? Math.max(0, dur - pos) : Infinity;
+  const relayLatencyMs = telemetry.snapshot().latencies.resolutionMs.p50 || 400;
+  const queueStable = !queueMutatedAt || (Date.now() - queueMutatedAt) >= 1200;
+  const adaptive = isFeatureEnabled('sPlusAdaptivePreload')
+    ? shouldPreloadNext({
+      remainingSec,
+      durationSec: dur || 180,
+      bufferedSec: bufferedAhead(audio),
+      connection: navigator.connection,
+      relayLatencyMs,
+      isRapidSkipping: skipTracker.isRapidSkipping(),
+      deviceMemoryGb: globalThis.navigator?.deviceMemory || 4,
+      queueStable,
+      pressureLevel: scheduler.getPressure(),
+      preloadSetting: store.getSettings().preloadNext !== false,
+    })
+    : {
+      stageA: store.getSettings().preloadNext !== false && netProfile.preloadStageA,
+      stageB: netProfile.preloadStageB && !skipTracker.isRapidSkipping(),
+      delayMs: skipTracker.isRapidSkipping() ? 900 : Math.min(skipTracker.stageBDelayMs(), 260),
+      reason: 'legacy',
+    };
+
+  if (!adaptive.stageA || !netProfile.preloadStageA || !next || !isPlaying() || state.loading) {
+    if (!next || store.getSettings().preloadNext === false) nextBuffer.clear();
+    if (next && isPlaying() && !state.loading && adaptive.delayMs > 0) {
+      prefetchTimer = setTimeout(() => { if (generation === warmGeneration && isPlaying() && !state.loading) prefetch(); }, adaptive.delayMs);
+      prefetchTimer.unref?.();
+    }
     return;
   }
   // Use Math.max (never Math.min!) so unstable/normal connections build real buffered headroom before opening Player B.
   const needHeadroom = Math.max(netProfile.headroomSec, mediaWarmHeadroom(navigator.connection));
-  const stageADelay = skipTracker.isRapidSkipping() ? 900 : Math.min(skipTracker.stageBDelayMs(), 260);
+  const stageADelay = adaptive.delayMs;
 
   const scheduleStageB = (source) => {
     const attemptStageB = () => {
       if (generation !== warmGeneration || !isPlaying() || state.loading || !source) return;
       if (source.kind === 'youtube-embed') { yt.preload(source.videoId); return; }
-      const allowStageB = netProfile.preloadStageB && (!effectsOn() || mixSeconds > 0) && !isAirPlayActive() && !skipTracker.isRapidSkipping();
+      const allowStageB = adaptive.stageB && netProfile.preloadStageB && (!effectsOn() || mixSeconds > 0) && !isAirPlayActive() && !skipTracker.isRapidSkipping();
       if (!allowStageB) return;
       if (!isEmbed() && !audioHasHeadroom(audio, Math.max(3, needHeadroom - 1))) {
         prefetchTimer = setTimeout(attemptStageB, 1000);
@@ -1504,7 +1614,7 @@ function prefetch() {
         return;
       }
 
-      if (next && !next.local && store.getSettings().source === 'auto') api.prefetchBackup(next);
+      if (next && !next.local && store.getSettings().source === 'auto' && scheduler.getPressure() === 'normal') api.prefetchBackup(next);
 
       // Stage A: resolve candidate sources for next track and warm 1 relay edge early (bounded to 1 track).
       let source = await (api.prewarm(next) || api.resolve(next));
@@ -1604,6 +1714,7 @@ function songFinished() {
     emit('state');
     audio.play().catch(() => load({ startAt: 0, trigger: 'repeat-one' }));
   } else {
+    telemetry.recordTrackCompleted();
     onFinish(current());
     if (!mixing) next(false);
   }
@@ -1696,7 +1807,9 @@ function bindAudio(media) {
       }, 120);
       t.unref?.();
     }
-    if (state.phase === STATES.PLAYING || state.phase === STATES.STALLED) setPhase(STATES.IDLE);
+    if (state.phase === STATES.PLAYING || state.phase === STATES.STALLED || state.phase === STATES.SEEKING) {
+      setPhase(current() && !audio.ended && isFeatureEnabled('sPlusStateMachine') ? STATES.PAUSED : STATES.IDLE);
+    }
     if ('mediaSession' in navigator) {
       // Keep Lock Screen showing 'playing' during active track loads/skips so controls never drop out.
       navigator.mediaSession.playbackState = (state.loading && pendingPlay && !userPaused) ? 'playing' : 'paused';
@@ -1735,6 +1848,10 @@ function bindAudio(media) {
   });
   listen('seeked', () => {
     telemetry.endSeek();
+    if (state.phase === STATES.SEEKING) {
+      setPhase(audio.paused ? (current() ? STATES.PAUSED : STATES.IDLE) : STATES.PLAYING);
+      emit('state');
+    }
   });
   listen('progress', () => {
     // Track buffer throughput quietly — emitting full UI state on every HTTP chunk caused main-thread stutter.
@@ -1933,6 +2050,10 @@ export function seek(sec) {
   if (!isRealSrc()) return;
   const info = inspectSeek(audio, sec, duration());
   telemetry.beginSeek(info.targetSec);
+  if (isFeatureEnabled('sPlusStateMachine') && !info.inBuffer) {
+    setPhase(STATES.SEEKING);
+    emit('state');
+  }
   audio.currentTime = info.targetSec;
   if (info.inBuffer) telemetry.endSeek();
   emit('time');
@@ -1948,6 +2069,7 @@ export function setVolume(v) {
 }
 export function playNext(t) {
   if (!current()) return playList([t]);
+  queueMutatedAt = Date.now();
   const track = store.slim(t);
   state.queue.splice(state.index + 1, 0, track);
   if (state.original) state.original.push(track);
@@ -1956,20 +2078,23 @@ export function playNext(t) {
 export function addToQueue(tracks) {
   const arr = (Array.isArray(tracks) ? tracks : [tracks]).map(store.slim);
   if (!current()) return playList(arr);
+  queueMutatedAt = Date.now();
   state.queue.push(...arr);
   if (state.original) state.original.push(...arr);
   emit('state'); save(); prefetch();
 }
 export function removeAt(i) {
   if (i === state.index || i < 0 || i >= state.queue.length) return;
+  queueMutatedAt = Date.now();
   const [removed] = state.queue.splice(i, 1);
   if (state.original) { const originalIndex = state.original.indexOf(removed); if (originalIndex >= 0) state.original.splice(originalIndex, 1); }
   if (i < state.index) state.index--;
   emit('state'); save(); prefetch();
 }
-export function clearUpNext() { state.queue = state.queue.slice(0, state.index + 1); if (state.original) state.original = state.queue.slice(); emit('state'); save(); prefetch(); }
+export function clearUpNext() { queueMutatedAt = Date.now(); state.queue = state.queue.slice(0, state.index + 1); if (state.original) state.original = state.queue.slice(); emit('state'); save(); prefetch(); }
 export function moveQueue(from, to) {
   if (from <= state.index || to <= state.index || from >= state.queue.length || to >= state.queue.length) return;
+  queueMutatedAt = Date.now();
   const [track] = state.queue.splice(from, 1);
   state.queue.splice(to, 0, track);
   if (state.original) state.original = state.queue.slice();
@@ -2005,19 +2130,94 @@ export function useMatch(videoId) {
   load({ trigger: 'rematch' });
 }
 
-/* ---------- Persist queue between visits ---------- */
+/* ---------- Persist queue & durable recovery checkpoint between visits ---------- */
+const CHECKPOINT_MAX_AGE_MS = 24 * 3600 * 1000;
+
+export function saveRecoveryCheckpoint(reason = 'save', storage = globalThis.localStorage) {
+  if (!isFeatureEnabled('sPlusRecoveryCheckpoint')) return null;
+  const cur = current();
+  if (!cur || !state.queue.length) return null;
+  const start = Math.max(0, state.index - 20);
+  const sliced = state.queue.slice(start, state.index + 60);
+  const checkpoint = {
+    version: 1,
+    trackId: String(cur.id || ''),
+    track: store.slim(cur),
+    position: Math.max(0, Math.round((position() || restorePos || 0) * 100) / 100),
+    queue: sliced,
+    index: Math.max(0, state.index - start),
+    volume: volumeLevel,
+    intent: continuity.intent,
+    repeat: state.repeat,
+    shuffle: state.shuffle,
+    reason,
+    savedAt: Date.now(),
+  };
+  try {
+    storage?.setItem?.(RECOVERY_CHECKPOINT_KEY, JSON.stringify(checkpoint));
+    telemetry.recordCheckpoint('save');
+  } catch { /* storage full or private mode */ }
+  return checkpoint;
+}
+
+export function readRecoveryCheckpoint(storage = globalThis.localStorage, now = Date.now()) {
+  try {
+    const raw = storage?.getItem?.(RECOVERY_CHECKPOINT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.queue) || !parsed.queue.length) return null;
+    if (!parsed.savedAt || (now - parsed.savedAt) > CHECKPOINT_MAX_AGE_MS) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function clearRecoveryCheckpoint(storage = globalThis.localStorage) {
+  try { storage?.removeItem?.(RECOVERY_CHECKPOINT_KEY); } catch { /* ignore */ }
+}
+
+export function restoreFromCheckpoint({ ifIdle = true, storage = globalThis.localStorage } = {}) {
+  if (!isFeatureEnabled('sPlusRecoveryCheckpoint')) return null;
+  if (ifIdle && (isPlaying() || state.loading)) return null;
+  const cp = readRecoveryCheckpoint(storage);
+  if (!cp) return null;
+  if (typeof cp.volume === 'number') {
+    volumeLevel = Math.max(0, Math.min(1, cp.volume));
+    audio.volume = volumeLevel;
+    yt.setVolume(volumeLevel);
+  }
+  state.shuffle = !!cp.shuffle;
+  state.repeat = ['off', 'all', 'one'].includes(cp.repeat) ? cp.repeat : 'off';
+  state.queue = cp.queue;
+  state.index = Math.max(0, Math.min(cp.index || 0, cp.queue.length - 1));
+  restorePos = Math.max(0, Number(cp.position) || 0);
+  continuity.intent = cp.intent === 'playing' ? 'paused' : (cp.intent || 'idle');
+  continuity.pauseReason = cp.intent === 'playing' ? 'os-terminated-checkpoint' : 'none';
+  continuity.restoredFromCheckpoint = true;
+  if (current() && isFeatureEnabled('sPlusStateMachine')) setPhase(STATES.PAUSED);
+  telemetry.recordCheckpoint('restore');
+  updateSession(current());
+  emit('state');
+  return cp;
+}
+
 function save() {
   store.savePlayer({
     queue: state.queue.slice(Math.max(0, state.index - 50), state.index + 250),
     index: Math.min(state.index, 50),
     shuffle: state.shuffle, repeat: state.repeat, original: state.original, pos: position() || restorePos || 0, vol: volumeLevel,
   });
+  saveRecoveryCheckpoint('save');
 }
 export function restore({ ifIdle = false } = {}) {
   // Idempotent guard: never overwrite an active playing or loading session when re-entering the app.
   if (ifIdle && (isPlaying() || state.loading)) return;
   const s = store.loadPlayer();
-  if (!s) return;
+  if (!s) {
+    restoreFromCheckpoint({ ifIdle });
+    return;
+  }
   if (typeof s.vol === 'number') { volumeLevel = Math.max(0, Math.min(1, s.vol)); audio.volume = volumeLevel; yt.setVolume(volumeLevel); }
   state.shuffle = !!s.shuffle;
   state.repeat = ['off', 'all', 'one'].includes(s.repeat) ? s.repeat : 'off';
@@ -2030,6 +2230,13 @@ export function restore({ ifIdle = false } = {}) {
     }
     state.index = Math.max(0, Math.min(s.index || 0, s.queue.length - 1));
     restorePos = s.pos || 0;
+    const cp = isFeatureEnabled('sPlusRecoveryCheckpoint') ? readRecoveryCheckpoint() : null;
+    if (cp && String(cp.trackId) === String(current()?.id || '') && cp.position > restorePos && cp.savedAt) {
+      restorePos = cp.position;
+      continuity.restoredFromCheckpoint = true;
+      if (cp.intent === 'playing') continuity.pauseReason = 'os-terminated-checkpoint';
+      telemetry.recordCheckpoint('restore');
+    }
     updateSession(current());
     const t0 = setTimeout(() => {
       if (current() && !isRealSrc()) {

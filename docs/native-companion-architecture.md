@@ -62,6 +62,129 @@ Both companions reuse existing Spot+ contracts without adding paid servers:
 
 ## 3. Rollout Guidance
 
-- **Phase A (Shipped in v2.2.3)**: Full PWA reliability — AirPlay, W3C Remote Playback, `setSinkId`, hardened Lock Screen & Bluetooth AVRCP metadata/controls, and truthful CarPlay/Android Auto guidance in Settings & Connect.
-- **Phase B (Optional Future Milestone)**: Build the thin Android Media3 `MediaLibraryService` wrapper (can be tested immediately via Google's Desktop Head Unit emulator without Apple entitlement approval).
-- **Phase C (Optional Future Milestone)**: Apply for Apple's `com.apple.developer.carplay-audio` entitlement and ship the minimal Swift `CPTemplateApplicationSceneDelegate` companion.
+- **Phase A (Shipped in v2.2.3–v2.2.5)**: Full PWA reliability — AirPlay 2, W3C Remote Playback, `setSinkId`, hardened Lock Screen & Bluetooth AVRCP metadata/controls, durable OS-termination recovery checkpoints, and truthful CarPlay/Android Auto guidance in Settings & Connect.
+- **Phase B (Isolated Optional Android Companion PoC)**: Build the thin Android Media3 `MediaLibraryService` wrapper (can be tested immediately via Google's Desktop Head Unit emulator without Apple entitlement approval).
+- **Phase C (Isolated Optional iOS Companion PoC)**: Apply for Apple's `com.apple.developer.carplay-audio` entitlement and ship the minimal Swift `CPTemplateApplicationSceneDelegate` companion.
+
+---
+
+## 4. Isolated Phase B Proof-of-Concept Blueprints (Non-Production Reference)
+
+The snippets below are intentionally isolated reference blueprints for future native companion packages and do **not** alter Spot+'s zero-install PWA production architecture.
+
+### 4.1 Android Media3 (`SpotPlusMediaService.kt` + Manifest)
+
+```xml
+<!-- AndroidManifest.xml (isolated native companion module) -->
+<meta-data
+    android:name="com.google.android.gms.car.application"
+    android:resource="@xml/automotive_app_desc" />
+
+<service
+    android:name=".SpotPlusMediaService"
+    android:exported="true"
+    android:foregroundServiceType="mediaPlayback">
+    <intent-filter>
+        <action android:name="androidx.media3.session.MediaLibraryService" />
+        <action android:name="android.media.browse.MediaBrowserService" />
+    </intent-filter>
+</service>
+```
+
+```xml
+<!-- res/xml/automotive_app_desc.xml -->
+<automotiveApp>
+    <uses name="media" />
+</automotiveApp>
+```
+
+```kotlin
+// SpotPlusMediaService.kt (Jetpack Media3 1.4+)
+class SpotPlusMediaService : MediaLibraryService() {
+    private lateinit var player: ExoPlayer
+    private lateinit var session: MediaLibrarySession
+
+    override fun onCreate() {
+        super.onCreate()
+        val attrs = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+            .build()
+        player = ExoPlayer.Builder(this)
+            .setAudioAttributes(attrs, /* handleAudioFocus= */ true)
+            .setHandleAudioBecomingNoisy(true)
+            .build()
+        session = MediaLibrarySession.Builder(this, player, LibraryCallback()).build()
+    }
+
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = session
+
+    private inner class LibraryCallback : MediaLibrarySession.Callback {
+        override fun onGetLibraryRoot(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            val root = MediaItem.Builder()
+                .setMediaId("spotplus:root")
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle("Spot+")
+                        .setIsBrowsable(true)
+                        .setIsPlayable(false)
+                        .build()
+                ).build()
+            return Futures.immediateFuture(LibraryResult.ofItem(root, params))
+        }
+        // onGetChildren() -> returns Liked Songs, Playlists, Recent, Downloads from Spot+ Sync snapshot
+        // onAddMediaItems() -> resolves playable URI via existing Spot+ /match & /yta contracts
+    }
+
+    override fun onDestroy() {
+        session.release()
+        player.release()
+        super.onDestroy()
+    }
+}
+```
+
+### 4.2 iOS CarPlay (`CarPlaySceneDelegate.swift` + Entitlements)
+
+```xml
+<!-- SpotPlusCarPlay.entitlements -->
+<key>com.apple.developer.carplay-audio</key>
+<true/>
+```
+
+```swift
+// CarPlaySceneDelegate.swift (iOS 16+, CarPlay.framework + AVFoundation + MediaPlayer)
+import CarPlay
+import AVFoundation
+import MediaPlayer
+
+final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
+    private var interfaceController: CPInterfaceController?
+
+    func templateApplicationScene(
+        _ templateApplicationScene: CPTemplateApplicationScene,
+        didConnect interfaceController: CPInterfaceController
+    ) {
+        self.interfaceController = interfaceController
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+        try? AVAudioSession.sharedInstance().setActive(true)
+
+        let libraryTab = CPListTemplate(title: "Library", sections: [])
+        let recentTab = CPListTemplate(title: "Recent", sections: [])
+        let tabBar = CPTabBarTemplate(templates: [libraryTab, recentTab])
+        interfaceController.setRootTemplate(tabBar, animated: true, completion: nil)
+    }
+
+    func templateApplicationScene(
+        _ templateApplicationScene: CPTemplateApplicationScene,
+        didDisconnectInterfaceController interfaceController: CPInterfaceController
+    ) {
+        self.interfaceController = nil
+    }
+}
+```
+

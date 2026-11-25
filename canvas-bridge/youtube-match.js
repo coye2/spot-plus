@@ -2,7 +2,10 @@
 // so every Spot+ user after the first gets the answer instantly. Returns candidates only;
 // the app still checks each match itself before playing it.
 const headers = {'Content-Type':'application/json; charset=utf-8','X-Content-Type-Options':'nosniff'};
-const reply = (data,status=200,maxAge=0) => new Response(JSON.stringify(data),{status,headers:{...headers,'Cache-Control':maxAge?'public, max-age='+maxAge:'no-store'}});
+const reply = (data,status=200,maxAge=0,swr=0) => new Response(JSON.stringify(data),{
+  status,
+  headers:{...headers,'Cache-Control':maxAge?`public, max-age=${maxAge}${swr?`, stale-while-revalidate=${swr}`:''}`:'no-store'},
+});
 const SEARCH = 'https://www.youtube.com/youtubei/v1/search?prettyPrint=false';
 const seconds = text => String(text||'').split(':').reduce((n,p)=>n*60+(Number(p)||0),0);
 
@@ -31,7 +34,7 @@ export function parseSearch(data, limit = 8) {
 export async function youtubeMatch(request, {fetcher = fetch, cache, waitUntil = () => {}} = {}) {
   const url = new URL(request.url);
   const q = (url.searchParams.get('q') || '').replace(/\s+/g,' ').trim();
-  if (q.length < 2 || q.length > 200) return reply({error:'Provide a song and artist'},400);
+  if (q.length < 2 || q.length > 200 || /[\u0000-\u001f\u007f]/.test(q)) return reply({error:'Provide a song and artist'},400);
   const video = url.searchParams.get('type') === 'video';
   const key = new Request(url.origin + '/match?q=' + encodeURIComponent(q.toLowerCase()) + (video ? '&type=video' : ''));
   const cached = await cache?.match(key); if (cached) return cached;
@@ -46,7 +49,7 @@ export async function youtubeMatch(request, {fetcher = fetch, cache, waitUntil =
     const text = await response.text();
     if (text.length > 3_000_000) return reply({error:'Search unavailable'},502);
     const items = parseSearch(JSON.parse(text), video ? 10 : 8);
-    const result = reply({items}, 200, items.length ? 7 * 86400 : 3600);
+    const result = reply({items}, 200, items.length ? 7 * 86400 : 3600, items.length ? 7 * 86400 : 3600);
     if (cache) waitUntil(cache.put(key, result.clone()).catch(() => {}));
     return result;
   } catch { return reply({error:'Search unavailable'},503); }

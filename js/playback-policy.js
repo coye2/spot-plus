@@ -58,3 +58,129 @@ export function seamlessHandoffWindow(media, length = media?.duration) {
   const left = length - media.currentTime;
   return left > 0.04 && left <= 0.35;
 }
+
+/**
+ * Network-aware timeout budgets (ms) scaled by effective connection type, RTT, and Save-Data.
+ * Prevents premature aborts on slow cellular while keeping fast Wi-Fi snappy.
+ */
+export function networkTimeoutMs(kind = 'resolve', connection = globalThis.navigator?.connection) {
+  const base = {
+    match: 3500,
+    head: 9500,
+    resolve: 12000,
+    metadata: 8000,
+    backup: 6000,
+  }[kind] || 8000;
+
+  if (!connection) return base;
+  const eff = String(connection.effectiveType || '').toLowerCase();
+  const rtt = Number(connection.rtt) || 0;
+  const downlink = Number(connection.downlink) || 0;
+
+  let factor = 1;
+  if (eff === 'slow-2g' || eff === '2g') factor = 1.65;
+  else if (eff === '3g' || (downlink > 0 && downlink < 1.5)) factor = 1.35;
+  else if (rtt >= 400) factor = 1.3;
+  else if (rtt >= 200) factor = 1.15;
+  if (connection.saveData) factor = Math.max(factor, 1.25);
+
+  const scaled = Math.round(base * factor);
+  const maxByKind = { match: 7000, head: 16000, resolve: 22000, metadata: 15000, backup: 11000 }[kind] || 18000;
+  return Math.max(base, Math.min(maxByKind, scaled));
+}
+
+/**
+ * Capability- and condition-driven next-track preloading policy.
+ * Balances instant transitions against cellular data, memory, skip storms, and Worker load.
+ */
+export function shouldPreloadNext({
+  remainingSec = Infinity,
+  durationSec = 180,
+  bufferedSec = 0,
+  connection = globalThis.navigator?.connection,
+  relayLatencyMs = 400,
+  isRapidSkipping = false,
+  deviceMemoryGb = globalThis.navigator?.deviceMemory || 4,
+  queueStable = true,
+  pressureLevel = 'normal',
+  preloadSetting = true,
+} = {}) {
+  if (preloadSetting === false) {
+    return { stageA: false, stageB: false, delayMs: 0, reason: 'disabled-by-setting' };
+  }
+  if (pressureLevel === 'critical') {
+    return { stageA: false, stageB: false, delayMs: 0, reason: 'infra-critical' };
+  }
+  const eff = String(connection?.effectiveType || '').toLowerCase();
+  if (connection?.saveData || eff === 'slow-2g' || eff === '2g') {
+    return { stageA: false, stageB: false, delayMs: 0, reason: 'constrained-network' };
+  }
+  if (!queueStable) {
+    return { stageA: false, stageB: false, delayMs: 800, reason: 'queue-unstable' };
+  }
+
+  const lowMem = Number.isFinite(deviceMemoryGb) && deviceMemoryGb > 0 && deviceMemoryGb <= 1;
+  const slowNet = eff === '3g' || (Number(connection?.downlink) > 0 && Number(connection.downlink) < 1.5);
+  const highLatency = Number(relayLatencyMs) > 1800;
+
+  // Dynamic Stage B window: start buffering Player B later on constrained/elevated conditions,
+  // or earlier when relay latency is higher so transitions stay seamless without wasting data.
+  const leadSec = Math.max(18, Math.min(48, Math.round(22 + (Math.min(4000, Number(relayLatencyMs) || 400) / 250))));
+  const minHeadroom = slowNet ? 10 : 3;
+
+  if (isRapidSkipping) {
+    return { stageA: true, stageB: false, delayMs: 950, reason: 'rapid-skip-defer-stage-b' };
+  }
+  if (pressureLevel === 'elevated') {
+    // Under elevated Worker load, only warm when near the end of the track (last 25s) and skip speculative Stage B.
+    const nearEnd = !Number.isFinite(remainingSec) || remainingSec <= 25 || durationSec <= 35;
+    return {
+      stageA: nearEnd,
+      stageB: false,
+      delayMs: nearEnd ? 400 : 1200,
+      reason: nearEnd ? 'elevated-near-end' : 'elevated-wait-near-end',
+    };
+  }
+
+  const allowStageB = !lowMem && !slowNet && (bufferedSec >= minHeadroom || remainingSec <= leadSec);
+  const delayMs = highLatency ? 150 : 240;
+  return {
+    stageA: true,
+    stageB: allowStageB,
+    delayMs,
+    reason: lowMem ? 'low-memory-stage-a-only' : slowNet ? 'slow-net-stage-a-only' : 'ready',
+  };
+}
+
+/**
+ * Capability-driven crossfade guard.
+ * On iOS backgrounded PWAs or wireless AirPlay routes, uninterrupted native playback strictly outranks
+ * dual-element crossfade because iOS suspends Web Audio / secondary audio pipelines in those contexts.
+ */
+export function canSafelyCrossfade({
+  isIOS = false,
+  documentHidden = false,
+  wirelessActive = false,
+  effectsActive = false,
+  mixSeconds = 0,
+  elementVolumeSupported = false,
+  canWebAudio = false,
+} = {}) {
+  if (!mixSeconds || mixSeconds <= 0) {
+    return { allowed: false, mode: 'disabled', reason: 'mix-off' };
+  }
+  if (documentHidden) {
+    return { allowed: false, mode: 'disabled', reason: isIOS ? 'ios-background-protection' : 'document-hidden' };
+  }
+  if (wirelessActive) {
+    return { allowed: false, mode: 'disabled', reason: 'wireless-airplay-protection' };
+  }
+  if (canWebAudio) {
+    return { allowed: true, mode: 'webaudio', reason: 'webaudio-equal-power' };
+  }
+  if (elementVolumeSupported && !effectsActive && !isIOS) {
+    return { allowed: true, mode: 'element', reason: 'element-volume-ramp' };
+  }
+  return { allowed: false, mode: 'disabled', reason: isIOS ? 'ios-requires-webaudio' : 'no-volume-control' };
+}
+

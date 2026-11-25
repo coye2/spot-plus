@@ -64,6 +64,15 @@ export class PlaybackTelemetry {
       relayHealthRequests: 0,
       coalescedRequests: 0,
       continuityRecoveries: 0,
+      tracksCompleted: 0,
+      upstreamFailures: 0,
+      networkFailures: 0,
+      clientFailures: 0,
+      codecFailures: 0,
+      shedRequests: 0,
+      checkpointSaves: 0,
+      checkpointRestores: 0,
+      negativeCacheHits: 0,
     };
     this.lastAudit = null;
     this._listeningSince = 0;
@@ -82,6 +91,31 @@ export class PlaybackTelemetry {
 
   recordContinuityRecovery() {
     this.counters.continuityRecoveries++;
+  }
+
+  recordTrackCompleted() {
+    this.counters.tracksCompleted++;
+  }
+
+  /** Separate root-cause failure accounting: upstream provider vs network vs Spot+ client vs codec. */
+  recordFailure(category = 'upstream') {
+    if (category === 'upstream') this.counters.upstreamFailures++;
+    else if (category === 'network' || category === 'offline') this.counters.networkFailures++;
+    else if (category === 'codec') this.counters.codecFailures++;
+    else this.counters.clientFailures++;
+  }
+
+  recordShedRequest() {
+    this.counters.shedRequests++;
+  }
+
+  recordCheckpoint(action = 'save') {
+    if (action === 'restore') this.counters.checkpointRestores++;
+    else this.counters.checkpointSaves++;
+  }
+
+  recordNegativeCacheHit() {
+    this.counters.negativeCacheHits++;
   }
 
   reset() {
@@ -262,6 +296,12 @@ export class PlaybackTelemetry {
       p99: percentile(arr, 99),
     });
     const cacheTotal = this.counters.cacheHits + this.counters.cacheMisses;
+    const totalWorkerRequests =
+      this.counters.relayMatchRequests +
+      this.counters.relayHeadRequests +
+      this.counters.relayStreamRequests +
+      this.counters.relayHealthRequests;
+    const attempts = Math.max(1, this.counters.startsAttempted);
     return {
       counters: {
         ...this.counters,
@@ -271,6 +311,22 @@ export class PlaybackTelemetry {
         startSuccessRate: this.counters.startsAttempted > 0
           ? Math.round((this.counters.startsSucceeded / this.counters.startsAttempted) * 1000) / 1000
           : 1,
+        totalWorkerRequests,
+        requestsPerCompletedTrack: this.counters.tracksCompleted > 0
+          ? Math.round((totalWorkerRequests / this.counters.tracksCompleted) * 100) / 100
+          : 0,
+        upstreamErrorRate: this.counters.startsAttempted > 0
+          ? Math.round((this.counters.upstreamFailures / attempts) * 1000) / 1000
+          : 0,
+        clientErrorRate: this.counters.startsAttempted > 0
+          ? Math.round((this.counters.clientFailures / attempts) * 1000) / 1000
+          : 0,
+        failureBreakdown: {
+          upstream: this.counters.upstreamFailures,
+          network: this.counters.networkFailures,
+          client: this.counters.clientFailures,
+          codec: this.counters.codecFailures,
+        },
       },
       latencies: {
         coldStartupMs: statsFor(this.samples.coldStartupMs),

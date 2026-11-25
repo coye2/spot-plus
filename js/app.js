@@ -2174,19 +2174,19 @@ player.on('state',()=>syncCanvas());
 // Look up the next song's loop while this one plays, so it starts instantly.
 let loopPrefetched='';
 player.on('state',()=>{
-  if(!canvasPreference||!player.isPlaying())return;
+  if(!canvasPreference||!player.isPlaying()||!player.scheduler.canRun(7))return;
   const next=player.state.queue[player.state.index+1];
   if(!next||spoken.isSpoken(next)||next.id===loopPrefetched)return;
   loopPrefetched=next.id;
-  setTimeout(()=>findVisualLoop(next,undefined,{source:player.state.source}).catch(()=>{}),4000);
+  setTimeout(()=>{ if(player.scheduler.canRun(7)) findVisualLoop(next,undefined,{source:player.state.source}).catch(()=>{}); },4000);
 });
 // Download Canvas clips for this song and the next two while music plays, so opening
 // the player (or skipping ahead) shows the loop immediately.
 let prefetchedFor='';
 player.on('state',()=>{
-  const t=player.current();if(!t||!canvasPreference||t.id===prefetchedFor)return;
+  const t=player.current();if(!t||!canvasPreference||t.id===prefetchedFor||!player.scheduler.canRun(7))return;
   prefetchedFor=t.id;const s=player.state;
-  setTimeout(()=>prefetchClips([t,s.queue[s.index+1],s.queue[s.index+2]]),player.isPlaying()?1500:0);
+  setTimeout(()=>{ if(player.scheduler.canRun(7)) prefetchClips([t,s.queue[s.index+1],s.queue[s.index+2]]); },player.isPlaying()?1500:0);
 });
 let lastCanvasSample=0;
 player.on('time',()=>{if(!npOpen||!canvasPreference||document.hidden)return;if(np.dataset.canvasState==='deferred'||np.dataset.canvasState==='waiting')syncCanvas();const now=Date.now();if(np.classList.contains('has-canvas')&&now-lastCanvasSample>=2000){lastCanvasSample=now;playerColors.sampleVideo($('#npCanvas'));}});

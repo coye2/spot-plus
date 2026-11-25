@@ -1,6 +1,7 @@
 // Background visuals only. Music playback is deliberately outside this module.
 import {resolveVideoLoop} from './api.js';
 import {musicVideoLoop,loopWindow} from './video-loops.js';
+import {scheduler, PRIORITY} from './request-scheduler.js';
 export const CANVAS_ENDPOINT = 'https://spot-plus-canvas.pwr97pnmkn.workers.dev/canvas';
 const CACHE_KEY = 'spotplus.canvasCache.v1';
 const PREFERENCE_KEY = 'spotplus.canvasEnabled';
@@ -37,6 +38,7 @@ export async function findCanvas(track, signal, endpoint = CANVAS_ENDPOINT) {
   const key = query.toString(), cached = cacheEntries().find(x => x.key === key);
   if (cached) return cached.url;
   if (!endpoint) throw new Error('Canvas bridge is not configured');
+  if (!scheduler.canRun(PRIORITY.DECORATIVE)) return null;
   const controller = new AbortController();
   const cancel = () => controller.abort();
   signal?.addEventListener('abort', cancel, {once:true});
@@ -44,6 +46,7 @@ export async function findCanvas(track, signal, endpoint = CANVAS_ENDPOINT) {
   const timer = setTimeout(cancel, 3500);
   try {
     const response = await fetch(endpoint + '?' + key, {signal:controller.signal, credentials:'omit', referrerPolicy:'no-referrer'});
+    scheduler.noteStatus(response.status);
     if (!response.ok && response.status !== 404) throw new Error('Canvas lookup unavailable');
     const data = response.status === 404 ? null : await response.json();
     const url = canvasURL(data?.canvasUrl || data?.url);

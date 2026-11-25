@@ -2,6 +2,14 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 2.2.5 — Operation S+: S-tier playback state machine, recovery checkpoints, adaptive transitions & scalable Worker protection
+_2026-11-24_
+
+- Playback Reliability & State Machine: added explicit PAUSED and SEEKING lifecycle phases with transition tracking, network-aware timeouts, negative match caching, and root-cause telemetry separating upstream, network, codec, and client errors.
+- Background Playback & Recovery Checkpoints: added durable recovery checkpoints saved on pagehide, visibility hide, blur, and freeze so Spot+ restores your exact song, queue, position, and volume cleanly after OS background termination without silent-loop hacks.
+- Adaptive Transitions & Preloading: added capability-driven crossfade protection (automatically prioritizing stable native playback when iOS is backgrounded or AirPlay is active) and adaptive next-track preloading responsive to buffer headroom, remaining duration, network quality, skip velocity, device memory, and server pressure.
+- Infrastructure Scalability & Graceful Degradation: added a client priority request scheduler (tiers 1–8) that automatically sheds nonessential decorative visuals and live counters under load while protecting active playback, paired with layered CGNAT-safe burst/sustained rate limits, malformed-request rejection, cache-busting normalization, stale-while-revalidate caching, runtime feature flags, and a 100–10,000 listener benchmark harness.
+
 ## 2.2.4 — Playlist sharing in the three-dots menu
 _2026-11-24_
 
