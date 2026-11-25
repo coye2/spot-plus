@@ -5,7 +5,7 @@ import { DISCORD } from './access-policy.js';
 
 export const HOLD_MS = 60_000;
 export const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const SECRET_KEY = 'spotplus.installSecret';
+const MARK_KEY = 'spotplus.installMark';
 
 export function normalizeCode(input) {
   const code = String(input || '').toUpperCase().replace(/[^A-Z2-9]/g, '').replace(/[OIL01]/g, '');
@@ -90,7 +90,7 @@ export function signalsFromHere() {
   };
 }
 
-function randomSecret() {
+function randomMark() {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
   return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -106,39 +106,39 @@ function openKv() {
   });
 }
 
-async function idbSecret(value) {
+async function idbMark(value) {
   const db = await openKv();
   return new Promise((resolve, reject) => {
     const tx = db.transaction('kv', value ? 'readwrite' : 'readonly');
     const store = tx.objectStore('kv');
-    const req = value ? store.put(value, SECRET_KEY) : store.get(SECRET_KEY);
+    const req = value ? store.put(value, MARK_KEY) : store.get(MARK_KEY);
     req.onsuccess = () => resolve(req.result || '');
     req.onerror = () => reject(req.error);
   });
 }
 
-/** Secret kept in localStorage and IndexedDB, so clearing one store is not a new person. */
-export async function installSecret(storage = globalThis.localStorage) {
-  let secret = '';
-  try { secret = storage?.getItem?.(SECRET_KEY) || ''; } catch { /* private mode */ }
-  if (!/^[a-f0-9]{32}$/.test(secret)) {
-    try { secret = await idbSecret(); } catch { secret = ''; }
+/** Install id kept in localStorage and IndexedDB, so clearing one store is not a new person. */
+export async function installMark(storage = globalThis.localStorage) {
+  let mark = '';
+  try { mark = storage?.getItem?.(MARK_KEY) || ''; } catch { /* private mode */ }
+  if (!/^[a-f0-9]{32}$/.test(mark)) {
+    try { mark = await idbMark(); } catch { mark = ''; }
   }
-  if (!/^[a-f0-9]{32}$/.test(secret)) secret = randomSecret();
-  try { storage?.setItem?.(SECRET_KEY, secret); } catch { /* ignore */ }
-  try { await idbSecret(secret); } catch { /* ignore */ }
-  return secret;
+  if (!/^[a-f0-9]{32}$/.test(mark)) mark = randomMark();
+  try { storage?.setItem?.(MARK_KEY, mark); } catch { /* ignore */ }
+  try { await idbMark(mark); } catch { /* ignore */ }
+  return mark;
 }
 
 /**
  * Decide whether the friend install is someone else.
- * `hardware`, `secret`, and `browser` are already hashes when the bridge calls this.
+ * `hardware`, `mark`, and `browser` are already hashes when the bridge calls this.
  */
 export function judgeReferral({ referrer = {}, friend = {}, codeCreatedAt = 0, friendFirstSeen = 0, standalone = false } = {}) {
   if (!standalone) return { ok: false, reason: 'install' };
   if (!friend.device || !referrer.device) return { ok: false, reason: 'invalid' };
   if (friend.device === referrer.device) return { ok: false, reason: 'self' };
-  if (friend.secret && referrer.secret && friend.secret === referrer.secret) return { ok: false, reason: 'self' };
+  if (friend.mark && referrer.mark && friend.mark === referrer.mark) return { ok: false, reason: 'self' };
   if (friendFirstSeen > 0 && codeCreatedAt > 0 && friendFirstSeen + 1500 < codeCreatedAt) return { ok: false, reason: 'not-new' };
   if (friend.hardware && referrer.hardware && friend.hardware === referrer.hardware) return { ok: false, reason: 'same-device' };
   if (friend.browser && referrer.browser && friend.browser === referrer.browser) return { ok: false, reason: 'same-browser' };

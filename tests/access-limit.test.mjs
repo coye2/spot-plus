@@ -103,11 +103,11 @@ test('owner devices are excluded from the device and network allowance', async (
 });
 
 test('a friend code rejects the same device, another browser, and a VPN, and accepts another device', () => {
-  const mine = { device: dev('a'), secret: 'secret-a', hardware: hardwareKey(phone), browser: 'browser-a', family: 'ios', screen: '400x840@3', ip: ip('a') };
+  const mine = { device: dev('a'), mark: 'mark-a', hardware: hardwareKey(phone), browser: 'browser-a', family: 'ios', screen: '400x840@3', ip: ip('a') };
   assert.equal(judgeReferral({ referrer: mine, friend: { ...mine }, standalone: true }).reason, 'self');
-  const otherBrowser = { ...mine, device: dev('b'), secret: 'secret-b', browser: 'browser-b', ip: ip('d') };
+  const otherBrowser = { ...mine, device: dev('b'), mark: 'mark-b', browser: 'browser-b', ip: ip('d') };
   assert.equal(judgeReferral({ referrer: mine, friend: otherBrowser, standalone: true }).reason, 'same-device');
-  const friend = { device: dev('c'), secret: 'secret-c', hardware: hardwareKey(laptop), browser: 'browser-c', family: 'windows', screen: '1920x1080@1', ip: ip('e') };
+  const friend = { device: dev('c'), mark: 'mark-c', hardware: hardwareKey(laptop), browser: 'browser-c', family: 'windows', screen: '1920x1080@1', ip: ip('e') };
   assert.equal(judgeReferral({
     referrer: mine, friend, standalone: true, codeCreatedAt: 100, friendFirstSeen: 0,
   }).ok, true);
@@ -128,19 +128,19 @@ test('redeeming a code waits, then unlocks only the referrer, and an owner devic
   const referrer = dev('d');
   const friend = dev('e');
   const made = await (await handleAccess(post('/access/refer/code', {
-    device: referrer, secret: secret('1'), signals: phone,
+    device: referrer, mark: secret('1'), signals: phone,
   }, { address: ip('a') }), { storage, now: created })).json();
   assert.equal(made.ok, true);
   assert.match(made.code, /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{8}$/);
 
   const early = await (await handleAccess(post('/access/refer/redeem', {
-    device: friend, secret: secret('2'), code: made.code, signals: laptop,
+    device: friend, mark: secret('2'), code: made.code, signals: laptop,
   }, { address: ip('f') }), { storage, now: created + 10_000 })).json();
   assert.equal(early.reason, 'hold');
   assert.ok(early.challenge);
 
   const done = await (await handleAccess(post('/access/refer/redeem', {
-    device: friend, secret: secret('2'), code: made.code, challenge: early.challenge, signals: laptop,
+    device: friend, mark: secret('2'), code: made.code, challenge: early.challenge, signals: laptop,
   }, { address: ip('f') }), { storage, now: created + 80_000 })).json();
   assert.equal(done.ok, true);
   assert.notEqual(done.tier, 'full');
@@ -153,7 +153,7 @@ test('redeeming a code waits, then unlocks only the referrer, and an owner devic
   const ownerDevice = dev('f');
   await handleAccess(post('/access', { device: ownerDevice, action: 'status', n: 0, nonce: 'dd'.repeat(8) }, { owner: token, origin }), { storage, now: created });
   const blocked = await (await handleAccess(post('/access/refer/redeem', {
-    device: ownerDevice, secret: secret('3'), code: 'ABCD2345', signals: laptop,
+    device: ownerDevice, mark: secret('3'), code: 'ABCD2345', signals: laptop,
   }, { owner: token, origin, address: ip('9') }), { storage, now: created + 120_000 })).json();
   assert.equal(blocked.reason, 'excluded');
 });

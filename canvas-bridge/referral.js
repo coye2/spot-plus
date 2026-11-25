@@ -48,10 +48,10 @@ function readSignals(body) {
 
 async function profileOf(body, ipHash, hash) {
   const signals = readSignals(body);
-  const secret = String(body?.secret || '');
+  const mark = String(body?.mark || '');
   return {
     device: String(body?.device || ''),
-    secret: /^[a-f0-9]{32}$/.test(secret) ? await hash(secret) : '',
+    mark: /^[a-f0-9]{32}$/.test(mark) ? await hash(mark) : '',
     hardware: await hash(hardwareKey(signals)),
     browser: await hash(browserKey(signals)),
     family: platformFamily(signals.ua, signals.platform),

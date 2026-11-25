@@ -4,7 +4,7 @@
 import { STATS_URL, deviceId } from './live-stats.js';
 import { DEV_ACCESS_STORAGE_KEY, DEV_ACCOUNT_CACHE_KEY, isAllowedSpotifyId, sha256Hex, verifySessionToken } from './maintenance.js';
 import * as store from './store.js';
-import { installSecret, signalsFromHere } from './referral.js';
+import { installMark, signalsFromHere } from './referral.js';
 import {
   ACTIONS, DAILY_LIMIT, RESTRICTED_FEATURES, addUsage, isKnownAction, quotaView, utcDay,
 } from './access-policy.js';
@@ -376,7 +376,7 @@ export function consumeStarQuery() {
 }
 
 async function supportBody(extra = {}) {
-  return { device: deviceId(), secret: await installSecret(), signals: signalsFromHere(), ...extra };
+  return { device: deviceId(), mark: await installMark(), signals: signalsFromHere(), ...extra };
 }
 
 async function postJson(path, body, fetcher = globalThis.fetch) {
