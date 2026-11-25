@@ -2,6 +2,13 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 2.2.6 — Base tier daily limit, unlocked by support
+_2026-11-25_
+
+- Spot+ stays free, powered by love and support. On the base tier, skips, Insta Play, and Insta Choose share 300 a day, counted on this device and on this network address.
+- After today’s allowance is used, the song already playing can finish and the queue can still advance. Skips, picking a song, seeking, new downloads, repeat, Canvas, and early loading of the next song wait until tomorrow.
+- Full access comes from support Spot+ can check: star coye2/spot-plus on GitHub, join the Discord and verify membership, or refer a friend who installs Spot+ and enters your code. Another browser, phone, or VPN on the same device does not count as that friend. Your own devices are excluded from the allowance.
+
 ## 2.2.5 — Operation S+: S-tier playback state machine, recovery checkpoints, adaptive transitions & scalable Worker protection
 _2026-11-24_
 

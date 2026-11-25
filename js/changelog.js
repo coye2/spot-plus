@@ -1,6 +1,11 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '2.2.6', date: '2026-11-25', title: 'Base tier daily limit, unlocked by support', items: [
+    'Spot+ stays free, powered by love and support. On the base tier, skips, Insta Play, and Insta Choose share 300 a day, counted on this device and on this network address.',
+    'After today’s allowance is used, the song already playing can finish and the queue can still advance. Skips, picking a song, seeking, new downloads, repeat, Canvas, and early loading of the next song wait until tomorrow.',
+    'Full access comes from support Spot+ can check: star coye2/spot-plus on GitHub, join the Discord and verify membership, or refer a friend who installs Spot+ and enters your code. Another browser, phone, or VPN on the same device does not count as that friend. Your own devices are excluded from the allowance.',
+  ]},
   {version: '2.2.5', date: '2026-11-24', title: 'Operation S+: S-tier playback state machine, recovery checkpoints, adaptive transitions & scalable Worker protection', items: [
     'Playback Reliability & State Machine: added explicit PAUSED and SEEKING lifecycle phases with transition tracking, network-aware timeouts, negative match caching, and root-cause telemetry separating upstream, network, codec, and client errors.',
     'Background Playback & Recovery Checkpoints: added durable recovery checkpoints saved on pagehide, visibility hide, blur, and freeze so Spot+ restores your exact song, queue, position, and volume cleanly after OS background termination without silent-loop hacks.',

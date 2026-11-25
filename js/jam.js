@@ -101,7 +101,7 @@ export class Jam {
     const want = state.queue[state.index], here = this.player.current();
     this.applying = true;
     try {
-      if (here?.id !== want.id) this.player.playList(state.queue, state.index);
+      if (here?.id !== want.id) this.player.playList(state.queue, state.index, { intent: 'system' });
       else {
         const s = this.player.state;
         s.queue = [...s.queue.slice(0, s.index + 1), ...state.queue.slice(state.index + 1)];
@@ -116,7 +116,7 @@ export class Jam {
     const want = this.remote.queue[this.remote.index];
     if (this.player.current()?.id !== want?.id || this.player.state.loading) return;
     const target = expectedPosition(this.remote), off = Math.abs((this.player.el.currentTime || 0) - target);
-    if (off > (force ? 1 : 2.5)) this.player.seek(target);
+    if (off > (force ? 1 : 2.5)) this.player.seek(target, { user: false });
   }
   /* ----- Listener actions ----- */
   add(track) { if (this.host) this.player.addToQueue([track]); else this.send({type: 'add', track: slim(track)}); }

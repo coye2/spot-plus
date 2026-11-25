@@ -17,6 +17,8 @@ const files = [
   ...(await jsFiles('workers/spotify-relay/src')),
   'sw.js',
   'canvas-bridge/worker.js',
+  'canvas-bridge/access.js',
+  'canvas-bridge/referral.js',
   'canvas-bridge/spotify-stats.js',
 ];
 

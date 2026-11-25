@@ -12,6 +12,7 @@ import {youtubeStream} from './youtube-stream.js';
 // A narrow public-metadata adapter, never an arbitrary URL or credential proxy.
 import {spotifyStats} from './spotify-stats.js';
 import {spotifyPublic} from './spotify-public.js';
+import {routeAccess} from './access.js';
 const SOURCE = 'https://canvas.auramusic.site/api/canvas';
 const CORS = {'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, OPTIONS','Content-Type':'application/json; charset=utf-8','X-Content-Type-Options':'nosniff'};
 // Lyrics search: Genius's public lyric search, reduced to title, artist and the matching line.
@@ -85,6 +86,7 @@ const json = (data,status=200,maxAge=0,swr=0) => new Response(JSON.stringify(dat
 export async function handle(request, {fetcher=fetch,cache,waitUntil=()=>{},env} = {}) {
   if (request.method === 'OPTIONS') return new Response(null,{status:204,headers:CORS});
   const url = new URL(request.url);
+  if (url.pathname === '/access' || url.pathname.startsWith('/access/')) return routeAccess(request, env);
   if (['/stats','/installs','/listening','/rate'].includes(url.pathname) && (request.method === 'GET' ? url.pathname === '/stats' : request.method === 'POST' && url.pathname !== '/stats'))
     return liveStats(request, env, async text => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('spotplus:' + text)))].slice(0, 8).map(b => b.toString(16).padStart(2, '0')).join(''));
   if (request.method !== 'GET' && !(['/yta','/mono'].includes(url.pathname) && request.method === 'HEAD')) return json({error:'Use GET'},405);
@@ -99,7 +101,7 @@ export async function handle(request, {fetcher=fetch,cache,waitUntil=()=>{},env}
   if (url.pathname === '/mono') return monochromeAudio(request,{fetcher});
   if (url.pathname === '/stream') return youtubeStream(request,{fetcher,cache,waitUntil});
   if (url.pathname === '/spotify-public') return spotifyPublic(request,{fetcher,cache,waitUntil});
-  if (url.pathname === '/health') return json({service:'Spot+ Canvas bridge',status:'ok',lyrics:true,spotifyPublic:true,match:true,wallpapers:true,sc:!!(env?.SC_CLIENT_ID&&env?.SC_CLIENT_SECRET),relay:true,relayIntegrity:'v3',mono:true,images:true,stream:true,stats:true,dev:true,podcasts:true}, 200, 30, 60);
+  if (url.pathname === '/health') return json({service:'Spot+ Canvas bridge',status:'ok',lyrics:true,spotifyPublic:true,match:true,wallpapers:true,sc:!!(env?.SC_CLIENT_ID&&env?.SC_CLIENT_SECRET),relay:true,relayIntegrity:'v3',mono:true,images:true,stream:true,stats:true,dev:true,podcasts:true,access:true}, 200, 30, 60);
   if (url.pathname === '/lyrics-search') return lyricsSearch(url,{fetcher,cache,waitUntil});
   if (url.pathname !== '/canvas') return json({error:'Not found'},404);
   const query = queryFor(url.searchParams);

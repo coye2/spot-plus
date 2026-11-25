@@ -26,6 +26,7 @@ import { SpotifyPlaybackProvider } from './playback/spotify-provider.js';
 import { connectivity } from './connectivity.js';
 import { featureFlags, isFeatureEnabled } from './feature-flags.js';
 import { scheduler } from './request-scheduler.js';
+import { allowPlaybackAction, allowRestricted, isFeatureRestricted } from './access.js';
 
 export { connectivity, featureFlags, scheduler };
 
@@ -1543,6 +1544,7 @@ async function upgradeFromEmbed(t, my, signal) {
 }
 
 function prefetch() {
+  if (isFeatureRestricted('preload')) { nextBuffer.clear(); return; }
   const generation = ++warmGeneration;
   clearTimeout(prefetchTimer);
   const netProfile = bufferEngine.profile(navigator.connection);
@@ -1883,8 +1885,12 @@ function shuffled(a) {
   for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; }
   return r;
 }
-export function playList(tracks, i = 0, { shuffle = null, mix = false } = {}) {
-  if (!tracks || !tracks.length) return;
+export function playList(tracks, i = 0, opts = {}) {
+  if (!tracks || !tracks.length) return false;
+  const intent = opts.intent || ((Number(i) > 0) ? 'insta-choose' : 'insta-play');
+  // System starts (Jam follow) are not the listener's skip / Insta Play / Insta Choose.
+  if (!allowPlaybackAction(intent)) return false;
+  const { shuffle = null, mix = false } = opts;
   if (shuffle !== null) state.shuffle = shuffle;
   skipTracker.clear();
   const list = tracks.map(store.slim);
@@ -1909,6 +1915,7 @@ export function playList(tracks, i = 0, { shuffle = null, mix = false } = {}) {
   // Do NOT prewarm queue[index + 1] before load() — load() immediately cancels non-current prewarms!
   // Let prefetch() prepare the immediate next track cleanly once the current song is playing with headroom.
   load({ trigger: mix ? 'mix-list' : 'play-list' });
+  return true;
 }
 /** Smoothly reorder upcoming queue items for a Mix session (no back-to-back same artist). */
 export function mixQueue() {
@@ -1920,12 +1927,13 @@ export function mixQueue() {
   return true;
 }
 export function playIndex(i) {
-  if (i >= 0 && i < state.queue.length) {
-    skipTracker.record();
-    state.index = i;
-    errRetries = 0;
-    load({ trigger: 'queue-jump' });
-  }
+  if (!(i >= 0 && i < state.queue.length)) return false;
+  if (!allowPlaybackAction('insta-choose')) return false;
+  skipTracker.record();
+  state.index = i;
+  errRetries = 0;
+  load({ trigger: 'queue-jump' });
+  return true;
 }
 // Audio links from YouTube servers expire after a few hours; a paused song may need a fresh one.
 const linkExpired = () => { const exp = Number(String(state.source?.url || '').match(/[?&]expire=(\d{9,11})/)?.[1] || 0) * 1000; return !!exp && exp - 60e3 < Date.now(); };
@@ -1987,6 +1995,10 @@ export function toggle() {
 }
 export function next(fromUser = true) {
   lastPrevAt = 0;
+  const canAdvance = state.index < state.queue.length - 1
+    || (state.repeat === 'all' && state.queue.length > 0)
+    || !!(continueQueue && !current()?.direct);
+  if (fromUser && canAdvance && !allowPlaybackAction('skip')) return false;
   if (fromUser && current() && (isRealSrc() || isEmbed() || isSpotifyOfficial())) {
     skipTracker.record();
     onSkip(current(), position());
@@ -2018,21 +2030,24 @@ export function prev() {
   const doubleTapped = lastPrevAt > 0 && (now - lastPrevAt) <= 1800;
   // First tap past 3s cleanly restarts the current song; a second tap within 1.8s (or <= 3s) skips to previous track.
   if ((!doubleTapped && position() > 3) || state.index <= 0) {
+    if (!allowRestricted('seek')) return false;
     lastPrevAt = now;
-    seek(0);
+    seek(0, { user: false });
     if (pendingPlay && !userPaused && !isEmbed() && !isSpotifyOfficial() && isRealSrc() && audio.paused) {
       audio.play().catch(() => {});
     }
     return;
   }
+  if (!allowPlaybackAction('skip')) return false;
   lastPrevAt = 0;
   skipTracker.record();
   state.index--;
   errRetries = 0;
   load({ trigger: 'skip-prev' });
 }
-export function seek(sec) {
+export function seek(sec, opts = {}) {
   if (!isFinite(sec)) return;
+  if (opts.user !== false && !allowRestricted('seek')) return;
   if (isSpotifyOfficial()) {
     const target = Math.max(0, Math.min(sec, duration()));
     spotifyPlayback.seek(target);
@@ -2068,7 +2083,7 @@ export function setVolume(v) {
   save();
 }
 export function playNext(t) {
-  if (!current()) return playList([t]);
+  if (!current()) return playList([t], 0, { intent: 'insta-choose' });
   queueMutatedAt = Date.now();
   const track = store.slim(t);
   state.queue.splice(state.index + 1, 0, track);
@@ -2118,6 +2133,7 @@ export function toggleShuffle() {
   emit('state'); save(); prefetch();
 }
 export function cycleRepeat() {
+  if (!allowRestricted('repeat')) return state.repeat;
   state.repeat = state.repeat === 'off' ? 'all' : state.repeat === 'all' ? 'one' : 'off';
   emit('state'); save(); prefetch();
 }
@@ -2239,7 +2255,7 @@ export function restore({ ifIdle = false } = {}) {
     }
     updateSession(current());
     const t0 = setTimeout(() => {
-      if (current() && !isRealSrc()) {
+      if (current() && !isRealSrc() && !isFeatureRestricted('preload')) {
         api.warmConnections();
         api.prewarm(current());
       }
