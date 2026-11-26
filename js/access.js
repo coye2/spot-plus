@@ -343,7 +343,10 @@ export async function verifyUsername(username, fetcher = globalThis.fetch) {
       body: JSON.stringify({ device, username }),
     });
     const data = await res.json().catch(() => null);
-    if (!data) return { ok: false, reason: res.status === 429 ? 'rate-limited' : 'unavailable' };
+    if (!data) return { ok: false, reason: res.status === 429 || res.status === 403 ? 'rate-limited' : 'unavailable' };
+    if (!data.ok && !data.reason && (res.status === 429 || res.status === 403 || /too many|rate/i.test(String(data.error || '')))) {
+      data.reason = 'rate-limited';
+    }
     if (data.ok) applyServerSnapshot(data, { authoritative: true });
     return data;
   } catch {

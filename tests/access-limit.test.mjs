@@ -4,7 +4,7 @@ import { DAILY_LIMIT, addUsage, quotaView, utcDay } from '../js/access-policy.js
 import { hardwareKey, judgeReferral, normalizeCode } from '../js/referral.js';
 import { createLedger } from '../js/access.js';
 import { ALLOWED_ID_HASHES, createSessionToken, isOwnerProof } from '../js/maintenance.js';
-import { handleAccess } from '../canvas-bridge/access.js';
+import { findStar, handleAccess, pageShowsStar } from '../canvas-bridge/access.js';
 import { storageMock } from './helpers.mjs';
 
 function mem() {
@@ -156,6 +156,20 @@ test('redeeming a code waits, then unlocks only the referrer, and an owner devic
     device: ownerDevice, mark: secret('3'), code: 'ABCD2345', signals: laptop,
   }, { owner: token, origin, address: ip('9') }), { storage, now: created + 120_000 })).json();
   assert.equal(blocked.reason, 'excluded');
+});
+
+test('star verification reads the public stars page before the rate-limited API', async () => {
+  assert.equal(pageShowsStar('<a href="/coye2/spot-plus">Spot+</a>'), true);
+  assert.equal(pageShowsStar('<a href="/other/repo">nope</a>'), false);
+  let apiCalls = 0;
+  const fetcher = async (url) => {
+    if (String(url).includes('api.github.com')) { apiCalls++; return new Response('{}', { status: 429 }); }
+    return new Response('<a href="/coye2/spot-plus">star</a>', { status: 200 });
+  };
+  const found = await findStar('fredgolightly', fetcher);
+  assert.equal(found.ok, true);
+  assert.equal(found.login, 'fredgolightly');
+  assert.equal(apiCalls, 0);
 });
 
 test('utc day is the allowance window', () => {

@@ -121,14 +121,43 @@ function githubHeaders(token) {
   return headers;
 }
 
+/** True when a GitHub stars page links this exact repository. */
+export function pageShowsStar(html, full = REPO.full) {
+  const page = String(html || '').toLowerCase();
+  const name = String(full || '').toLowerCase();
+  return page.includes('href="/' + name + '"') || page.includes('href="/' + name + '/"');
+}
+
+async function findStarOnSite(name, fetcher, signal) {
+  const headers = { Accept: 'text/html', 'User-Agent': 'SpotPlus (https://coye2.github.io/spot-plus/)' };
+  for (let page = 1; page <= 5; page++) {
+    const url = 'https://github.com/' + encodeURIComponent(name) + '?tab=stars' + (page > 1 ? '&page=' + page : '');
+    let res;
+    try { res = await fetcher(url, { headers, redirect: 'manual', signal }); } catch { return { ok: false, reason: 'unavailable' }; }
+    if (res.status === 404) return { ok: false, reason: 'not-found' };
+    if (res.status === 403 || res.status === 429) return { ok: false, reason: 'rate-limited' };
+    if (res.status >= 300 && res.status < 400) return { ok: false, reason: 'not-found' };
+    if (!res.ok) return { ok: false, reason: 'unavailable' };
+    const html = await res.text();
+    if (html.length > 2000000) return { ok: false, reason: 'unavailable' };
+    if (pageShowsStar(html)) return { ok: true, login: name };
+    if (!/rel="next"/i.test(html)) return { ok: false, reason: 'not-starred' };
+  }
+  return { ok: false, reason: 'incomplete', login: name };
+}
+
 /**
  * Confirm the account exists and that coye2/spot-plus is in its public stars.
- * GitHub lists stars newest-first, so a star just given is on page 1.
- * Scanning later pages covers accounts that starred earlier.
+ * The public stars page is checked first. The REST API is only the fallback,
+ * because Cloudflare's shared address exhausts GitHub's unauthenticated quota.
  */
 export async function findStar(login, fetcher, { token = '', maxPages = MAX_STAR_PAGES, signal } = {}) {
   const name = normalizeLogin(login);
   if (!name) return { ok: false, reason: 'invalid' };
+  if (!token) {
+    const page = await findStarOnSite(name, fetcher, signal);
+    if (page.ok || page.reason === 'not-starred' || page.reason === 'not-found' || page.reason === 'incomplete') return page;
+  }
   const headers = githubHeaders(token);
   let userRes;
   try {
