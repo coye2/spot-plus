@@ -1,6 +1,11 @@
 // Release notes: the single source for the in-app "What's new" screen and CHANGELOG.md.
 // Newest first. Add an entry with every fix.
 export const CHANGELOG = [
+  {version: '2.2.8', date: '2026-11-25', title: 'Hardened Spotify helper updates (Helper 1.8.0)', items: [
+    'Removed execution of cached helper code from Spotify’s page-owned localStorage (spotplus.helperCore / spotplus.helperCoreAt), removed background spotplus-helper-core.js fetches, and eliminated the eval fallback.',
+    'The Spotify companion now runs only the static code packaged inside the installed userscript and updates exclusively through your userscript manager’s packaged @updateURL / @downloadURL flow.',
+    'Upgrading from older helper versions safely clears obsolete helper-code cache keys while preserving your sync key (spotplus.syncKey), library data, and Spotify’s own storage.',
+  ]},
   {version: '2.2.7', date: '2026-11-25', title: 'Base tier daily limit, unlocked by support', items: [
     'Daily limit: on the base tier, Skip, Insta Play, and Insta Choose share 300 uses a day. The count is kept per device and per network address, and either one running out is enough.',
     'After the limit is reached, the song already playing can finish and the queue can still advance. Skip, Insta Play, Insta Choose, seeking, new downloads, repeat, Canvas, and early loading of the next song stay off until the next day.',

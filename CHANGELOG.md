@@ -2,6 +2,13 @@
 
 Every Spot+ update. The app shows the newest ones in its “What’s new” screen.
 
+## 2.2.8 — Hardened Spotify helper updates (Helper 1.8.0)
+_2026-11-25_
+
+- Removed execution of cached helper code from Spotify’s page-owned localStorage (spotplus.helperCore / spotplus.helperCoreAt), removed background spotplus-helper-core.js fetches, and eliminated the eval fallback.
+- The Spotify companion now runs only the static code packaged inside the installed userscript and updates exclusively through your userscript manager’s packaged @updateURL / @downloadURL flow.
+- Upgrading from older helper versions safely clears obsolete helper-code cache keys while preserving your sync key (spotplus.syncKey), library data, and Spotify’s own storage.
+
 ## 2.2.7 — Base tier daily limit, unlocked by support
 _2026-11-25_
 
